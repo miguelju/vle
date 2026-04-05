@@ -65,6 +65,8 @@ def saturation_pressure(temperature: float) -> float:
 
 User-facing APIs should accept unit strings (e.g., `"25 degC"`, `"1 atm"`) via the `units` library (see `units/` crate and `python/src/vle/units.py`).
 
+**User-extensible units**: The library ships with VLE defaults but must remain **extensible**. Users can add custom units (e.g., `mmH2O`, `barg`) via the runtime `UnitRegistry` in Rust or `ureg.define()` in Python, without modifying library source. When adding new code, do not hard-code the list of accepted units — always go through the registry. See [`docs/en/units/dimensional-analysis.md`](docs/en/units/dimensional-analysis.md) §7 for the extension API and rules.
+
 ## Project Overview
 
 This is a **VLE (Vapor-Liquid Equilibrium) thermodynamic calculator** being modernized from two legacy codebases into a Rust + Python stack:

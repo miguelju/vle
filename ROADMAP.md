@@ -40,12 +40,15 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 
 - [ ] Scaffold `units/` Rust crate with `uom` dependency
 - [ ] Define VLE-specific quantity types (Temperature, Pressure, MolarEnergy, MolarEntropy, MolarVolume, Amount)
+- [ ] Implement extensible runtime `UnitRegistry` (allows user-added units alongside the compile-time typed API)
 - [ ] Implement unit string parser (`parse_unit_string("kPa")` → typed quantity)
 - [ ] Implement `to_canonical()` / `from_canonical()` conversion functions
+- [ ] Implement TOML unit file loader (shared by Rust and Python for user-defined units)
 - [ ] Write Rust conversion test suite (6 quantities × 3+ alt units, round-trip)
-- [ ] Create `python/src/vle/units.py` wrapper around `pint`
-- [ ] Write Python conversion tests (parity with Rust)
-- [ ] Document units API in `docs/en/units.md`
+- [ ] Test custom unit extension (add `mmH2O` and a new dimension at runtime)
+- [ ] Create `python/src/vle/units.py` wrapper around `pint`, exposing `ureg` for user extensions
+- [ ] Write Python conversion tests (parity with Rust + custom user-added units)
+- [ ] Document units API and extension guide in `docs/en/units/`
 
 ## Milestone 2: Dev Environment & Scaffolding
 **Goal**: Rust crate compiles, Python package builds, empty module importable.
