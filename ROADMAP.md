@@ -22,6 +22,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 ## Milestone 1: Documentation & Translation ✓
 **Goal**: Complete English research paper, parameter reference, setup guide.
 *Phase 14 of MODERNIZATION_PLAN.md*
+*Executed by Claude Code using Claude Opus 4.6 (1M context)*
 
 - [x] Complete English translation of Chapter I (Introduction)
 - [x] Complete English translation of Chapter II (VLE Theory)

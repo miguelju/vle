@@ -6,6 +6,7 @@ Check off items as they're completed. Time estimates assume working with Claude 
 ---
 
 ## Milestone 1: Documentation & Translation
+*Executed by Claude Code using Claude Opus 4.6 (1M context)*
 
 - [x] **Translate Chapter I — Introduction** (~1h) — shortest chapter, mostly context
 - [x] **Translate Chapter II — VLE Theory** (~4–6h) — longest chapter, heavy equations (2.1–2.49), tables 2.1–2.3, figures 2.1–2.7

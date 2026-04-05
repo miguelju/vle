@@ -16,6 +16,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Do NOT push until all documentation accurately reflects the current state of the code. When in doubt, read each file and verify.
 
+## Milestone Tracking Rules
+
+**When completing a milestone**, you MUST record the LLM model used in:
+1. **ROADMAP.md** — Add `*Executed by Claude Code using <model name and version>*` under the milestone header
+2. **TODO.md** — Add the same line under the milestone section header
+3. **Git commit message** — Include the `Co-Authored-By` trailer with the model name
+
+The model name must be the exact model powering the session (e.g., `Claude Opus 4.6 (1M context)`, `Claude Sonnet 4.6`, etc.). This tracks which AI model was used for each phase of the project.
+
 ## Project Overview
 
 This is a **VLE (Vapor-Liquid Equilibrium) thermodynamic calculator** being modernized from two legacy codebases into a Rust + Python stack:
