@@ -19,26 +19,26 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Create navigatable English research paper skeleton (13 interlinked files)
 - [x] Convert all citations to ACS format
 
-## Milestone 1: Documentation & Translation
+## Milestone 1: Documentation & Translation ✓
 **Goal**: Complete English research paper, parameter reference, setup guide.
 *Phase 14 of MODERNIZATION_PLAN.md*
 
-- [ ] Complete English translation of Chapter I (Introduction)
-- [ ] Complete English translation of Chapter II (VLE Theory)
-- [ ] Complete English translation of Chapter III (Architecture)
-- [ ] Complete English translation of Chapter IV (Validation)
-- [ ] Complete English translation of Chapter V (Conclusions)
-- [ ] Translate Appendix A (Analyst Manual — class/module descriptions)
-- [ ] Translate Appendix B (User Manual — library usage)
-- [ ] Create parameter reference document (`docs/en/parameters/parameter_reference.md`)
-- [ ] Write developer setup guide (`docs/en/SETUP.md`)
+- [x] Complete English translation of Chapter I (Introduction)
+- [x] Complete English translation of Chapter II (VLE Theory)
+- [x] Complete English translation of Chapter III (Architecture)
+- [x] Complete English translation of Chapter IV (Validation)
+- [x] Complete English translation of Chapter V (Conclusions)
+- [x] Translate Appendix A (Analyst Manual — class/module descriptions)
+- [x] Translate Appendix B (User Manual — library usage)
+- [x] Create parameter reference document (`docs/en/parameters/parameter_reference.md`)
+- [x] Write developer setup guide (`docs/en/SETUP.md`)
 
 ## Milestone 2: Dev Environment & Scaffolding
 **Goal**: Rust crate compiles, Python package builds, empty module importable.
 *Phases 1 of MODERNIZATION_PLAN.md*
 
 - [ ] Install and verify Rust toolchain
-- [ ] Install maturin and Python venv
+- [ ] Set up conda environment and install maturin
 - [ ] Scaffold Rust crate (`engine/Cargo.toml` — nalgebra, PyO3 deps)
 - [ ] Scaffold Python package (`python/pyproject.toml` — maturin backend)
 - [ ] Define all Rust enums (CubicEos, ActivityModel, MixingRule, SatPressureModel)

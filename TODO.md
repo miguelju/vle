@@ -7,27 +7,27 @@ Check off items as they're completed. Time estimates assume working with Claude 
 
 ## Milestone 1: Documentation & Translation
 
-- [ ] **Translate Chapter I — Introduction** (~1h) — shortest chapter, mostly context
-- [ ] **Translate Chapter II — VLE Theory** (~4–6h) — longest chapter, heavy equations (2.1–2.49), tables 2.1–2.3, figures 2.1–2.7. Equations need LaTeX or careful markdown formatting
-- [ ] **Translate Chapter III — Architecture** (~2–3h) — class descriptions, figures 3.1–3.15
-- [ ] **Translate Chapter IV — Validation** (~2–3h) — tables 4.1–4.12 with numerical data
-- [ ] **Translate Chapter V — Conclusions** (~0.5h) — short, already partially done
-- [ ] **Translate Appendix A — Analyst Manual** (~4–6h) — detailed class/module descriptions from `docs/es/research-paper/programdocs/Analista.md`
-- [ ] **Translate Appendix B — User Manual** (~2–3h) — library usage guide from `docs/es/research-paper/programdocs/dllManual.md`
-- [ ] **Create parameter reference** (~3–4h) — compile all parameters from Table in MODERNIZATION_PLAN.md into `docs/en/parameters/parameter_reference.md`, cross-reference with source code
-- [ ] **Write developer setup guide** (~1–2h) — `docs/en/SETUP.md`: Rust toolchain, Python venv, maturin, how to build/test
+- [x] **Translate Chapter I — Introduction** (~1h) — shortest chapter, mostly context
+- [x] **Translate Chapter II — VLE Theory** (~4–6h) — longest chapter, heavy equations (2.1–2.49), tables 2.1–2.3, figures 2.1–2.7
+- [x] **Translate Chapter III — Architecture** (~2–3h) — class descriptions, figures 3.1–3.15
+- [x] **Translate Chapter IV — Validation** (~2–3h) — tables 4.1–4.12 with numerical data
+- [x] **Translate Chapter V — Conclusions** (~0.5h) — short
+- [x] **Translate Appendix A — Analyst Manual** (~4–6h) — detailed class/module descriptions (1118 lines)
+- [x] **Translate Appendix B — User Manual** (~2–3h) — library usage guide (204 lines)
+- [x] **Create parameter reference** (~3–4h) — `docs/en/parameters/parameter_reference.md` (167 lines)
+- [x] **Write developer setup guide** (~1–2h) — `docs/en/SETUP.md`: Rust toolchain, conda env, maturin, how to build/test
 
 ## Milestone 2: Dev Environment & Scaffolding
 
 - [ ] **Install Rust toolchain** (~0.5h) — `rustup`, verify `cargo --version`
-- [ ] **Set up Python venv** (~0.5h) — `python -m venv .venv`, install maturin
+- [ ] **Set up conda environment** (~0.5h) — `conda create -n vle python=3.11`, install maturin via pip inside the conda env
 - [ ] **Create `engine/Cargo.toml`** (~1h) — deps: nalgebra, pyo3, ndarray, approx (for tests)
 - [ ] **Create `engine/src/lib.rs`** (~0.5h) — crate root with module declarations
 - [ ] **Define Rust enums** (~2–3h) — `CubicEos` (22+ variants), `ActivityModel` (5), `MixingRule` (8+), `SatPressureModel` (6). Map from VB6 `Enum` and Pascal `case` statements
 - [ ] **Define core structs** (~2–3h) — `Component`, `Mixture`, `Flow`, `Tolerances`, `ReferenceState`. Union of VB6 and Pascal fields
 - [ ] **Create `python/pyproject.toml`** (~0.5h) — maturin build backend, package metadata
 - [ ] **Create `python/src/vle/__init__.py`** (~0.5h) — empty public API skeleton
-- [ ] **Verify end-to-end build** (~1h) — `cargo build` → `maturin develop` → `python -c "import vle"` works
+- [ ] **Verify end-to-end build** (~1h) — `conda activate vle` → `cargo build` → `maturin develop` → `python -c "import vle"` works
 - [ ] **Push to GitHub** (~0.5h) — create remote, initial push, verify README renders
 
 ## Milestone 3: Numerics
@@ -102,7 +102,7 @@ Check off items as they're completed. Time estimates assume working with Claude 
 | Milestone | Est. Total | Status |
 |-----------|-----------|--------|
 | 0. Foundation | — | Done |
-| 1. Documentation & Translation | ~20–28h | Not started |
+| 1. Documentation & Translation | ~20–28h | **Done** |
 | 2. Dev Environment & Scaffolding | ~9–12h | Not started |
 | 3. Numerics | ~12–15h | Not started |
 | 4. Pure Component Models | ~24–32h | Not started |

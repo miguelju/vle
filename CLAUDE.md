@@ -2,6 +2,20 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Release & Push Rules
+
+**Before every `git push` or major release**, you MUST review and update all documentation to reflect current state:
+
+1. **README.md** — Features list, project structure tree, time estimates, status
+2. **ROADMAP.md** — Check off completed milestones, update in-progress items
+3. **TODO.md** — Check off completed tasks, update time estimates and summary table
+4. **MODERNIZATION_PLAN.md** — Update if architecture or phases changed
+5. **CLAUDE.md** — Update if new conventions, paths, or tools were introduced
+6. **PASCAL_VB6_COMPARISON.md** — Update if new legacy code analysis was done
+7. **docs/en/research-paper/** — Update if translations were completed or links changed
+
+Do NOT push until all documentation accurately reflects the current state of the code. When in doubt, read each file and verify.
+
 ## Project Overview
 
 This is a **VLE (Vapor-Liquid Equilibrium) thermodynamic calculator** being modernized from two legacy codebases into a Rust + Python stack:

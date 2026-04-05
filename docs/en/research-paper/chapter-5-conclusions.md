@@ -1,25 +1,30 @@
 # Chapter V — Conclusions and Recommendations
 
-> **Translation status**: Pending full translation. See [Spanish original](../../es/research-paper/Capitulo%20V.md).
+> **Translation status**: Complete. See [Spanish original](../../es/research-paper/Capitulo%20V.md).
 
 ---
 
-A thermodynamic library was developed, using the object-oriented programming paradigm provided by Microsoft Visual Basic 5.0, for the calculation of properties of pure substances and multicomponent mixtures, as well as the solution of common vapor-liquid equilibrium problems (bubble and dew point calculations, and adiabatic and isothermal flash calculations).
+## Conclusions
 
-An interactive master program was designed to operate the thermodynamic library.
+A thermodynamic library was developed using the object-oriented programming paradigm provided by Microsoft Visual Basic 5.0 for the calculation of properties of pure substances and multicomponent mixtures, as well as for the solution of common vapor--liquid equilibrium problems (bubble-point and dew-point calculations, together with adiabatic and isothermal flash calculations).
 
-A new algorithm was proposed for the calculation of bubble and dew points with the ability to converge in regions near the critical point.
+An interactive master program was designed to manage the thermodynamic library.
 
-The results obtained with the developed package are consistent with those presented in the literature (Sandler (*3*)(references.md#ref-3), Orbey and Sandler (*21*)(references.md#ref-21), Da Silva and Báez (*4*)(references.md#ref-4), and Smith et al. (*22*)(references.md#ref-22)).
+A novel algorithm was proposed for the calculation of bubble and dew points with the capability of converging in regions near the critical point.
 
-The developed thermodynamic library can be used in other programs without needing to know its internal structure (due to its object-oriented design).
+The results obtained with the developed package are in agreement with those reported in the literature (Sandler [*3*](references.md#ref-3), Orbey and Sandler [*21*](references.md#ref-21), Da Silva and Baez [*4*](references.md#ref-4), and Smith *et al.* [*22*](references.md#ref-22)).
 
-### Recommendations
+The developed thermodynamic library can be employed by other programs without requiring knowledge of its internal structure, owing to its object-oriented design.
 
-- Use of the thermodynamic library for steady-state flow problems, such as rigorous distillation column calculations.
-- Incorporation of parameters for EOS modifications (Peng-Robinson and RKS variants) into the existing database.
-- Creation of online help tools for the master program.
-- Reconstruction of the thermodynamic library through new sub-classes for greater consistency in property and model classifications.
+## Recommendations
+
+It is recommended that the developed thermodynamic library be applied to steady-state flow problems, such as the rigorous simulation of a distillation column.
+
+Numerous parameters for the modifications of the Peng--Robinson and Redlich--Kwong--Soave equations of state remain to be incorporated into the existing database so that these modifications can be used in the various calculations.
+
+Online help is an important feature of most software packages developed for the Windows environment; therefore, the creation of such tools for the master program is recommended in order to facilitate user interaction.
+
+Finally, it is recommended that the thermodynamic library be restructured through the creation of new sub-classes that provide greater consistency to the classifications established for compound properties and thermodynamic models.
 
 ---
 
