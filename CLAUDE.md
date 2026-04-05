@@ -16,6 +16,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Do NOT push until all documentation accurately reflects the current state of the code. When in doubt, read each file and verify.
 
+## Phase / Milestone Synchronization Rules
+
+The project's work is described at three levels of detail that MUST stay in sync:
+
+- **`ROADMAP.md`** — milestones (goals, high-level deliverables)
+- **`TODO.md`** — tasks grouped by milestone (with time estimates)
+- **`MODERNIZATION_PLAN.md`** — implementation phases (technical detail per phase)
+
+**Invariants that MUST hold at all times:**
+
+1. **Phase numbering in `MODERNIZATION_PLAN.md` follows milestone execution order in `ROADMAP.md` / `TODO.md`.** Phase 1 is the first-executed milestone's work; the last phase is the last-executed milestone's work. Do not number phases by what was drafted first — number them by execution order.
+2. **Every milestone in `ROADMAP.md` maps to one or more phases in `MODERNIZATION_PLAN.md`, and vice versa.** No milestone without a phase, no phase without a milestone.
+3. **Each phase in `MODERNIZATION_PLAN.md` carries a `*(Milestone N)*` tag** in its header.
+4. **Each milestone in `ROADMAP.md` carries a `*Phase N of MODERNIZATION_PLAN.md*` (or `*Phases N–M of MODERNIZATION_PLAN.md*`) pointer** under its header.
+
+**When you add, remove, rename, or reorder a milestone or a phase, you MUST in the same commit:**
+
+- Renumber phases in `MODERNIZATION_PLAN.md` end-to-end so execution order is preserved.
+- Update every `*Phase N of MODERNIZATION_PLAN.md*` pointer in `ROADMAP.md`.
+- Update every `*(Milestone N)*` tag in `MODERNIZATION_PLAN.md`.
+- Update the phase count mentioned in `ROADMAP.md`'s Milestone 0 ("Create modernization plan with N implementation phases").
+- Grep for `Phase \d+` across all `*.md` files to catch stray references.
+
+After any such change, re-read all three files and verify the invariants above before committing.
+
 ## Milestone Tracking Rules
 
 **When completing a milestone**, you MUST record the LLM model used in:

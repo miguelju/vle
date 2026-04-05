@@ -10,7 +10,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Analyze legacy VB6 codebase (~15,000 lines)
 - [x] Analyze legacy Pascal codebase (~2,500 lines)
 - [x] Create Pascal vs VB6 comparison document
-- [x] Create modernization plan with 14 implementation phases
+- [x] Create modernization plan with 15 implementation phases
 - [x] Map algorithms to 22 academic references (ACS format)
 - [x] Propose 8 algorithm performance improvements (A–H)
 - [x] Initialize git repository
@@ -21,7 +21,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 
 ## Milestone 1: Documentation & Translation ✓
 **Goal**: Complete English research paper, parameter reference, setup guide.
-*Phase 14 of MODERNIZATION_PLAN.md*
+*Phase 1 of MODERNIZATION_PLAN.md*
 *Executed by Claude Code using Claude Opus 4.6 (1M context)*
 
 - [x] Complete English translation of Chapter I (Introduction)
@@ -36,7 +36,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 
 ## Milestone 1.5: Units of Measurement Library
 **Goal**: Independent Rust crate + Python wrapper for unit conversion using dimensional analysis.
-*Add-on sub-project, works independently of VLE engine*
+*Phase 2 of MODERNIZATION_PLAN.md — add-on sub-project, works independently of VLE engine*
 
 - [ ] Scaffold `units/` Rust crate with `uom` dependency
 - [ ] Define VLE-specific quantity types (Temperature, Pressure, MolarEnergy, MolarEntropy, MolarVolume, Amount)
@@ -52,7 +52,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 
 ## Milestone 2: Dev Environment & Scaffolding
 **Goal**: Rust crate compiles, Python package builds, empty module importable.
-*Phases 1 of MODERNIZATION_PLAN.md*
+*Phase 3 of MODERNIZATION_PLAN.md*
 
 - [ ] Install and verify Rust toolchain
 - [ ] Set up conda environment and install maturin
@@ -65,7 +65,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 
 ## Milestone 3: Numerics
 **Goal**: Core numerical utilities tested and benchmarked.
-*Phase 2 of MODERNIZATION_PLAN.md*
+*Phase 4 of MODERNIZATION_PLAN.md*
 
 - [ ] Cardano cubic solver with (12) Poling & Prausnitz robustness
 - [ ] Brent's method root finder (default bracketed solver)
@@ -77,7 +77,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 
 ## Milestone 4: Pure Component Models
 **Goal**: All pure component EOS, saturation pressure, and virial working.
-*Phases 3–5 of MODERNIZATION_PLAN.md*
+*Phases 5–7 of MODERNIZATION_PLAN.md*
 
 - [ ] EOS family constants — k1, k2, k3 parameterization (5)
 - [ ] All 22+ alpha(Tr) functions with analytical dα/dTr (§D)
@@ -91,7 +91,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 
 ## Milestone 5: Mixture Models
 **Goal**: Activity models, mixing rules, and multicomponent EOS working.
-*Phases 6–9 of MODERNIZATION_PLAN.md*
+*Phases 8–11 of MODERNIZATION_PLAN.md*
 
 - [ ] 5 activity coefficient models with analytical dGE/dT (§E)
 - [ ] Rackett and Thomson (18) liquid molar volume
@@ -103,7 +103,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 
 ## Milestone 6: Flash & Regression
 **Goal**: All flash calculations pass Chapter IV validation.
-*Phase 10 of MODERNIZATION_PLAN.md*
+*Phase 12 of MODERNIZATION_PLAN.md*
 
 - [ ] Bubble point (T and P) with Broyden NR (§A)
 - [ ] Dew point (T and P)
@@ -116,7 +116,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 
 ## Milestone 7: Python Bindings & Wrapper
 **Goal**: Python package installable, high-level API usable.
-*Phases 11–12 of MODERNIZATION_PLAN.md*
+*Phases 13–14 of MODERNIZATION_PLAN.md*
 
 - [ ] PyO3 bindings for core types and calculation functions
 - [ ] Python `System` class (high-level API)
@@ -128,7 +128,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 
 ## Milestone 8: Jupyter Notebooks
 **Goal**: Interactive notebooks reproducing all thesis results.
-*Phase 13 of MODERNIZATION_PLAN.md*
+*Phase 15 of MODERNIZATION_PLAN.md*
 
 - [ ] 01_introduction — Overview, installation, basic API
 - [ ] 02_pure_component — PVT, EOS comparison, saturation curves
