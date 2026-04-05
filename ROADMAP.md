@@ -39,12 +39,12 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 *Phase 2 of MODERNIZATION_PLAN.md — add-on sub-project, works independently of VLE engine*
 
 - [ ] Scaffold `units/` Rust crate with `uom` dependency
-- [ ] Define VLE-specific quantity types (Temperature, Pressure, MolarEnergy, MolarEntropy, MolarVolume, Amount)
+- [ ] Define VLE-specific quantity types (Temperature, TemperatureDiff, Pressure, MolarEnergy, MolarEntropy, MolarVolume, Amount)
 - [ ] Implement extensible runtime `UnitRegistry` (allows user-added units alongside the compile-time typed API)
 - [ ] Implement unit string parser (`parse_unit_string("kPa")` → typed quantity)
 - [ ] Implement `to_canonical()` / `from_canonical()` conversion functions
 - [ ] Implement TOML unit file loader (shared by Rust and Python for user-defined units)
-- [ ] Write Rust conversion test suite (6 quantities × 3+ alt units, round-trip)
+- [ ] Write Rust conversion test suite (7 quantities × 3+ alt units, round-trip; include absolute-vs-difference temperature parity)
 - [ ] Test custom unit extension (add `mmH2O` and a new dimension at runtime)
 - [ ] Create `python/src/vle/units.py` wrapper around `pint`, exposing `ureg` for user extensions
 - [ ] Write Python conversion tests (parity with Rust + custom user-added units)

@@ -50,7 +50,8 @@ Quantity = L^a · M^b · T^c · I^d · Θ^e · N^f · J^g
 | Quantity | Formula | Dimension Vector (L, M, T, I, Θ, N, J) |
 |----------|---------|----------------------------------------|
 | Length | m | (1, 0, 0, 0, 0, 0, 0) |
-| Temperature | K | (0, 0, 0, 0, 1, 0, 0) |
+| Temperature (absolute) | K | (0, 0, 0, 0, 1, 0, 0) |
+| Temperature difference / gradient | K (= ΔK) | (0, 0, 0, 0, 1, 0, 0) |
 | Amount | mol | (0, 0, 0, 0, 0, 1, 0) |
 | Volume | m³ | (3, 0, 0, 0, 0, 0, 0) |
 | Molar volume | m³/mol | (3, 0, 0, 0, 0, −1, 0) |
@@ -132,7 +133,129 @@ T(K) = T(°R) × 5/9
 
 This affects **absolute temperatures** (state variables) but not **temperature differences** (gradients), where the offset cancels.
 
-### 3.3 Canonical unit strategy
+### 3.3 Absolute Temperature vs. Temperature Difference — A Critical Distinction
+
+The single most common unit-handling bug in thermodynamic code (and in the broader engineering literature) is conflating an **absolute temperature** with a **temperature difference**. Because both have the dimension vector `(0, 0, 0, 0, 1, 0, 0)`, a dimensional-analysis system that only tracks base-dimension exponents cannot distinguish them — but they convert between units under *different rules* and obey *different algebraic laws*. A robust units library must therefore treat them as **distinct quantity types**.
+
+#### 3.3.1 What they mean physically
+
+| Concept | Symbol | Physical meaning | Example |
+|---------|--------|------------------|---------|
+| Absolute temperature | *T* | A point on the thermodynamic temperature axis. A state variable. | "The reactor is at 350 K." |
+| Temperature difference (interval / gradient) | Δ*T* | A signed displacement between two points on the axis. Never a location. | "Heat the reactor by 50 K." |
+
+A *difference* appears whenever you see Δ, a subtraction of temperatures, a derivative with respect to *T*, or a coefficient like Cp, κ (thermal conductivity), or a heat transfer coefficient:
+
+- `Cp` has units of `J/(mol·K)` — the **K** here is a temperature *difference*, not an absolute temperature. Doubling the reference zero does not change Cp.
+- `∂H/∂T` at constant P — the denominator is a temperature difference.
+- `ΔT_lm` (log-mean temperature difference) is unambiguously a difference.
+- Thermal expansion coefficient `α = (1/V)(∂V/∂T)` uses a difference.
+
+#### 3.3.2 Conversion rules differ
+
+For an **absolute temperature** the offset matters:
+
+```
+T(°F) → T(K):    T_K  = (T_F − 32) × 5/9 + 273.15     (offset present)
+T(°C) → T(K):    T_K  = T_C + 273.15                   (offset present)
+```
+
+For a **temperature difference** the offset cancels and only the scale survives:
+
+```
+ΔT(°F) → ΔT(K):   ΔT_K = ΔT_F × 5/9                    (no offset)
+ΔT(°C) → ΔT(K):   ΔT_K = ΔT_C                          (no offset — same size)
+```
+
+**Concrete consequences:**
+
+| Value | Interpreted as absolute | Interpreted as difference |
+|-------|------------------------|--------------------------|
+| `10 °C` | = 283.15 K | = 10 K |
+| `10 °F` | = 260.93 K | ≈ 5.556 K |
+| `0 °C`  | = 273.15 K | = 0 K |
+| `1 °R`  | = 0.556 K | ≈ 0.556 K (same; °R and K differ only in scale) |
+
+So `10 °C` becomes either `283.15 K` or `10 K` depending on what it represents. **No library can guess correctly from the number alone — the user (or the API) must say which one it is.**
+
+#### 3.3.3 Algebraic laws differ
+
+Because absolute temperature is affine and differences are linear, they obey distinct algebraic rules:
+
+| Operation | Absolute (T) | Difference (ΔT) | Result |
+|-----------|--------------|-----------------|--------|
+| T₁ + T₂ | ❌ meaningless | — | error |
+| T₁ − T₂ | ✓ | — | **ΔT** |
+| T + ΔT | ✓ | ✓ | **T** (new absolute) |
+| ΔT₁ + ΔT₂ | — | ✓ | ΔT |
+| ΔT₁ − ΔT₂ | — | ✓ | ΔT |
+| k · T (k scalar) | ⚠ only if k is dimensionless and T is in K (absolute zero preserved) | ✓ | depends |
+| k · ΔT | ✓ | ✓ | ΔT |
+| T / ΔT | ✓ | — | dimensionless ratio |
+
+The canonical summary: **you cannot add two absolute temperatures** (what would `300 K + 400 K` mean — 700 K of what?). But you can *always* add two temperature differences, and you can add a difference to an absolute temperature to get a new absolute temperature.
+
+#### 3.3.4 Worked example — why the distinction matters
+
+Suppose a reactor is held at **T₁ = 25 °C** and must be heated to **T₂ = 85 °C**. The required rise is `ΔT = 60 °C` of difference. A naive user converts everything "to Fahrenheit" by applying the absolute-temperature formula `°F = °C × 9/5 + 32` to all three numbers:
+
+| Quantity | Correct (°F) | Naive (°C × 9/5 + 32) | Error |
+|----------|--------------|----------------------|-------|
+| T₁ = 25 °C | 77 °F (absolute) | 77 °F | ✓ |
+| T₂ = 85 °C | 185 °F (absolute) | 185 °F | ✓ |
+| ΔT = 60 °C | **108 °F** (difference, × 9/5 only) | 140 °F (wrong) | +32 °F spurious |
+
+The naive answer `140 °F` is wrong by exactly the offset (32). The correct difference conversion `ΔT_F = ΔT_C × 9/5 = 108 °F` contains no offset.
+
+Check: `T₂ − T₁ = 185 °F − 77 °F = 108 °F` ✓
+
+In a VLE context, the same error appears in expressions like `H = Cp · ΔT`: if the user supplies Cp in `J/(mol·°C)` and ΔT in `°C`, the result is correct; if they instead pass the *absolute* temperatures and the code computes `Cp · (T₂ − T₁)` internally, conversion must be done with difference semantics. Mixing the two produces bugs that look "almost right" (a few percent off) and are hard to track down.
+
+#### 3.3.5 How the library enforces the distinction
+
+The Units Add-On treats **absolute temperature** and **temperature difference** as two separate quantity types with two separate unit symbols, exactly like `pint` and `uom` do:
+
+| Library | Absolute type | Difference type | Difference unit prefix |
+|---------|---------------|-----------------|-----------------------|
+| Rust (`uom`) | `ThermodynamicTemperature` | `TemperatureInterval` | — (separate type) |
+| Python (`pint`) | `ureg.kelvin`, `ureg.degC` | `ureg.delta_degC`, `ureg.delta_degF` | `delta_` |
+| VLE canonical | **K** | **K** (ΔK) | — (shared SI unit; type differs) |
+
+Both canonical units happen to be `K`, because 1 K of absolute change equals 1 K of interval. But the *types* are distinct so the compiler/runtime can reject `T + T` and also apply the correct conversion formula on each side of the API.
+
+**Rust (compile-time enforcement):**
+
+```rust
+use uom::si::f64::{ThermodynamicTemperature, TemperatureInterval};
+use uom::si::thermodynamic_temperature::degree_celsius;
+use uom::si::temperature_interval::degree_celsius as delta_celsius;
+
+let t1 = ThermodynamicTemperature::new::<degree_celsius>(25.0);  // absolute 25 °C
+let t2 = ThermodynamicTemperature::new::<degree_celsius>(85.0);  // absolute 85 °C
+let dt: TemperatureInterval = t2 - t1;                           // type inferred: interval
+let t3 = t1 + dt;                                                // ✓ = 85 °C
+let bad = t1 + t2;                                               // ✗ compile error
+```
+
+**Python (runtime enforcement):**
+
+```python
+from vle.units import ureg
+
+t1 = ureg.Quantity(25, "degC")        # absolute
+t2 = ureg.Quantity(85, "degC")        # absolute
+dt = t2 - t1                          # → 60 delta_degC (pint promotes automatically)
+
+dt.to("delta_degF")                   # → 108 delta_degF (× 9/5, no offset) ✓
+dt.to("degF")                         # raises OffsetUnitCalculusError — pint refuses
+
+t1 + t2                               # raises OffsetUnitCalculusError
+t1 + dt                               # → 85 degC (absolute + interval = absolute) ✓
+```
+
+The VLE API follows the same rule: functions that accept a temperature *gradient*, a heat capacity, or a heat-transfer coefficient take the **difference** type; functions that accept a state temperature (bubble point, reactor T, etc.) take the **absolute** type. See §6 for the canonical type assignments.
+
+### 3.4 Canonical unit strategy
 
 To avoid `O(n²)` conversion pairs for `n` units in a dimension, define one **canonical unit** per dimension and convert through it:
 
@@ -208,11 +331,19 @@ We'll use the `uom` (Units of Measurement) crate rather than writing this from s
 ```rust
 use uom::si::f64::*;                    // Quantity types over f64
 use uom::si::thermodynamic_temperature::{kelvin, degree_celsius};
+use uom::si::temperature_interval::{kelvin as delta_kelvin, degree_celsius as delta_celsius};
 use uom::si::pressure::{kilopascal, bar, atmosphere, psi};
 use uom::si::molar_energy::kilojoule_per_kilomole;
 
-/// Temperature quantity (canonical unit: K)
+/// Absolute temperature quantity (canonical unit: K).
+/// Use for state variables: reactor T, bubble point, dew point, etc.
+/// Conversion from °C/°F includes an offset.
 pub type VleTemperature = ThermodynamicTemperature;
+
+/// Temperature difference / gradient quantity (canonical unit: K = ΔK).
+/// Use for ΔT, dT/dx, Cp denominators, heat-transfer driving forces.
+/// Conversion from Δ°C/Δ°F is scale-only (no offset).
+pub type VleTemperatureDiff = TemperatureInterval;
 
 /// Pressure quantity (canonical unit: kPa)
 pub type VlePressure = Pressure;
@@ -299,10 +430,11 @@ Q_ = ureg.Quantity
 
 # Canonical units (match the Rust engine and legacy code)
 CANONICAL = {
-    "temperature": ureg.kelvin,
+    "temperature": ureg.kelvin,              # absolute — offset conversion
+    "temperature_diff": ureg.delta_degC,     # difference — scale-only (1 ΔK == 1 Δ°C)
     "pressure": ureg.kilopascal,
     "molar_energy": ureg.kJ / ureg.kmol,
-    "molar_entropy": ureg.kJ / (ureg.kmol * ureg.kelvin),
+    "molar_entropy": ureg.kJ / (ureg.kmol * ureg.kelvin),   # the K here is a difference
     "molar_volume": ureg.cm**3 / ureg.mol,
     "amount": ureg.kmol,
 }
@@ -332,18 +464,22 @@ The VLE project's canonical internal units match the legacy VB6/Pascal code (see
 
 | Quantity | Canonical Unit | Dimension Vector (L, M, T, I, Θ, N, J) |
 |----------|---------------|----------------------------------------|
-| Temperature | K | (0, 0, 0, 0, 1, 0, 0) |
+| Temperature (absolute) | K | (0, 0, 0, 0, 1, 0, 0) |
+| Temperature difference / gradient (ΔT) | K | (0, 0, 0, 0, 1, 0, 0) |
 | Pressure | kPa | (−1, 1, −2, 0, 0, 0, 0) |
 | Molar energy (H, G) | kJ/kmol | (2, 1, −2, 0, 0, −1, 0) |
 | Molar entropy (S) | kJ/(kmol·K) | (2, 1, −2, 0, −1, −1, 0) |
 | Molar volume (V) | cm³/mol | (3, 0, 0, 0, 0, −1, 0) |
 | Amount (n) | kmol | (0, 0, 0, 0, 0, 1, 0) |
 
+Temperature (absolute) and temperature difference share the same dimension vector but are **separate quantity types** in the library (see §3.3). The `K` in `kJ/(kmol·K)` is a *difference* — so molar entropy scales linearly with °R without an offset. The `K` in "reactor temperature" is *absolute* and requires an offset when converting from °C or °F.
+
 ### 6.2 User-Facing Units (Supported Conversions)
 
 | Quantity | User-Facing Alternatives |
 |----------|-------------------------|
-| Temperature | °C, °F, °R |
+| Temperature (absolute) | °C, °F, °R |
+| Temperature difference (ΔT) | Δ°C (= delta_degC), Δ°F (= delta_degF), Δ°R (= delta_degR) |
 | Pressure | Pa, bar, atm, psi, mmHg, torr |
 | Molar energy | J/mol, cal/mol, kcal/kmol, BTU/lbmol |
 | Molar entropy | J/(mol·K), cal/(mol·K) |

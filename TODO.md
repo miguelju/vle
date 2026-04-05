@@ -23,12 +23,12 @@ Check off items as they're completed. Time estimates assume working with Claude 
 Independent add-on (~12–15h total). Uses dimensional analysis via the 7 SI base dimensions. Rust: `uom` crate (compile-time checks, phantom types). Python: `pint` library (runtime checks).
 
 - [ ] **Scaffold units crate** (~1h) — `units/Cargo.toml` with `uom` dependency, `units/src/lib.rs`
-- [ ] **Define VLE quantity types** (~2h) — Temperature, Pressure, MolarEnergy, MolarEntropy, MolarVolume, Amount as aliases for `uom`'s SI types
+- [ ] **Define VLE quantity types** (~2h) — Temperature (absolute), TemperatureDiff (gradient / interval), Pressure, MolarEnergy, MolarEntropy, MolarVolume, Amount as aliases for `uom`'s SI types. Temperature and TemperatureDiff are *separate* types even though both canonicalize to K (see `docs/en/units/dimensional-analysis.md` §3.3)
 - [ ] **Implement runtime UnitRegistry** (~3–4h) — extensible runtime registry alongside compile-time typed API; supports `define(name, dimension, scale, offset)` for user-added units
 - [ ] **Implement unit string parser** (~2–3h) — `parse_unit_string("kPa")` → typed quantity; supports K/°C/°F/°R, Pa/kPa/bar/atm/psi/mmHg/torr, kJ/kmol, J/mol, cal/mol, etc.
 - [ ] **Implement canonical conversion** (~1–2h) — `to_canonical()` / `from_canonical()` for each quantity (canonical: K, kPa, kJ/kmol, kJ/(kmol·K), cm³/mol, kmol)
 - [ ] **Implement TOML unit file loader** (~2h) — `registry.load_from_toml("custom_units.toml")` for bulk user-defined units, shared by Rust and Python
-- [ ] **Write Rust conversion tests** (~2h) — all 6 quantities × 3–4 alt units, round-trip identity, compile-time dimension check (`temperature + pressure` must fail to compile)
+- [ ] **Write Rust conversion tests** (~2h) — all 7 quantities × 3–4 alt units, round-trip identity, compile-time dimension check (`temperature + pressure` must fail to compile), **absolute-vs-difference temperature parity** (`T_abs + T_abs` must fail; `T_abs - T_abs → TemperatureDiff`; `Δ°C → ΔK` must be scale-only with no offset)
 - [ ] **Test custom unit extension** (~1h) — round-trip test adding `mmH2O` to Pressure dimension and a new `heat_transfer_coefficient` dimension
 - [ ] **Create Python units wrapper** (~2h) — `python/src/vle/units.py` using `pint`, same unit strings as Rust side, exposes `ureg` for user extensions
 - [ ] **Write Python conversion tests** (~1–2h) — verify parity with Rust side via golden values, test user-added units via `ureg.define()`
