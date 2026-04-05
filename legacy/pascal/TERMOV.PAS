@@ -1,0 +1,833 @@
+Unit TermoV(8);
+{$U-}
+{$U TermoI}
+{$U TermoII}
+{$U TermoIII}
+
+{ Paquete termodin‡mico hecho por: }
+{ Francisco Avelino Da Silva. }
+{ Luis Alberto B‡ez Linde.    }
+{ Caracas, 89 }
+
+interface
+
+Uses Sane,TermoI,TermoII,MemTypes,QuickDraw,TermoIII,OSIntf,ToolIntf,PasInOut;
+
+Const 
+   NISM=20;    {nœmero m‡ximo de isotermas por archivo}
+   MAXD=40;	   {nœmero m‡ximo de puntos por isoterma}
+   NoseEncontroRango=10; { Error de inicializaci—n que puede suceder en KBinarioAureo() }
+                         { debiera ser pasado a la TermoI }
+   ErrorNombres = 1;  { Los posibles errores de formato en la lectura del archivo }
+   ErrorPoT     = 2;
+   ErrorEnFin   = 3;
+   
+type
+   TipoArreglo = array [1..NISM] of integer;
+   Isotermas = record
+                TD:array [1..NISM] of real;
+                PD:Array [1..NISM,1..MAXD] of real;      
+                XD:Array [1..NISM,1..2,1..MAXD] of real;
+                ND:array [1..NISM] of integer;
+                FUENTE:array [1..NISM,1..2] of string[80];
+                SIST:string[60];
+                Iso:char;
+                NIS:TipoArreglo; { Las isotermas deseadas }
+                NIST:integer;    { Nœmero de isotermas a procesar }
+                Narchi:string;
+               end;
+    
+FUNCTION  Leisot(var DelArchivo:Isotermas;NombredelArchivo:string;
+                 var ErrorEnLinea:Integer ):Error;
+
+PROCEDURE CualesIsotermas(var DelArchivo:Isotermas;Elegidas:TipoArreglo;Cuantas:integer);
+                          
+
+FUNCTION  AijBinario(var A12,A21:extended;ElSistema:Propiedades;var LosDatos:Isotermas;
+                     Cuantas:integer;ModeloGas,ModeloLiquido:integer;TipPVapor:TipoPresVapor;
+                     ConPoynting,ConChaoSeader:Boolean;DarErrores:ProcPtr):Error;
+
+   
+implementation
+
+ var
+  Evento     :EventRecord;
+  Fin        :boolean;
+  
+PROCEDURE PasarDatos(Error,ErrorIni,ErrorMin:Extended;P:ProcPtr); Inline $205F, $4E90;
+
+FUNCTION NumeroMalo(x:extended):boolean;
+var
+ tipo:NumClass;
+begin
+ tipo:=ClassExtended(x);
+ if (tipo=NormalNum) or (tipo=ZeroNum) then
+  NumeroMalo:=false
+ else
+  NumeroMalo:=true;
+end;
+     
+FUNCTION SalirYa:boolean;
+begin
+  SalirYa:=false;
+  while GetNextEvent(KeyDownMask,Evento) do
+   with Evento do
+    if (Chr(BitAnd(message,CharCodeMask)) = ',') and
+       (BitAnd(modifiers,CmdKey)<>0) then
+        begin
+         SalirYa:=true;
+         Fin:=true;
+        end;
+end;
+
+FUNCTION Leisot;
+
+var
+ ElArchivo:text;
+ CHEK,i,j,k:Integer;
+ Err:integer;
+ CursorAntes,Reloj:CursHandle;
+ 
+ PROCEDURe ArreglarSalida(ElError:integer);
+  begin
+     Leisot:=ElError;
+     Close(ElArchivo);
+     SetCursor(CursorAntes^^);
+  end;
+  
+begin
+ i:=PtrToHand(Pointer($844),Handle(CursorAntes),SizeOf(Cursor));
+ if i <> 0 then CursorAntes^^:=Arrow; {si hubo algœn error}
+ Reloj:=GetCursor(WatchCursor);
+ SetCursor(Reloj^^);
+ ErrorEnLinea:=0;
+{$I-}
+ with DelArchivo do
+  begin
+	  I:=0;
+	  K:=1;
+   Narchi:=NombredelArchivo;
+	  Reset(ElArchivo,Narchi);
+   Err:=IOResult;
+   If Err<>0 then
+    begin
+     Leisot:=Err;
+     Exit;
+     SetCursor(CursorAntes^^);
+    end;
+	  Readln(ElArchivo,SIST);
+   ErrorEnLinea:=ErrorEnLinea+1;
+   Err:=IOResult;
+   If Err<>0 then
+    begin
+     ArreglarSalida(Err);     
+     Exit;
+    end;
+   if Pos('+',SIST) = 0 then
+    begin
+     ArreglarSalida(ErrorNombres); {debe tener al menos un '+'}
+     Exit;
+    end;
+	  Readln(ElArchivo,Iso);
+   ErrorEnLinea:=ErrorEnLinea+1;
+   Err:=IOResult;
+   If Err<>0 then
+    begin
+     ArreglarSalida(Err);
+     Exit;
+    end;
+  Case Iso of
+   'p':Iso:='P';
+   't':Iso:='T';
+  end;
+  if Not((Iso='P') or (Iso='T'))then
+   begin
+    ArreglarSalida(ErrorPoT); {No especific— si eran isotermas o isobaras, debiera especificarse este error}
+    Exit;
+   end;
+{	LEE TODAS LAS ISOTERMAS DEL ARCHIVO	}
+   repeat
+ 	    i:=i+1;
+	     readln(ElArchivo,TD[i]);
+      ErrorEnLinea:=ErrorEnLinea+1;
+      Err:=IOResult;
+      If Err<>0 then
+       begin
+        ArreglarSalida(Err);
+        Exit;
+       end;
+	     readln(ElArchivo,ND[i]);
+      ErrorEnLinea:=ErrorEnLinea+1;
+      Err:=IOResult;
+      If Err<>0 then
+       begin
+        ArreglarSalida(Err);
+        Exit;
+       end;
+	     readln(ElArchivo,FUENTE[i,1]);
+      ErrorEnLinea:=ErrorEnLinea+1;
+      Err:=IOResult;
+      If Err<>0 then
+       begin
+        ArreglarSalida(Err);
+        Exit;
+       end;
+	     readln(ElArchivo,FUENTE[i,2]);
+      ErrorEnLinea:=ErrorEnLinea+1;
+      Err:=IOResult;
+      If Err<>0 then
+       begin
+        ArreglarSalida(Err);
+        Exit;
+       end;
+		    for j:=1 to ND[i] do
+       begin
+		 	    readln(ElArchivo,PD[i,j],XD[i,1,j],XD[i,2,j]);
+        ErrorEnLinea:=ErrorEnLinea+1;
+        Err:=IOResult;
+        If Err<>0 then
+         begin
+          ArreglarSalida(Err);
+          Exit;
+         end;
+       end;
+ 	   Readln(ElArchivo,CHEK);
+     ErrorEnLinea:=ErrorEnLinea+1;
+     Err:=IOResult;
+     If Err<>0 then
+      begin
+       ArreglarSalida(Err);
+       Exit;
+      end;
+    until (CHEK = 1 ) or (Eof(ElArchivo));
+   	NIST:=i;
+	  Close(ElArchivo);
+   Err:=IOResult;
+   If Err<>0 then
+    begin
+     Leisot:=Err;
+     SetCursor(CursorAntes^^);
+     Exit;
+    end;
+   If Chek<> 1 then 
+    begin
+     Leisot:=ErrorEnFin; {por poner algo}
+     SetCursor(CursorAntes^^);
+     Exit;
+    end;
+ end;{del withÉ}
+{$I+}
+ ErrorEnLinea:=0;
+ Leisot:=0;
+ SetCursor(CursorAntes^^);
+end;{LeisotÉ}
+
+PROCEDURE CualesIsotermas;
+var
+ i,j,k:Integer;
+ CAMB1,CAMB2:boolean;
+ Naux:integer;
+ TDaux:array [1..NISM] of Real;
+ PDaux:Array [1..NISM,1..MAXD] of Real;
+ XDaux:Array [1..NISM,1..2,1..MAXD] of Real;
+ NDaux:array [1..NISM] of integer;
+ FUENTEaux:array [1..NISM,1..2] of string[80];
+begin
+ with DelArchivo do
+  begin
+	  I:=0;
+	  K:=1;
+   Nis:=Elegidas;
+     if Cuantas > 1 then
+      repeat
+       Camb1:=false;Camb2:=false;
+         for i:=1 to Cuantas-1 do
+          if (NIS[i]>NIS[i+1]) then
+              begin
+                  Naux:=Nis[i+1];
+                  Nis[i+1]:=Nis[i];
+                  Nis[i]:=Naux;
+                  Camb1:=true;
+              end;
+          if Camb1 then
+            for i:=Cuantas downto 2 do
+              if Nis[i]<Nis[i-1]then
+                begin
+                 Naux:=Nis[i-1];
+                 Nis[i-1]:=Nis[i];
+                 Nis[i]:=Naux;
+                 Camb2:=true;
+                end;
+      until Not(Camb1 and Camb2);      
+{	COMIENZA Acomodo DE LAS ISOTERMAS PEDIDAS	}
+  while (K<=Cuantas) do
+      begin      
+        for i:=1 to Nist do
+ 	       IF NIS[K]=i THEN 
+          begin
+		         	TDaux[k]:=TD[i];
+			         NDaux[k]:=ND[i];
+			         FUENTEaux[k,1]:=FUENTE[i,1];
+            FUENTEaux[k,2]:=FUENTE[i,2];
+			         for j:=1 to ND[i] do
+             begin
+			           PDaux[k,j]:=PD[i,j];
+              XDaux[k,1,j]:=XD[i,1,j];
+              XDaux[k,2,j]:=XD[i,2,j];
+             end;
+          end;
+ 	     K:=K+1;
+		  end; {while}
+ for i:=1 to cuantas do
+  begin
+ 	  TD[i]:=TDaux[i];
+			 ND[i]:=NDaux[i];
+			 FUENTE[i,1]:=FUENTEaux[i,1];
+    FUENTE[i,2]:=FUENTEaux[i,2];
+			 for j:=1 to ND[i] do
+     begin
+			    PD[i,j]:=PDaux[i,j];
+       XD[i,1,j]:=XDaux[i,1,j];
+       XD[i,2,j]:=XDaux[i,2,j];
+     end;
+   end;
+  end;{del withÉ}
+end;{CualesIsotermasÉ}
+
+FUNCTION AijBinario;
+type
+  Valor=record
+    GamCal,GamExp:array [1..NISM,1..MAXD,1..2] of Extended;
+        end;
+var
+ DGamiDA12,DGamiDA21:array [1..NISM,1..MAXD,1..2] of double;
+ LosCal:^Valor;
+ X,Y:fraccmolar;
+ iter,i:integer;
+ convergencia:boolean;
+ FAs:array[1..2] of extended;
+ CoefAij:MatrizConst;
+ Jacob:array [1..2,1..2] of extended;
+ Ys:array[1..2] of extended;
+ ModAux:extended;
+ ElMinMod,A12min,A21min:extended;     {para reportar el mejor valor en caso de no convergencia}
+ GEx:array[1..NISM,1..MAXD] of real;  {para estimados iniciales}
+ FactorCorrelacion:real;              {para chequear que son buenos los iniciales}
+                                      {menor que 0.8 no sirve}
+ Ambiente:Environment;
+ ErrorMat:boolean;
+ ErrorInicial:Extended;
+ 
+ PROCEDURe CargarXY (LaIsot,ElPunto:integer);
+  begin
+   with LosDatos do
+   begin
+    X[1]:=XD[LaIsot,1,ElPunto];
+    X[2]:=1-X[1];
+    Y[1]:=XD[LaIsot,2,ElPunto];
+    Y[2]:=1-Y[1];
+   end;
+  end;
+
+ PROCEDURe CalcularGammasExp;
+  var
+     isot,punto,i:integer; {isot:isoterma dada, punto: punto en isoterma}
+     Z:extended;
+     CFG,CFGSAT,PSAT:array[1..2] of extended; {Los arreglos no hacen falta en realidad}
+     Aux:extended;
+     MonoComp:Propiedades;
+     XYUnit:fraccmolar;
+  begin
+  XYUnit[1]:=1;
+   with LosDatos,LosCal^ do
+   begin
+     Aux:=0;
+        for isot:=1 to Cuantas do
+         begin
+         for punto:=1 to ND[isot] do
+          begin
+               Componentes(ElSistema,2);
+               if Iso = 'T' then
+                PresionYTemp(PD[isot,punto],TD[isot])
+               else
+                PresionYTemp(TD[isot],PD[isot,punto]);               
+               CargarXY(isot,punto);
+               Concentraciones(X,Y);             
+               CalcularA_B_CdeMezcla(ModeloGas,Gas);
+               Z:=FactorCompre(ModeloGas,Gas);
+               for i:=1 to 2 do
+                 CFG[i]:=CoFug_i(i,ModeloGas,Gas,Z);
+               for i:=1 to 2 do
+                if ConChaoSeader then
+                 GamExp[isot,punto,i]:=Y[i]*CFG[i]/X[i]/CoFug_i(i,ChaoSeader,Liquido,Z)
+                else
+                   begin
+                     if iso = 'T' then
+                      begin
+                       PSat[i]:=PrVapor(ElSistema[i],TD[isot],TipPVapor);
+                       PresionYTemp(PSat[i],TD[isot]);
+                      end
+                     else
+                      begin
+                       PSat[i]:=PrVapor(ElSistema[i],PD[isot,punto],TipPVapor);
+                       PresionYTemp(PSat[i],PD[isot,punto]);
+                      end;
+                     Monocomp[1]:=ElSistema[i];
+                     Componentes(MonoComp,1);
+                     Concentraciones(XYUnit,XYUnit);
+                     CalcularA_B_CdeMezcla(ModeloGas,Gas);
+                     Z:=FactorCompre(ModeloGas,Gas);
+                     CFGSat[i]:=CoFug_i(1,ModeloGas,Gas,Z);
+                     if Iso='T' then
+                      GamExp[isot,punto,i]:=Y[i]*PD[isot,punto]*CFG[i]/X[i]/CFGSat[i]/PSat[i]
+                     else
+                      GamExp[isot,punto,i]:=Y[i]*TD[isot]*CFG[i]/X[i]/CFGSat[i]/PSat[i];
+                     if ConPoynting then
+                      if Iso='T' then
+                       GamExp[isot,punto,i]:=GamExp[isot,punto,i]
+                          /CorrectPoynting(PD[isot,punto],Psat[i],TD[isot],ElSistema[i].vl)
+                      else
+                       GamExp[isot,punto,i]:=GamExp[isot,punto,i]
+                          /CorrectPoynting(TD[isot],Psat[i],PD[isot,punto],ElSistema[i].vl);
+                   end;
+                GEx[isot,punto]:=X[1]*ln(GamExp[isot,punto,1])+X[2]*ln(GamExp[isot,punto,2]);
+            end; {for puntoÉ}
+          end; {for isotÉ}
+    end;{ del with datos}
+  end;{CalcularGammasÉ}
+  
+ PROCEDURe CargarCoefAij;
+ begin
+   CoefAij[1,2]:=A12;
+   CoefAij[2,1]:=A21;
+ end;
+ 
+ PROCEDURe CalcularFAs;
+ var
+  i,j,isot,punto:integer;
+  aux,aux3:extended;
+ begin
+  for i:=1 to 2 do
+   FAs[i]:=0;
+ with LosDatos,LosCal^ do
+ begin
+  for isot:=1 to cuantas do
+   for punto:=1 to ND[isot] do
+    begin
+       {PresionYTemp(PD[isot,punto],TD[isot]);}
+       CargarXY(isot,punto);
+       Concentraciones(X,Y);
+       for i:=1 to 2 do
+        begin
+         GamCal[isot,punto,i]:=Gamma_i(i,ModeloLiquido,CoefAij);
+        end;
+        case ModeloLiquido of
+        Margules:begin
+                  DGamiDA12[isot,punto,1]:=sqr(X[2])*(1-2*X[1])*GamCal[isot,punto,1];
+                  DGamiDA21[isot,punto,1]:=2*Sqr(X[2])*X[1]*GamCal[isot,punto,1];
+                  DGamiDA12[isot,punto,2]:=2*Sqr(X[1])*X[2]*GamCal[isot,punto,2];
+                  DGamiDA21[isot,punto,2]:=sqr(X[1])*(1-2*X[2])*GamCal[isot,punto,2];
+                 end;
+        VanLaar :begin
+                  aux:=(1+X[1]*A12/X[2]/A21);
+                  aux3:=XpwrI(aux,-3);
+                  DGamiDA12[isot,punto,1]:=(aux-2*A12*X[1]/X[2]/A21)*aux3*GamCal[isot,punto,1];
+                  DGamiDA21[isot,punto,1]:=2*sqr(A12/A21)*X[1]/X[2]*aux3*GamCal[isot,punto,1];
+                  aux:=(1+X[2]*A21/X[1]/A12);
+                  aux3:=XpwrI(aux,-3);  
+                  DGamiDA12[isot,punto,2]:=2*sqr(A21/A12)*X[2]/X[1]*aux3*GamCal[isot,punto,2];
+                  DGamiDA21[isot,punto,2]:=(aux-2*A21*X[2]/X[1]/A12)*aux3*GamCal[isot,punto,2];
+                 end;
+        Wilson  :begin
+                  DGamiDA12[isot,punto,1]:=-sqr(X[2])*A12/sqr(X[1]+A12*X[2])*GamCal[isot,punto,1];
+                  DGamiDA21[isot,punto,1]:=-sqr(X[2])/sqr(A21*X[1]+X[2])*GamCal[isot,punto,1];
+                  DGamiDA12[isot,punto,2]:=-sqr(X[1])/sqr(X[1]+A12*X[2])*GamCal[isot,punto,2];
+                  DGamiDA21[isot,punto,2]:=-sqr(X[1])*A21/sqr(A21*X[1]+X[2])*GamCal[isot,punto,2];
+                 end;   
+        end; { del caseÉ }
+
+       FAs[1]:=FAs[1]+(GamCal[isot,punto,1]-GamExp[isot,punto,1])*DGamiDA12[isot,punto,1]+
+                      (GamCal[isot,punto,2]-GamExp[isot,punto,2])*DGamiDA12[isot,punto,2];
+       FAs[2]:=FAs[2]+(GamCal[isot,punto,1]-GamExp[isot,punto,1])*DGamiDA21[isot,punto,1]+
+                      (GamCal[isot,punto,2]-GamExp[isot,punto,2])*DGamiDA21[isot,punto,2];                      
+       
+    end; { for puntoÉ }
+  end; { with LosDatos^É } 
+ end;{ CalcularFsÉ }
+ 
+ FUNCTIOn ModuloFAs:extended;
+ begin
+  ModuloFAs:=Sqrt(sqr(FAs[1])+sqr(FAs[2]));
+ end;
+ 
+ PROCEDURe CalcularJacob;
+  var
+  i,j,isot,punto:integer;
+  aux,aux3,aux4:extended;
+  aux1,aux2:extended;
+  DSeg:Array[1..2,1..4] of real;
+  cajp:extended;
+  
+ begin
+  for i:=1 to 2 do
+   for j:=1 to 2 do
+    Jacob[i,j]:=0;
+ with LosDatos,LosCal^ do
+ begin
+  for isot:=1 to cuantas do
+   for punto:=1 to ND[isot] do
+    begin
+      CargarXY(isot,punto);
+      Concentraciones(X,Y);
+      case ModeloLiquido of
+        Margules:begin
+                  DSeg[1,1]:=sqr(X[2])*(1-2*X[1])*DGamiDA12[isot,punto,1];
+                  DSeg[1,2]:=2*sqr(X[2])*X[1]*DGamiDA12[isot,punto,1];
+                  DSeg[1,3]:=2*sqr(X[1])*X[1]*DGamiDA21[isot,punto,1];
+                  DSeg[1,4]:=sqr(X[2])*(1-2*X[1])*DGamiDA21[isot,punto,1];
+                  DSeg[2,1]:=2*sqr(X[1])*X[2]*DGamiDA12[isot,punto,2];
+                  DSeg[2,2]:=sqr(X[1])*(1-2*X[2])*DGamiDA12[isot,punto,2];
+                  DSeg[2,3]:=sqr(X[1])*(1-2*X[2])*DGamiDA21[isot,punto,2];
+                  DSeg[2,4]:=2*sqr(X[1])*X[2]*DGamiDA21[isot,punto,2];
+                 end;
+        VanLaar :begin
+                  aux:=(1+X[1]*A12/X[2]/A21);aux4:=XpwrI(aux,4);
+                  aux3:=XpwrI(aux,-3);
+                  cajp:=X[1]/X[2]/A21;
+                  DSeg[1,1]:=DGamiDA12[isot,punto,1]*(aux-2*A12*X[1]/X[2]/A21)*aux3+GamCal[isot,punto,1]*
+                  ((cajp-2*X[1]/X[2]/A21)*aux-3*(aux-2*A12*X[1]/X[2]/A21)*cajp)/aux4;
+                  DSeg[1,2]:=2*X[1]/X[2]/Sqr(A21)*((DGamiDA12[isot,punto,1]*sqr(A12)+2*A12*GamCal[isot,punto,1])*Aux
+                  -3*GamCal[isot,punto,1]*sqr(A12)*X[1]/X[2]/A21)/aux4;
+                  DSeg[1,3]:=2*X[1]*Sqr(A12)/X[2]*(DGamiDA21[isot,punto,1]*A21*aux-GamCal[isot,punto,1]*(2*aux+3*A21*
+                  (-X[1]*A12/X[2]/Sqr(A21))))/XpwrI(A21,3)/aux4;
+                  Cajp:=-X[1]*A12/X[2]/Sqr(A21);
+                  DSeg[1,4]:=DGamiDA21[isot,punto,1]*(aux-2*A12*X[1]/X[2]/A21)*aux3+GamCal[isot,punto,1]*
+                  ((cajp+2*A12*X[1]/X[2]/Sqr(A21))*aux-3*(aux-2*A12*X[1]/X[2]/A21)*cajp)/aux4;
+
+                  aux:=(1+X[2]*A21/X[1]/A12);aux4:=XpwrI(aux,4);
+                  aux3:=XpwrI(aux,-3);
+                  Cajp:=-X[2]*A21/X[1]/Sqr(A12);
+                  DSeg[2,1]:=2*X[2]*Sqr(A21)/X[1]*(DGamiDA12[isot,punto,2]*A12*aux-GamCal[isot,punto,2]*(2*aux+3*A12*
+                  (-X[2]*A21/X[1]/Sqr(A12))))/XpwrI(A12,3)/aux4;
+                  DSeg[2,2]:=DGamiDA12[isot,punto,2]*(aux-2*A21*X[2]/X[1]/A12)*aux3+GamCal[isot,punto,2]*
+                  ((cajp+2*A21*X[2]/X[1]/Sqr(A12))*aux-3*(aux-2*A21*X[2]/X[1]/A12)*cajp)/aux4;
+                  cajp:=X[2]/X[1]/A21;
+                  DSeg[2,3]:=DGamiDA21[isot,punto,2]*(aux-2*A21*X[2]/X[1]/A12)*aux3+GamCal[isot,punto,2]*
+                  ((cajp-2*X[2]/X[1]/A12)*aux-3*(aux-2*A21*X[2]/X[1]/A12)*cajp)/aux4;
+                  DSeg[2,4]:=2*X[2]/X[1]/Sqr(A12)*((DGamiDA21[isot,punto,2]*sqr(A21)+2*A21*GamCal[isot,punto,2])*Aux
+                  -3*GamCal[isot,punto,2]*sqr(A21)*X[2]/X[1]/A12)/aux4;
+                 end;
+        Wilson  :begin
+                  aux:=(X[1]+A12*X[2]);
+                  DSeg[1,1]:=-sqr(X[2])*((DGamiDA12[isot,punto,1]*A12+GamCal[isot,punto,1])*aux-2*GamCal[isot,punto,1]*
+                  A12*X[2])/XpwrI(aux,3); 
+                  aux:=(A21*X[1]+X[2]);
+                  DSeg[1,2]:=-sqr(X[2])*DGamiDA12[isot,punto,1]/sqr(aux);
+                  DSeg[1,3]:=-sqr(X[2])*(DGamiDA21[isot,punto,1]*aux-2*GamCal[isot,punto,1]*X[1])/XpwrI(aux,3);
+                  aux:=(X[1]+A12*X[2]);                  
+                  DSeg[1,4]:=-sqr(X[2])*A12*DGamiDA21[isot,punto,1]/sqr(aux);
+                
+                  aux:=(X[1]+A12*X[2]);
+                  DSeg[2,1]:=-sqr(X[1])*(DGamiDA12[isot,punto,2]*aux-2*GamCal[isot,punto,2]*X[2])/XpwrI(aux,3);
+                  aux:=(A21*X[1]+X[2]);
+                  DSeg[2,2]:=-sqr(X[1])*A21*DGamiDA12[isot,punto,2]/sqr(aux);
+                  DSeg[2,3]:=-sqr(X[1])*((DGamiDA21[isot,punto,2]*A21+GamCal[isot,punto,2])*aux-2*GamCal[isot,punto,2]*
+                  A21*X[1])/XpwrI(aux,3);
+                  aux:=(X[1]+A12*X[2]);
+                  DSeg[2,4]:=-sqr(X[1])*DGamiDA21[isot,punto,2]/sqr(aux);
+                 end;   
+        end; { del caseÉ }
+        
+       Jacob[1,1]:=Jacob[1,1]+Sqr(DGamiDA12[isot,punto,1])+(GamCal[isot,punto,1]-GamExp[isot,punto,1])*DSeg[1,1]+
+       Sqr(DGamiDA12[isot,punto,2])+(GamCal[isot,punto,2]-GamExp[isot,punto,2])*DSeg[2,1];
+         
+       Jacob[1,2]:=Jacob[1,2]+DGamiDA12[isot,punto,1]*DGamiDA21[isot,punto,1]+
+       (GamCal[isot,punto,1]-GamExp[isot,punto,1])*Dseg[1,2]+DGamiDA12[isot,punto,2]*DGamiDA21[isot,punto,2]+
+       (GamCal[isot,punto,2]-GamExp[isot,punto,2])*Dseg[2,2];
+       
+       Jacob[2,2]:=Jacob[2,2]+Sqr(DGamiDA21[isot,punto,1])+(GamCal[isot,punto,1]-GamExp[isot,punto,1])*Dseg[1,3]+
+       Sqr(DGamiDA21[isot,punto,2])+(GamCal[isot,punto,2]-GamExp[isot,punto,2])*DSeg[2,3];
+    end; { for puntoÉ }
+  end; { with LosDatos^É } 
+   Jacob[2,1]:=Jacob[1,2];
+ end;
+ 
+ PROCEDURe CalcularYs;
+  var
+   det:extended;
+ begin
+   det:=Jacob[1,1]*Jacob[2,2]-Jacob[2,1]*Jacob[1,2];  {si es cero no hay soluci—n}
+   Ys[1]:=(-FAs[1]*Jacob[2,2]+FAs[2]*Jacob[1,2])/det;
+   Ys[2]:=(-FAs[2]*Jacob[1,1]+FAs[1]*Jacob[2,1])/det;
+ end;
+ 
+ PROCEDURe CalcularAij;
+ begin
+  A12:=Ys[1]+A12;
+  A21:=Ys[2]+A21;
+  if ModeloLiquido = Wilson then
+   begin
+    A12:=Abs(A12); {los par‡metros binarios de wilson son siempre positivos}
+    A21:=Abs(A21); {esto solo sirve para que no se tranque m‡quina}
+   end;            {puede generar soluciones triviales, es decir, gamas=0}
+ end;
+
+FUNCTION FacCorrelacion(NDat:Integer;SumaX,SumaX2,SumaY,SumaY2,SumaXY:Extended):Extended;
+ begin
+  FacCorrelacion:=abs((NDat*SumaXY-SumaX*SumaY)/Sqrt((NDat*SumaX2-Sqr(SumaX))*
+  (Ndat*SumaY2-Sqr(SumaY))));
+ end;
+
+PROCEDURE CalcularPORMargules;
+VAR
+  isot,punto:integer;
+  SumaXY,SumaY,SumaX,SumaX2,SumaY2,det:extended;
+  Ndat:integer;
+  La,Lb:extended; {recta ax1+b}
+  Fexp:array[1..NISM,1..MAXD] of real;
+begin
+NDat:=0;
+SumaXY:=0;
+SumaY:=0;
+SumaX:=0;
+SumaX2:=0;
+SumaY2:=0;
+   with LosDatos,LosCal^ do
+   begin
+        for isot:=1 to Cuantas do
+         begin
+         for punto:=1 to ND[isot] do
+          begin
+            CargarXY(isot,punto);
+            Concentraciones(X,Y); 
+            Fexp[isot,punto]:=GEx[isot,punto]/X[1]/X[2]; 
+            SumaX:=SumaX+X[1];
+            SumaY:=SumaY+Fexp[isot,punto];
+            SumaXY:=SumaXY+X[1]*Fexp[isot,punto];
+            SumaX2:=SumaX2+Sqr(X[1]);
+            SumaY2:=SumaY2+Sqr(Fexp[isot,punto]);
+            NDat:=NDat+1;
+          end;
+         end;
+   end;
+ det:=NDat*SumaX2-Sqr(SumaX);
+ La:=(NDat*SumaXY-SumaY*SumaX)/det;
+ Lb:=(SumaX2*SumaY-SumaX*SumaXY)/det;
+ A12:=Lb;
+ A21:=La+Lb;
+ FactorCorrelacion:=FacCorrelacion(NDat,SumaX,SumaX2,SumaY,SumaY2,SumaXY);
+end;
+
+PROCEDURE CalcularPORVanLaar;
+VAR
+  isot,punto:integer;
+  SumaXY,SumaY,SumaX,SumaX2,SumaY2,det:extended;
+  Ndat:integer;
+  La,Lb:extended; {recta ax1+b}
+  Fexp:array[1..NISM,1..MAXD] of real;
+begin
+NDat:=0;
+SumaXY:=0;
+SumaY:=0;
+SumaX:=0;
+SumaX2:=0;
+SumaY2:=0;
+   with LosDatos,LosCal^ do
+   begin
+        for isot:=1 to Cuantas do
+         begin
+         for punto:=1 to ND[isot] do
+          begin
+            CargarXY(isot,punto);
+            Concentraciones(X,Y); 
+            Fexp[isot,punto]:=X[1]*X[2]/GEx[isot,punto]; 
+            SumaX:=SumaX+X[1];
+            SumaY:=SumaY+Fexp[isot,punto];
+            SumaXY:=SumaXY+X[1]*Fexp[isot,punto];
+            SumaX2:=SumaX2+Sqr(X[1]);
+            SumaY2:=SumaY2+Sqr(Fexp[isot,punto]);
+            NDat:=NDat+1;
+          end;
+         end;
+   end;
+ det:=NDat*SumaX2-Sqr(SumaX);
+ La:=(NDat*SumaXY-SumaY*SumaX)/det;
+ Lb:=(SumaX2*SumaY-SumaX*SumaXY)/det;
+ A12:=1/Lb;
+ A21:=1/(La+Lb);
+ FactorCorrelacion:=FacCorrelacion(NDat,SumaX,SumaX2,SumaY,SumaY2,SumaXY);
+end;
+
+PROCEDURE EstimadosIniciales;
+ var
+  PorMar,PorLaar:real;
+  A12Mar,A21Mar,A12Laar,A21Laar:extended;
+begin
+case modeloliquido of
+      Margules:CalcularPORMargules;
+      VanLaar:CalcularPORVanLaar;
+      Wilson:begin
+               CalcularPORMargules;
+               PorMar:=FactorCorrelacion;
+               A12Mar:=A12;
+               A21Mar:=A21;
+               CalcularPorVanLaar;         {para dar estimados de Gammas infinito}
+               PorLaar:=FactorCorrelacion;
+               A12Laar:=A12;                {se pueden ahorrar el uso de estas variables}
+               A21Laar:=A21;
+               if Abs(PorMar-1)<Abs(PorLaar-1) then
+                begin
+                FactorCorrelacion:=PorMar;
+                A12:=A12Mar;
+                A21:=A21Mar;
+                end
+               else
+                FactorCorrelacion:=PorLaar;
+                A12:=A12Laar;
+                A21:=A21Laar;
+             end;
+    end;
+  if FactorCorrelacion < 0.80 then
+   begin
+    A12:=0.5;
+    A21:=0.5; {si el ajuste gr‡fico es malo, mejor comenzar con lo malo conocido}
+   end
+  else
+   if ModeloLiquido=Wilson then
+    If CalcParBinWilson(Exp(A12),Exp(A21),A12,A21)<>SinError then
+     begin
+      A21:=0.5;
+      A12:=0.5;
+     end;
+end;
+
+begin
+ case modeloliquido of
+  Margules,VanLaar,Wilson:begin end; {si es uno de estos modelos continue}
+  otherwise
+   begin
+    AijBinario:=ErrorMatematico;
+    Exit;                            {si no s‡lgase inmediatamente}
+   end;
+ end;
+ Fin:=false;
+ ErrorMat:=false;
+ GetEnvironment(Ambiente);
+ SetEnvironment(0);
+ if DarErrores<>Nil then
+  PasarDatos(-1,-1,TolFracc,DarErrores);
+ New(LosCal);
+ 
+ if SalirYa or Fin  then
+  begin
+   dispose(LosCal);
+   AijBinario:=Abortado;
+   SetEnvironment(Ambiente);
+   Exit;
+  end;
+ CalcularGammasExp;
+ with LosDatos,LosCal^ do
+  for iter:=1 to Cuantas do
+   begin
+    i:=0;
+    repeat
+     i:=i+1;
+     ErrorMat:=NumeroMalo(GamExp[iter,i,1]*GamExp[iter,i,2]);
+    until (ErrorMat) or (i=ND[iter]);
+   end;
+   
+ if SalirYa or Fin  then
+  begin
+   dispose(LosCal);
+   AijBinario:=Abortado;
+   SetEnvironment(Ambiente);
+   Exit;
+  end;
+  
+ if ModeloLiquido = Wilson then
+    begin
+     CoefAij[1,1]:=1;
+     CoefAij[2,2]:=1;
+    end
+ else
+    begin
+     CoefAij[1,1]:=0;
+     CoefAij[2,2]:=0;
+    end;
+ if Not(ErrorMat) then
+  EstimadosIniciales;
+ 
+ if NumeroMalo(CoefAij[1,2]) or NumeroMalo(CoefAij[2,1]) then ErrorMat:=true;
+ 
+  if SalirYa or Fin  then
+  begin
+   dispose(LosCal);
+   AijBinario:=Abortado;
+   SetEnvironment(Ambiente);
+   Exit;
+  end;
+
+ Componentes(ElSistema,2);
+ CargarCoefAij;
+ CalcularFAs;
+ ModAux:=ModuloFas;
+ ErrorInicial:=ModAux;
+ ErrorMat:=NumeroMalo(ModAux);
+ ElMinMod:=ModAux;
+ A12min:=A12;
+ A21min:=A21;
+ Convergencia:=false;
+ iter:=0;
+ if Not(ErrorMat) then
+  repeat    
+   
+   if SalirYa or Fin  then
+    begin
+     dispose(LosCal);
+     AijBinario:=Abortado;
+     SetEnvironment(Ambiente);
+     Exit;
+    end;
+    
+   iter:=iter+1;
+   ModAux:=ModuloFas;
+   ErrorMat:=NumeroMalo(ModAux);
+   if Not(ErrorMat) then
+    begin
+     if DarErrores<>Nil then
+      PasarDatos(ModAux,ErrorInicial,TolFracc,DarErrores);
+     if ModAux < TolFracc then Convergencia:=true
+     else
+      begin
+       if ModAux < ElMinMod then
+        begin
+         ElMinMod:=ModAux;
+         A12min:=A12;         { aqui voy guardando los mejores valores}
+         A21min:=A21;
+        end;
+       CalcularJacob;
+       CalcularYs;
+       CalcularAij;
+       CargarCoefAij;
+       CalcularFAs;
+      end;
+    end;{if Not(ErrorMat)É }
+  until Convergencia or (Iter>NMaxItera) or ErrorMat;
+ if Not(Convergencia) then
+   begin
+    A12:=A12min;  {se reportan los mejores valores si no converge}
+    A21:=A21min;
+   end;
+ if Convergencia then
+   AijBinario:=SinError
+ else 
+  if (Iter>NMaxItera) then AijBinario:=NoConverge
+ else
+  if ErrorMat then AijBinario:=ErrorMatematico;
+dispose(LosCal);
+SetEnvironment(Ambiente);
+end;
+
+BEGIN
+   Fin:=false;
+END.
