@@ -182,7 +182,7 @@ An **independent `units/` Rust crate** (sibling to `engine/`) plus a Python comp
 
 **References**: Bridgman, P.W. *Dimensional Analysis*, Yale University Press, 1922; BIPM, *The International System of Units (SI)*, 9th ed., 2019.
 
-See `ROADMAP.md` Milestone 1.5 and `docs/en/units.md` (once implemented).
+**Detailed design document**: [`docs/en/units/dimensional-analysis.md`](docs/en/units/dimensional-analysis.md) explains the 7 SI base dimensions, dimensional homogeneity principle, conversion strategy, and the Rust phantom-type / Python runtime implementation approach. See also `ROADMAP.md` Milestone 1.5 for task breakdown.
 
 ---
 
