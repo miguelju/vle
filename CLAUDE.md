@@ -25,6 +25,46 @@ Do NOT push until all documentation accurately reflects the current state of the
 
 The model name must be the exact model powering the session (e.g., `Claude Opus 4.6 (1M context)`, `Claude Sonnet 4.6`, etc.). This tracks which AI model was used for each phase of the project.
 
+## Units Documentation Rules
+
+**Every Rust function and Python wrapper function** that accepts or returns a physical quantity MUST state the units in its doc comment.
+
+**Rust example:**
+```rust
+/// Calculate saturation pressure at the given temperature.
+///
+/// # Arguments
+/// * `temperature` — Temperature in **K** (Kelvin)
+///
+/// # Returns
+/// Saturation pressure in **kPa**
+pub fn saturation_pressure(temperature: f64) -> f64 { ... }
+```
+
+**Python example:**
+```python
+def saturation_pressure(temperature: float) -> float:
+    """Calculate saturation pressure at the given temperature.
+
+    Args:
+        temperature: Temperature in **K** (Kelvin)
+
+    Returns:
+        Saturation pressure in **kPa**
+    """
+```
+
+**Canonical internal units** (used by the VLE engine, matching legacy VB6/Pascal code):
+- Temperature: **K**
+- Pressure: **kPa**
+- Energy (molar): **kJ/kmol**
+- Entropy (molar): **kJ/(kmol·K)**
+- Volume (molar): **cm³/mol**
+- Amount: **kmol**
+- Gas constant R: **8.31451 kJ/(kmol·K)**
+
+User-facing APIs should accept unit strings (e.g., `"25 degC"`, `"1 atm"`) via the `units` library (see `units/` crate and `python/src/vle/units.py`).
+
 ## Project Overview
 
 This is a **VLE (Vapor-Liquid Equilibrium) thermodynamic calculator** being modernized from two legacy codebases into a Rust + Python stack:

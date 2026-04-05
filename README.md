@@ -46,6 +46,13 @@ The full research paper is available in both [English](docs/en/research-paper/RE
 - Saturation pressure (Antoine, Riedel, Muller, RPM)
 - Residual and excess thermodynamic properties (H, S, G)
 
+### Units of Measurement (Independent Add-On)
+- **Dimensional analysis** via the 7 SI base dimensions (L, M, T, I, Θ, N, J)
+- **Rust**: `uom` crate for compile-time dimension checking (zero runtime cost)
+- **Python**: `pint` library for runtime unit conversion
+- Supports temperature (K, °C, °F, °R), pressure (kPa, bar, atm, psi, mmHg, torr), energy (kJ/kmol, J/mol, cal/mol, BTU/lbmol), and more
+- Works standalone — can be used in other projects
+
 ### Algorithm Improvements Over Legacy Code
 The modernization introduces several numerical improvements over the original VB6/Pascal implementations:
 
@@ -65,6 +72,7 @@ See [MODERNIZATION_PLAN.md](MODERNIZATION_PLAN.md) for full details and justific
 
 ```
 vle/
+├── units/                   # Independent units crate (dimensional analysis)
 ├── engine/                  # Rust computation engine (PyO3 bindings)
 ├── python/                  # Python wrapper library
 ├── notebooks/               # Jupyter notebooks (reproduce thesis results)

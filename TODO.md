@@ -18,6 +18,19 @@ Check off items as they're completed. Time estimates assume working with Claude 
 - [x] **Create parameter reference** (~3–4h) — `docs/en/parameters/parameter_reference.md` (167 lines)
 - [x] **Write developer setup guide** (~1–2h) — `docs/en/SETUP.md`: Rust toolchain, conda env, maturin, how to build/test
 
+## Milestone 1.5: Units of Measurement Library
+
+Independent add-on (~12–15h total). Uses dimensional analysis via the 7 SI base dimensions. Rust: `uom` crate (compile-time checks, phantom types). Python: `pint` library (runtime checks).
+
+- [ ] **Scaffold units crate** (~1h) — `units/Cargo.toml` with `uom` dependency, `units/src/lib.rs`
+- [ ] **Define VLE quantity types** (~2h) — Temperature, Pressure, MolarEnergy, MolarEntropy, MolarVolume, Amount as aliases for `uom`'s SI types
+- [ ] **Implement unit string parser** (~2–3h) — `parse_unit_string("kPa")` → typed quantity; supports K/°C/°F/°R, Pa/kPa/bar/atm/psi/mmHg/torr, kJ/kmol, J/mol, cal/mol, etc.
+- [ ] **Implement canonical conversion** (~1–2h) — `to_canonical()` / `from_canonical()` for each quantity (canonical: K, kPa, kJ/kmol, kJ/(kmol·K), cm³/mol, kmol)
+- [ ] **Write Rust conversion tests** (~2h) — all 6 quantities × 3–4 alt units, round-trip identity, compile-time dimension check (`temperature + pressure` must fail to compile)
+- [ ] **Create Python units wrapper** (~2h) — `python/src/vle/units.py` using `pint`, same unit strings as Rust side
+- [ ] **Write Python conversion tests** (~1–2h) — verify parity with Rust side via golden values
+- [ ] **Document units API** (~1h) — `docs/en/units.md` with supported units table, usage examples, references (BIPM SI brochure, uom, pint)
+
 ## Milestone 2: Dev Environment & Scaffolding
 
 - [ ] **Install Rust toolchain** (~0.5h) — `rustup`, verify `cargo --version`
@@ -104,6 +117,7 @@ Check off items as they're completed. Time estimates assume working with Claude 
 |-----------|-----------|--------|
 | 0. Foundation | — | Done |
 | 1. Documentation & Translation | ~20–28h | **Done** |
+| 1.5. Units Library | ~12–15h | Not started |
 | 2. Dev Environment & Scaffolding | ~9–12h | Not started |
 | 3. Numerics | ~12–15h | Not started |
 | 4. Pure Component Models | ~24–32h | Not started |
@@ -111,4 +125,4 @@ Check off items as they're completed. Time estimates assume working with Claude 
 | 6. Flash & Regression | ~26–37h | Not started |
 | 7. Python Bindings & Wrapper | ~15–22h | Not started |
 | 8. Jupyter Notebooks | ~19–26h | Not started |
-| **Total** | **~146–202h** | |
+| **Total** | **~158–217h** | |

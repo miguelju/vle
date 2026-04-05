@@ -169,10 +169,35 @@ The modernized Rust code improves on several legacy numerical methods. Each subs
 
 ---
 
+## Units of Measurement Add-On
+
+An **independent `units/` Rust crate** (sibling to `engine/`) plus a Python companion (`python/src/vle/units.py`) provides dimensional-analysis-based unit conversion. The units library works standalone and wraps VLE API boundaries so users can pass inputs in any compatible unit (°C, °F, bar, atm, psi, etc.) while the engine operates on canonical metric units internally.
+
+**Legacy units (confirmed in both VB6 and Pascal codebases)**: T in K, P in kPa/bar, molar energy in kJ/kmol, molar entropy in kJ/(kmol·K), R = 8.31451 kJ/(kmol·K) (VB6) / 8.3144 (Pascal). See `legacy/vb6/McommonFunctions.bas:3` and `legacy/pascal/TERMOI.PAS:13`, with Pascal's explicit units comment at `TERMOII.PAS:62-63`.
+
+**Implementation**:
+- Rust: `uom` crate (compile-time dimensional analysis via phantom types, zero runtime cost, 7 SI base dimensions)
+- Python: `pint` library (runtime dimensional analysis, NumPy integration)
+- Canonical internal units match legacy code exactly so validation data is reusable without conversion
+
+**References**: Bridgman, P.W. *Dimensional Analysis*, Yale University Press, 1922; BIPM, *The International System of Units (SI)*, 9th ed., 2019.
+
+See `ROADMAP.md` Milestone 1.5 and `docs/en/units.md` (once implemented).
+
+---
+
 ## Project Structure
 
 ```
 vle/
+├── units/                           # Independent units crate (dimensional analysis via uom)
+│   ├── Cargo.toml
+│   ├── src/
+│   │   ├── lib.rs
+│   │   ├── vle_units.rs             # Temperature, Pressure, MolarEnergy, etc.
+│   │   ├── parsing.rs               # Parse "kPa", "degC", etc. to typed quantities
+│   │   └── canonical.rs             # to_canonical() / from_canonical()
+│   └── tests/
 ├── engine/                          # Rust crate (core computation)
 │   ├── Cargo.toml
 │   └── src/
@@ -229,6 +254,7 @@ vle/
 │   ├── src/vle/
 │   │   ├── __init__.py              # Public API
 │   │   ├── _engine.pyi             # Type stubs for Rust bindings
+│   │   ├── units.py                 # Pint-based unit conversion wrapper
 │   │   ├── system.py                # High-level System class
 │   │   ├── models.py                # Enums: EOS, ActivityModel, MixingRule
 │   │   ├── components.py            # Built-in component database

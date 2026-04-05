@@ -34,6 +34,19 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Create parameter reference document (`docs/en/parameters/parameter_reference.md`)
 - [x] Write developer setup guide (`docs/en/SETUP.md`)
 
+## Milestone 1.5: Units of Measurement Library
+**Goal**: Independent Rust crate + Python wrapper for unit conversion using dimensional analysis.
+*Add-on sub-project, works independently of VLE engine*
+
+- [ ] Scaffold `units/` Rust crate with `uom` dependency
+- [ ] Define VLE-specific quantity types (Temperature, Pressure, MolarEnergy, MolarEntropy, MolarVolume, Amount)
+- [ ] Implement unit string parser (`parse_unit_string("kPa")` → typed quantity)
+- [ ] Implement `to_canonical()` / `from_canonical()` conversion functions
+- [ ] Write Rust conversion test suite (6 quantities × 3+ alt units, round-trip)
+- [ ] Create `python/src/vle/units.py` wrapper around `pint`
+- [ ] Write Python conversion tests (parity with Rust)
+- [ ] Document units API in `docs/en/units.md`
+
 ## Milestone 2: Dev Environment & Scaffolding
 **Goal**: Rust crate compiles, Python package builds, empty module importable.
 *Phases 1 of MODERNIZATION_PLAN.md*
