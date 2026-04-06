@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "agent",
+            "if": "Bash(git push:*)",
+            "prompt": "Before allowing this git push, verify that TODO.md and ROADMAP.md are in sync and updated for any work done. Check:\n1. Every milestone in ROADMAP.md has a corresponding section in TODO.md (and vice versa), with matching milestone numbers and names.\n2. Tasks that have been completed (files exist, code written) are checked off [x] in both files.\n3. Phase pointers in ROADMAP.md (*Phase N of MODERNIZATION_PLAN.md*) match the phase headers in MODERNIZATION_PLAN.md.\n4. The summary table in TODO.md matches the current milestone list.\n5. No stale milestone references (e.g., old fractional milestone numbers like 1.5 or 2.5) exist.\n\nIf everything is in sync, allow the push. If anything is out of sync, block the push and explain what needs to be fixed.",
+            "timeout": 120,
+            "statusMessage": "Verifying TODO.md and ROADMAP.md are in sync..."
+          }
+        ]
+      }
+    ]
+  }
+}

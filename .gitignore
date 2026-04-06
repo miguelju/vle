@@ -37,3 +37,4 @@ data/components.db-shm
 
 # Claude Code
 .claude/
+!.claude/settings.json
