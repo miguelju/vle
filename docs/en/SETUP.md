@@ -84,6 +84,19 @@ maturin develop    # Build and install in conda env (debug mode)
 maturin develop --release   # Optimized build
 ```
 
+### Component Database
+
+The component database is available now (no Rust build required):
+
+```bash
+conda activate vle
+PYTHONPATH=python/src python -m vle.cli.main init               # Create SQLite database
+PYTHONPATH=python/src python -m vle.cli.main seed --source chapter4  # Seed 15 compounds
+PYTHONPATH=python/src python -m vle.cli.main validate chapter4  # Verify data integrity
+PYTHONPATH=python/src python -m vle.cli.main list               # Browse components
+PYTHONPATH=python/src python -m vle.cli.main show methane       # View details
+```
+
 ### Verify Installation
 
 ```bash
