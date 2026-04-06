@@ -17,6 +17,7 @@ Check off items as they're completed. Time estimates assume working with Claude 
 - [x] **Translate Appendix B — User Manual** (~2–3h) — library usage guide (204 lines)
 - [x] **Create parameter reference** (~3–4h) — `docs/en/parameters/parameter_reference.md` (167 lines)
 - [x] **Write developer setup guide** (~1–2h) — `docs/en/SETUP.md`: Rust toolchain, conda env, maturin, how to build/test
+- [x] **Push to GitHub** (~0.5h) — create remote, initial push, verify README renders
 
 ## Milestone 2: Dev Environment & Scaffolding
 
@@ -29,7 +30,6 @@ Check off items as they're completed. Time estimates assume working with Claude 
 - [ ] **Create `python/pyproject.toml`** (~0.5h) — maturin build backend, package metadata
 - [ ] **Create `python/src/vle/__init__.py`** (~0.5h) — empty public API skeleton
 - [ ] **Verify end-to-end build** (~1h) — `conda activate vle` → `cargo build` → `maturin develop` → `python -c "import vle"` works
-- [ ] **Push to GitHub** (~0.5h) — create remote, initial push, verify README renders
 
 ## Milestone 3: Units of Measurement Library
 
