@@ -72,31 +72,97 @@ See [MODERNIZATION_PLAN.md](MODERNIZATION_PLAN.md) for full details and justific
 
 ```
 vle/
-├── units/                   # Independent units crate (dimensional analysis)
-├── engine/                  # Rust computation engine (PyO3 bindings)
-├── python/                  # Python wrapper library
-├── notebooks/               # Jupyter notebooks (reproduce thesis results)
+├── data/                    # Component property database
+│   ├── schema.sql           # SQLite schema (version-controlled)
+│   ├── seed_chapter4.sql    # Chapter IV validation data (version-controlled)
+│   └── components.db        # SQLite database (generated, gitignored)
+├── scripts/                 # Data extraction utilities (see scripts/README.md)
+├── python/src/vle/          # Python package
+│   ├── db/                  # Component database (connection, queries, models)
+│   └── cli/                 # CLI tool (vle-db)
+├── notebooks/               # Jupyter notebooks
+│   └── 00_component_database.ipynb  # Interactive component browser
+├── units/                   # Independent units crate (planned — dimensional analysis)
+├── engine/                  # Rust computation engine (planned — PyO3 bindings)
 ├── docs/
 │   ├── en/research-paper/   # English translation (navigatable)
+│   ├── en/units/            # Units add-on design document
 │   └── es/research-paper/   # Spanish original
 ├── legacy/
-│   ├── vb6/                 # Original VB6 source (reference)
-│   └── pascal/              # Original Pascal source (reference) (4)
-├── MODERNIZATION_PLAN.md    # Detailed implementation plan
+│   ├── vb6/                 # Original VB6 source (~15,000 lines, reference)
+│   └── pascal/              # Original Pascal source (~2,500 lines, reference) (4)
+├── ROADMAP.md               # Milestones and progress tracking
+├── TODO.md                  # Tasks with time estimates
+├── MODERNIZATION_PLAN.md    # 16-phase implementation plan
 ├── PASCAL_VB6_COMPARISON.md # Legacy codebase comparison
-└── CLAUDE.md                # Claude Code development guidance
+└── CLAUDE.md                # Claude Code development guidance and conventions
 ```
+
+## Development Workflow
+
+This project is developed incrementally using [Claude Code](https://claude.ai/code) as an AI development partner. Each milestone follows a **plan-then-execute** cycle, tracked across three synchronized documents:
+
+| Document | Purpose |
+|----------|---------|
+| [`ROADMAP.md`](ROADMAP.md) | Milestones — high-level goals and deliverables |
+| [`TODO.md`](TODO.md) | Tasks — actionable items with time estimates per milestone |
+| [`MODERNIZATION_PLAN.md`](MODERNIZATION_PLAN.md) | Phases — detailed technical implementation plan (16 phases) |
+
+### Resuming work from a new machine
+
+```bash
+# 1. Clone the repository
+git clone <repo-url> && cd vle
+
+# 2. Review current progress
+cat ROADMAP.md          # Which milestones are done?
+cat TODO.md             # Which tasks remain?
+
+# 3. Initialize the component database (generated, not in git)
+pip install thermo                                          # optional, for extended seeding
+PYTHONPATH=python/src python -m vle.cli.main init
+PYTHONPATH=python/src python -m vle.cli.main seed --source chapter4
+PYTHONPATH=python/src python -m vle.cli.main validate chapter4
+
+# 4. Start a Claude Code session and continue the next milestone
+claude
+```
+
+### How a milestone is executed
+
+1. **Plan** — Claude Code reads the relevant legacy code, documentation, and academic references, then proposes an implementation plan.
+2. **Review** — The developer reviews the plan, asks questions, and requests adjustments.
+3. **Execute** — Claude Code implements the plan incrementally (code, tests, documentation).
+4. **Validate** — Results are verified against Chapter IV test cases (8 validation systems from the thesis).
+5. **Commit** — All documentation (`ROADMAP.md`, `TODO.md`, `MODERNIZATION_PLAN.md`) is updated to reflect the current state before pushing.
+
+Each milestone records which AI model was used (e.g., `Claude Opus 4.6 (1M context)`) in the commit and documentation for reproducibility tracking.
+
+### Project conventions
+
+- All code, documentation, and project management follow the rules in [`CLAUDE.md`](CLAUDE.md).
+- Every function that accepts or returns a physical quantity documents the units in its doc comment.
+- All internal calculations use **absolute** pressure in **kPa** — never gauge pressure.
+- Phase numbering in `MODERNIZATION_PLAN.md` always matches milestone execution order.
 
 ## Getting Started
 
-> **Status**: This project is in the planning/early development phase. The Rust engine and Python bindings are not yet implemented.
+> **Status**: Milestones 0–1 complete (documentation, translation). Milestone 2.5 (component database) implemented. Milestones 1.5–8 (engine, bindings, notebooks) not yet started.
 
-### Prerequisites (planned)
-- Rust 1.75+ with cargo
-- Python 3.10+
+### Prerequisites
+- Python 3.10+ (for the component database and future Python wrapper)
+- Rust 1.75+ with cargo (for the future engine build)
 - maturin (for building PyO3 bindings)
 
-### Build (planned)
+### Component Database (available now)
+```bash
+PYTHONPATH=python/src python -m vle.cli.main init               # Create database
+PYTHONPATH=python/src python -m vle.cli.main seed --source chapter4  # Seed 15 compounds
+PYTHONPATH=python/src python -m vle.cli.main list               # Browse components
+PYTHONPATH=python/src python -m vle.cli.main show methane       # View details
+```
+
+### Build (planned — Milestones 2+)
 ```bash
 cd engine && cargo build --release    # Build Rust engine
 cd python && maturin develop          # Build Python bindings

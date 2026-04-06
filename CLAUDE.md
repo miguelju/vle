@@ -80,17 +80,19 @@ def saturation_pressure(temperature: float) -> float:
 ```
 
 **Canonical internal units** (used by the VLE engine, matching legacy VB6/Pascal code):
-- Temperature: **K**
-- Pressure: **kPa**
+- Temperature: **K** (absolute)
+- Pressure: **kPa** (absolute — **never** gauge)
 - Energy (molar): **kJ/kmol**
 - Entropy (molar): **kJ/(kmol·K)**
 - Volume (molar): **cm³/mol**
 - Amount: **kmol**
 - Gas constant R: **8.31451 kJ/(kmol·K)**
 
-User-facing APIs should accept unit strings (e.g., `"25 degC"`, `"1 atm"`) via the `units` library (see `units/` crate and `python/src/vle/units.py`).
+**Absolute vs. Gauge Pressure**: All VLE calculations use **absolute pressure**. Gauge pressure (barg, psig, kPag) is converted to absolute at the API boundary via `P_abs = P_gauge × scale + P_atm`. Atmospheric pressure (P_atm) is a **runtime-configurable parameter** stored in the unit registry — it must **never** be hardcoded. Default: 101.325 kPa (1 standard atm). Users change it via `registry.set_atmospheric_pressure()` (Rust) or `set_atmospheric_pressure()` (Python). When writing functions that accept pressure, always document whether the parameter expects absolute or gauge units. Engine-internal functions always take absolute kPa. See [`docs/en/units/dimensional-analysis.md`](docs/en/units/dimensional-analysis.md) §3.4 for the full explanation.
 
-**User-extensible units**: The library ships with VLE defaults but must remain **extensible**. Users can add custom units (e.g., `mmH2O`, `barg`) via the runtime `UnitRegistry` in Rust or `ureg.define()` in Python, without modifying library source. When adding new code, do not hard-code the list of accepted units — always go through the registry. See [`docs/en/units/dimensional-analysis.md`](docs/en/units/dimensional-analysis.md) §7 for the extension API and rules.
+User-facing APIs should accept unit strings (e.g., `"25 degC"`, `"1 atm"`, `"3.5 barg"`) via the `units` library (see `units/` crate and `python/src/vle/units.py`).
+
+**User-extensible units**: The library ships with VLE defaults (including gauge pressure units: barg, psig, kPag) but must remain **extensible**. Users can add custom units (e.g., `mmH2O`, `atg`) via the runtime `UnitRegistry` in Rust or `ureg.define()` in Python, without modifying library source. When adding new code, do not hard-code the list of accepted units — always go through the registry. See [`docs/en/units/dimensional-analysis.md`](docs/en/units/dimensional-analysis.md) §7 for the extension API and rules.
 
 ## Project Overview
 

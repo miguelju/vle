@@ -24,6 +24,7 @@ Independent add-on (~12–15h total). Uses dimensional analysis via the 7 SI bas
 
 - [ ] **Scaffold units crate** (~1h) — `units/Cargo.toml` with `uom` dependency, `units/src/lib.rs`
 - [ ] **Define VLE quantity types** (~2h) — Temperature (absolute), TemperatureDiff (gradient / interval), Pressure, MolarEnergy, MolarEntropy, MolarVolume, Amount as aliases for `uom`'s SI types. Temperature and TemperatureDiff are *separate* types even though both canonicalize to K (see `docs/en/units/dimensional-analysis.md` §3.3)
+- [ ] **Implement gauge pressure units** (~1–2h) — Built-in barg, psig, kPag with affine conversion (P_abs = P_gauge × scale + P_atm). P_atm is a **runtime-configurable parameter** in the registry (never hardcoded): `registry.set_atmospheric_pressure()` / `get_atmospheric_pressure()`. Default 101.325 kPa. Reject non-positive absolute results. Support `define_gauge()` for user-added gauge units. See `docs/en/units/dimensional-analysis.md` §3.4
 - [ ] **Implement runtime UnitRegistry** (~3–4h) — extensible runtime registry alongside compile-time typed API; supports `define(name, dimension, scale, offset)` for user-added units
 - [ ] **Implement unit string parser** (~2–3h) — `parse_unit_string("kPa")` → typed quantity; supports K/°C/°F/°R, Pa/kPa/bar/atm/psi/mmHg/torr, kJ/kmol, J/mol, cal/mol, etc.
 - [ ] **Implement canonical conversion** (~1–2h) — `to_canonical()` / `from_canonical()` for each quantity (canonical: K, kPa, kJ/kmol, kJ/(kmol·K), cm³/mol, kmol)
@@ -33,6 +34,18 @@ Independent add-on (~12–15h total). Uses dimensional analysis via the 7 SI bas
 - [ ] **Create Python units wrapper** (~2h) — `python/src/vle/units.py` using `pint`, same unit strings as Rust side, exposes `ureg` for user extensions
 - [ ] **Write Python conversion tests** (~1–2h) — verify parity with Rust side via golden values, test user-added units via `ureg.define()`
 - [ ] **Document units API + extension guide** (~1–2h) — update `docs/en/units/dimensional-analysis.md` with working code examples; add `docs/en/units/README.md` quickstart
+
+## Milestone 2.5: Component Property Database
+
+SQLite-based property database with CLI and Jupyter notebook interface (~8–10h total).
+
+- [ ] **Define SQLite schema** (~0.5h) — `data/schema.sql` with 4 tables: components, kij_params, activity_params, experimental_vle
+- [ ] **Implement Python db package** (~3h) — `python/src/vle/db/` with connection.py, queries.py, models.py, seed.py
+- [ ] **Extract and seed Chapter IV data** (~1h) — 15 compounds from `thermo`/DIPPR, binary params from thesis tables, experimental VLE data
+- [ ] **Implement CLI tool** (~1.5h) — `python/src/vle/cli/main.py` with init, seed, validate, show, list, export commands
+- [ ] **Create Jupyter notebook** (~1.5h) — `notebooks/00_component_database.ipynb` with interactive browsing, search, add/edit
+- [ ] **Implement optional thermo seeding** (~1h) — `vle-db seed --source thermo` for ~70K compounds (optional dependency)
+- [ ] **Write validation tests** (~0.5h) — `vle-db validate chapter4` verifies all 15 compounds + binary params + experimental data
 
 ## Milestone 2: Dev Environment & Scaffolding
 
@@ -120,7 +133,8 @@ Independent add-on (~12–15h total). Uses dimensional analysis via the 7 SI bas
 |-----------|-----------|--------|
 | 0. Foundation | — | Done |
 | 1. Documentation & Translation | ~20–28h | **Done** |
-| 1.5. Units Library | ~18–24h | Not started |
+| 1.5. Units Library | ~19–26h | Not started |
+| 2.5. Component Database | ~8–10h | Not started |
 | 2. Dev Environment & Scaffolding | ~9–12h | Not started |
 | 3. Numerics | ~12–15h | Not started |
 | 4. Pure Component Models | ~24–32h | Not started |
@@ -128,4 +142,4 @@ Independent add-on (~12–15h total). Uses dimensional analysis via the 7 SI bas
 | 6. Flash & Regression | ~26–37h | Not started |
 | 7. Python Bindings & Wrapper | ~15–22h | Not started |
 | 8. Jupyter Notebooks | ~19–26h | Not started |
-| **Total** | **~164–226h** | |
+| **Total** | **~172–236h** | |

@@ -255,7 +255,189 @@ t1 + dt                               # → 85 degC (absolute + interval = absol
 
 The VLE API follows the same rule: functions that accept a temperature *gradient*, a heat capacity, or a heat-transfer coefficient take the **difference** type; functions that accept a state temperature (bubble point, reactor T, etc.) take the **absolute** type. See §6 for the canonical type assignments.
 
-### 3.4 Canonical unit strategy
+### 3.4 Absolute Pressure vs. Gauge Pressure — A Critical Distinction
+
+In thermodynamic calculations, **all pressures are absolute**. This is a non-negotiable requirement for equation-of-state (EOS) and vapor-liquid equilibrium (VLE) work. However, in industrial practice many instruments report **gauge pressure** (relative to local atmospheric pressure). Confusing the two is a common and dangerous source of error.
+
+#### 3.4.1 What they mean physically
+
+| Concept | Symbol | Physical meaning | Example |
+|---------|--------|------------------|---------|
+| Absolute pressure | *P*_abs | Force per unit area measured from a **perfect vacuum** (zero reference). Always positive. | "The vessel is at 200 kPa absolute." |
+| Gauge pressure | *P*_gauge | Force per unit area measured from **local atmospheric pressure**. Can be negative (vacuum). | "The gauge reads 98.7 kPa." |
+| Atmospheric pressure | *P*_atm | Local atmospheric pressure at the point of measurement. Standard atmosphere = 101.325 kPa. | "Standard sea-level pressure." |
+
+The fundamental relationship is:
+
+```
+P_abs = P_gauge + P_atm
+```
+
+Or equivalently:
+
+```
+P_gauge = P_abs − P_atm
+```
+
+Where `P_atm` defaults to **101.325 kPa** (1 standard atmosphere) unless the user specifies a site-specific value (e.g., at altitude or under non-standard weather).
+
+#### 3.4.2 Why VLE calculations require absolute pressure
+
+Every thermodynamic equation of state relates *absolute* quantities. Consider the ideal gas law:
+
+```
+PV = nRT
+```
+
+If `P` were gauge pressure, then at atmospheric pressure (`P_gauge = 0`) the equation would predict `V = ∞`, which is nonsensical. The compressibility factor `Z = PV/(nRT)`, fugacity coefficients `φ = f/P`, and equilibrium ratios `K_i = y_i/x_i` all depend on absolute pressure.
+
+**Specific consequences of using gauge pressure by mistake in VLE:**
+
+| Calculation | Effect of gauge vs. absolute error |
+|------------|-----------------------------------|
+| Bubble point pressure | Result off by ~101.325 kPa — meaningless at low pressures |
+| Fugacity coefficient φ | `φ = exp(∫(Z-1)/P dP)` — integrand diverges near P=0 gauge |
+| K-values | `K_i = P_sat,i / P` — if P is gauge, K-values are wildly wrong near atmospheric |
+| Critical point | Mixture critical pressure shifted by P_atm — wrong phase envelope |
+| Flash calculation | Rachford-Rice objective function gets wrong root — incorrect phase split |
+
+At high pressures (e.g., 5000 kPa), a 101.325 kPa offset is ~2% — subtly wrong. At low pressures (e.g., 110 kPa absolute = 8.675 kPa gauge), the error is catastrophic. **There is no safe regime where gauge pressure "works approximately" in EOS calculations.**
+
+#### 3.4.3 Common gauge pressure units
+
+Gauge pressure units are denoted by appending **"g"** to the absolute unit symbol:
+
+| Gauge Unit | Absolute Equivalent | Conversion to canonical (kPa absolute) |
+|-----------|--------------------|-----------------------------------------|
+| **barg** (bar gauge) | bar | `P_abs(kPa) = P_gauge(barg) × 100 + P_atm(kPa)` |
+| **psig** (psi gauge) | psi | `P_abs(kPa) = P_gauge(psig) × 6.89476 + P_atm(kPa)` |
+| **kPag** (kPa gauge) | kPa | `P_abs(kPa) = P_gauge(kPag) + P_atm(kPa)` |
+| **atg** (atmosphere gauge) | atm | `P_abs(kPa) = P_gauge(atg) × 101.325 + P_atm(kPa)` |
+| **mmHg gauge** | mmHg | `P_abs(kPa) = P_gauge(mmHg_g) × 0.133322 + P_atm(kPa)` |
+
+The default `P_atm = 101.325 kPa` (standard atmosphere). Users can override this per-conversion if working at non-standard altitude or conditions.
+
+#### 3.4.4 Comparison with temperature: two affine conversions in VLE
+
+Gauge pressure conversion is structurally identical to absolute-temperature conversion — both are **affine** (scale + offset):
+
+| Quantity | Affine formula | Offset |
+|----------|---------------|--------|
+| Absolute temperature | `T(K) = T(°C) + 273.15` | 273.15 K |
+| Absolute pressure | `P(kPa) = P(kPag) + P_atm` | P_atm (default 101.325 kPa; configurable) |
+
+And just as we distinguish absolute temperature from temperature *difference* (§3.3), we must distinguish absolute pressure from gauge pressure. The key difference: the temperature offset (273.15 K) is a fixed physical constant, while the gauge-pressure offset (atmospheric pressure) can vary with location and weather. The library uses 101.325 kPa as the default but allows the user to specify an alternative atmospheric pressure.
+
+#### 3.4.5 Conversion rules
+
+**From gauge to absolute (canonical kPa):**
+
+```
+P_abs_kPa = P_gauge × scale_factor + P_atm_kPa
+```
+
+Where `scale_factor` converts from the gauge unit to kPa (e.g., 100 for barg, 6.89476 for psig, 1 for kPag).
+
+**From absolute (canonical kPa) to gauge:**
+
+```
+P_gauge = (P_abs_kPa − P_atm_kPa) / scale_factor
+```
+
+**Important**: a negative gauge pressure is physically valid — it means a partial vacuum. For example, `−50 kPag` = `51.325 kPa absolute` (a mild vacuum). However, **absolute pressure must always be > 0**. The library should reject conversions that would produce a non-positive absolute pressure.
+
+#### 3.4.6 How the library handles gauge pressure
+
+The Units Add-On treats gauge pressure units as **affine conversions** within the Pressure dimension, exactly like °C is an affine conversion within the Temperature dimension:
+
+**Rust (registry-level, runtime-configurable P_atm):**
+
+```rust
+use vle_units::{UnitRegistry, Dimension};
+
+let mut registry = UnitRegistry::with_vle_defaults();
+// Gauge units (barg, psig, kPag) are pre-registered.
+// P_atm defaults to 101.325 kPa but is NOT hardcoded — it lives in the
+// registry as a configurable field: registry.atmospheric_pressure_kpa.
+
+// ── Standard atmosphere (default) ──
+
+/// Parse a gauge pressure string into absolute pressure (canonical kPa).
+/// The offset is resolved from registry.atmospheric_pressure_kpa at parse time.
+///
+/// # Returns
+/// Absolute pressure in **kPa**
+let p = registry.parse("2.5 barg")?;
+// 2.5 barg = 2.5 × 100 + 101.325 (default P_atm) = 351.325 kPa absolute
+assert!((p.value_kpa() - 351.325).abs() < 1e-6);
+
+/// Convert from absolute back to gauge (also uses registry P_atm).
+///
+/// # Returns
+/// Pressure in **psig** (psi gauge)
+let p_psig = registry.format(p, "psig")?;
+// 351.325 kPa abs → (351.325 − 101.325) / 6.89476 = 36.26 psig
+
+// ── Non-standard atmosphere (e.g., plant at 1500 m elevation) ──
+
+/// Override atmospheric pressure for all subsequent gauge conversions.
+///
+/// # Arguments
+/// * `p_atm_kpa` — Local atmospheric pressure in **kPa**
+registry.set_atmospheric_pressure(84.5)?;
+
+let p2 = registry.parse("2.5 barg")?;
+// Now: 2.5 × 100 + 84.5 = 334.5 kPa absolute
+assert!((p2.value_kpa() - 334.5).abs() < 1e-6);
+```
+
+**Python (runtime):**
+
+```python
+from vle.units import ureg, to_canonical
+
+# Gauge units pre-defined in the VLE registry
+p_gauge = ureg.Quantity(2.5, "barg")
+
+# Convert to canonical kPa (absolute)
+p_abs = to_canonical(2.5, "barg", "pressure")
+# → 351.325 kPa
+
+# Convert absolute back to gauge
+p_abs_q = ureg.Quantity(351.325, "kPa")
+p_gauge_psig = p_abs_q.to("psig")
+# → 36.26 psig
+```
+
+**Custom atmospheric pressure:**
+
+```python
+# At a plant located at 1500 m elevation, P_atm ≈ 84.5 kPa
+from vle.units import ureg, set_atmospheric_pressure
+
+set_atmospheric_pressure(84.5, "kPa")
+
+# Now gauge conversions use 84.5 kPa as the offset
+p = to_canonical(2.5, "barg", "pressure")
+# → 2.5 × 100 + 84.5 = 334.5 kPa absolute
+```
+
+#### 3.4.7 Worked example — why the distinction matters in VLE
+
+A field engineer reports that a separator vessel operates at **"3.5 barg"** and **"85 °C"**. An isothermal flash calculation is needed. The correct procedure:
+
+| Input | User value | Conversion | Canonical value |
+|-------|-----------|------------|-----------------|
+| Pressure | 3.5 barg | 3.5 × 100 + 101.325 | **451.325 kPa** (absolute) |
+| Temperature | 85 °C | 85 + 273.15 | **358.15 K** (absolute) |
+
+If the engineer passes `3.5` directly as kPa (forgetting the gauge-to-absolute conversion), the flash runs at 3.5 kPa — nearly a perfect vacuum. The calculation would predict almost complete vaporization, a totally wrong result.
+
+Conversely, if someone uses `3.5 × 100 = 350 kPa` (converting bar to kPa but forgetting to add atmospheric pressure), the result is off by 101.325 kPa (about 22%) — enough to produce incorrect phase compositions and K-values.
+
+**The library prevents both errors** by requiring the user to specify the unit string explicitly (`"barg"` vs. `"bar"` vs. `"kPa"`), and applying the correct affine conversion automatically.
+
+### 3.5 Canonical unit strategy
 
 To avoid `O(n²)` conversion pairs for `n` units in a dimension, define one **canonical unit** per dimension and convert through it:
 
@@ -351,10 +533,16 @@ pub type VlePressure = Pressure;
 /// Molar energy quantity (canonical unit: kJ/kmol)
 pub type VleMolarEnergy = MolarEnergy;
 
+/// Standard atmospheric pressure in **kPa** — provided as a convenience constant.
+/// This is NOT used as a hidden default anywhere. All gauge conversion functions
+/// require the caller to pass `p_atm_kpa` explicitly.
+/// For the registry-based API (recommended), use `registry.set_atmospheric_pressure()`.
+pub const P_ATM_STANDARD_KPA: f64 = 101.325;
+
 /// Construct temperature from Celsius.
 ///
 /// # Arguments
-/// * `c` — temperature in **°C**
+/// * `c` — temperature in **°C** (absolute, not a difference)
 ///
 /// # Returns
 /// A typed `VleTemperature` (stored internally in **K**)
@@ -365,9 +553,76 @@ pub fn from_celsius(c: f64) -> VleTemperature {
 /// Extract temperature in Kelvin.
 ///
 /// # Returns
-/// Temperature value in **K**
+/// Temperature value in **K** (absolute)
 pub fn to_kelvin(t: VleTemperature) -> f64 {
     t.get::<kelvin>()
+}
+
+/// Convert gauge pressure to absolute pressure.
+///
+/// Gauge pressure is measured relative to atmospheric pressure.
+/// All VLE calculations require **absolute** pressure.
+/// **P_atm is an explicit parameter — it is never hardcoded.**
+///
+/// Prefer the registry-based API (`registry.parse("2.5 barg")`) which reads
+/// P_atm from `registry.atmospheric_pressure_kpa` (configurable via
+/// `registry.set_atmospheric_pressure()`). Use these free functions only when
+/// you need direct control over the atmospheric pressure value per-call.
+///
+/// # Arguments
+/// * `p_gauge` — Pressure reading in **barg** (bar gauge)
+/// * `p_atm_kpa` — Local atmospheric pressure in **kPa** (caller must provide;
+///   use `P_ATM_STANDARD_KPA` for standard conditions)
+///
+/// # Returns
+/// Absolute pressure in **kPa**
+///
+/// # Panics
+/// Panics if the resulting absolute pressure is ≤ 0 (non-physical).
+pub fn from_barg(p_gauge: f64, p_atm_kpa: f64) -> VlePressure {
+    let p_abs_kpa = p_gauge * 100.0 + p_atm_kpa;
+    assert!(p_abs_kpa > 0.0, "Absolute pressure must be > 0; got {p_abs_kpa} kPa");
+    VlePressure::new::<kilopascal>(p_abs_kpa)
+}
+
+/// Convert gauge pressure (psig) to absolute pressure.
+///
+/// # Arguments
+/// * `p_gauge` — Pressure reading in **psig** (psi gauge)
+/// * `p_atm_kpa` — Local atmospheric pressure in **kPa** (caller must provide)
+///
+/// # Returns
+/// Absolute pressure in **kPa**
+pub fn from_psig(p_gauge: f64, p_atm_kpa: f64) -> VlePressure {
+    let p_abs_kpa = p_gauge * 6.89476 + p_atm_kpa;
+    assert!(p_abs_kpa > 0.0, "Absolute pressure must be > 0; got {p_abs_kpa} kPa");
+    VlePressure::new::<kilopascal>(p_abs_kpa)
+}
+
+/// Convert gauge pressure (kPag) to absolute pressure.
+///
+/// # Arguments
+/// * `p_gauge` — Pressure reading in **kPag** (kPa gauge)
+/// * `p_atm_kpa` — Local atmospheric pressure in **kPa** (caller must provide)
+///
+/// # Returns
+/// Absolute pressure in **kPa**
+pub fn from_kpag(p_gauge: f64, p_atm_kpa: f64) -> VlePressure {
+    let p_abs_kpa = p_gauge + p_atm_kpa;
+    assert!(p_abs_kpa > 0.0, "Absolute pressure must be > 0; got {p_abs_kpa} kPa");
+    VlePressure::new::<kilopascal>(p_abs_kpa)
+}
+
+/// Convert absolute pressure to gauge pressure.
+///
+/// # Arguments
+/// * `p` — Absolute pressure (typed `VlePressure`, internally in **kPa**)
+/// * `p_atm_kpa` — Local atmospheric pressure in **kPa** (caller must provide)
+///
+/// # Returns
+/// Gauge pressure in **barg** (bar gauge). Can be negative (vacuum).
+pub fn to_barg(p: VlePressure, p_atm_kpa: f64) -> f64 {
+    (p.get::<kilopascal>() - p_atm_kpa) / 100.0
 }
 ```
 
@@ -439,16 +694,65 @@ CANONICAL = {
     "amount": ureg.kmol,
 }
 
+## Default atmospheric pressure for gauge → absolute conversions (kPa).
+## This is a configurable parameter — NOT a hardcoded constant.
+## Call set_atmospheric_pressure() to change it for your site conditions.
+_P_ATM_KPA = 101.325   # standard atmosphere; user-overridable
+
+## Gauge pressure unit definitions (built-in).
+## Offsets reference _P_ATM_KPA so they update when set_atmospheric_pressure() is called.
+ureg.define(f"kPag = 1 * kPa; offset: {_P_ATM_KPA}")
+ureg.define(f"barg = 100 * kPa; offset: {_P_ATM_KPA}")
+ureg.define(f"psig = 6.89476 * kPa; offset: {_P_ATM_KPA}")
+
+def get_atmospheric_pressure() -> float:
+    """Return the current atmospheric pressure used for gauge conversions.
+
+    Returns:
+        Atmospheric pressure in **kPa**
+    """
+    return _P_ATM_KPA
+
+def set_atmospheric_pressure(value: float, unit_str: str = "kPa") -> None:
+    """Override the atmospheric pressure used for gauge → absolute conversions.
+
+    The atmospheric pressure is NOT hardcoded. It defaults to 101.325 kPa
+    (1 standard atmosphere) but can be changed at any time for non-standard
+    altitude or weather conditions. All subsequent gauge conversions (barg,
+    psig, kPag) will use the new value.
+
+    Args:
+        value: Atmospheric pressure value (must be > 0)
+        unit_str: Unit of the value (default: **kPa**)
+
+    Raises:
+        ValueError: If the resulting P_atm is ≤ 0
+    """
+    global _P_ATM_KPA
+    new_p_atm = Q_(value, unit_str).to("kPa").magnitude
+    if new_p_atm <= 0:
+        raise ValueError(f"Atmospheric pressure must be > 0; got {new_p_atm} kPa")
+    _P_ATM_KPA = new_p_atm
+    # Re-register gauge units with updated offset
+    ureg.define(f"kPag = 1 * kPa; offset: {_P_ATM_KPA}")
+    ureg.define(f"barg = 100 * kPa; offset: {_P_ATM_KPA}")
+    ureg.define(f"psig = 6.89476 * kPa; offset: {_P_ATM_KPA}")
+
 def to_canonical(value: float, unit_str: str, quantity: str) -> float:
     """Convert a value from the given unit to the canonical internal unit.
 
+    All VLE calculations use absolute units internally.
+    Gauge pressure units (barg, psig, kPag) are automatically converted
+    to absolute kPa by adding atmospheric pressure.
+
     Args:
         value: Numeric value
-        unit_str: Source unit string (e.g., "degC", "psi", "cal/mol")
+        unit_str: Source unit string (e.g., "degC", "psi", "barg", "cal/mol")
         quantity: Quantity name (e.g., "temperature", "pressure")
 
     Returns:
-        Value in canonical units (K for temperature, kPa for pressure, etc.)
+        Value in canonical units (**K** for temperature, **kPa** absolute
+        for pressure, etc.)
     """
     q = Q_(value, unit_str)
     return q.to(CANONICAL[quantity]).magnitude
@@ -480,7 +784,8 @@ Temperature (absolute) and temperature difference share the same dimension vecto
 |----------|-------------------------|
 | Temperature (absolute) | °C, °F, °R |
 | Temperature difference (ΔT) | Δ°C (= delta_degC), Δ°F (= delta_degF), Δ°R (= delta_degR) |
-| Pressure | Pa, bar, atm, psi, mmHg, torr |
+| Pressure (absolute) | Pa, bar, atm, psi, mmHg, torr |
+| Pressure (gauge) | kPag, barg, psig, atg, mmHg_g (→ converted to absolute kPa via P_abs = P_gauge + P_atm) |
 | Molar energy | J/mol, cal/mol, kcal/kmol, BTU/lbmol |
 | Molar entropy | J/(mol·K), cal/(mol·K) |
 | Molar volume | m³/kmol, L/mol, ft³/lbmol |
@@ -560,7 +865,9 @@ system.bubble_point_T(P="500 mmH2O")   # works transparently
 @end
 
 inH2O = 2.49088908333333 * hectopascal = inch_H2O
-barg = 1 * bar = gauge_bar    # gauge pressure
+# Gauge pressure units (barg, psig, kPag) are built-in — see §3.4
+# Example: adding inches of water gauge
+inH2Og = 0.0024908890833 * hectopascal; offset: 1013.25 = inch_H2O_gauge
 ```
 
 ```python
@@ -595,6 +902,27 @@ use vle_units::{UnitRegistry, Dimension};
 
 let mut registry = UnitRegistry::with_vle_defaults();
 
+// ── Atmospheric pressure is configurable (default: 101.325 kPa) ──
+// The registry stores P_atm and uses it for all gauge ↔ absolute conversions.
+// Gauge unit offsets are NOT hardcoded — they are resolved dynamically from
+// the registry's atmospheric pressure at conversion time.
+
+/// Override the atmospheric pressure used for gauge → absolute conversions.
+///
+/// # Arguments
+/// * `p_atm_kpa` — Local atmospheric pressure in **kPa**
+///
+/// Call this before parsing gauge pressure strings if working at non-standard
+/// altitude or weather conditions. Default is 101.325 kPa (1 standard atm).
+registry.set_atmospheric_pressure(84.5)?;  // e.g., plant at 1500 m elevation
+
+// Now "2.5 barg" resolves to 2.5 × 100 + 84.5 = 334.5 kPa (not 351.325)
+let p = registry.parse("2.5 barg")?;
+assert!((p.value_kpa() - 334.5).abs() < 1e-6);
+
+// Reset to standard atmosphere
+registry.set_atmospheric_pressure(101.325)?;
+
 // Scenario A: add a new unit within the Pressure dimension
 // 1 mmH2O = 0.00980665 kPa (conversion factor to canonical kPa)
 registry.define(
@@ -606,6 +934,16 @@ registry.define(
 
 // Now parseable
 let p = registry.parse("100 mmH2O")?;   // → Pressure { value: 0.980665, unit: kPa }
+
+// Scenario A′: add a custom GAUGE unit (offset = registry P_atm, not hardcoded)
+// Use define_gauge() so the offset tracks set_atmospheric_pressure() automatically.
+registry.define_gauge(
+    "mmH2Og",                       // name: millimeters of water, gauge
+    Dimension::Pressure,
+    0.00980665,                     // scale factor to canonical kPa (same as absolute mmH2O)
+)?;
+// "500 mmH2Og" → 500 × 0.00980665 + P_atm = 4.903 + 101.325 = 106.228 kPa (at std atm)
+// If P_atm is changed via set_atmospheric_pressure(), the offset updates automatically.
 ```
 
 **Adding a new derived dimension (Scenario B):**
@@ -648,8 +986,21 @@ offset = 0.0
 [[unit]]
 name = "barg"
 dimension = "pressure"
-scale = 100.0         # kPa per bar
-offset = 101.325      # absolute offset (gauge → absolute)
+scale = 100.0         # kPa per bar (built-in gauge unit, see §3.4)
+gauge = true          # offset resolved from registry.atmospheric_pressure_kpa at runtime
+                      # (default 101.325 kPa; user-configurable via set_atmospheric_pressure)
+
+[[unit]]
+name = "psig"
+dimension = "pressure"
+scale = 6.89476       # kPa per psi
+gauge = true          # offset resolved from registry.atmospheric_pressure_kpa at runtime
+
+[[unit]]
+name = "kPag"
+dimension = "pressure"
+scale = 1.0           # kPa per kPa
+gauge = true          # offset resolved from registry.atmospheric_pressure_kpa at runtime
 
 [[dimension]]
 name = "heat_transfer_coefficient"
@@ -685,7 +1036,7 @@ When adding custom units:
 - **Name**: must be a valid identifier — letters, digits, underscores; no spaces or operators (`*`, `/`, `^`, `-`, `+`)
 - **Dimension**: must either match an existing dimension name (case-sensitive) or be registered first via `define_dimension()`
 - **Scale factor**: the conversion factor **to the canonical unit** for that dimension (not from; direction is "how many canonical units in one of my units")
-- **Offset**: zero for pure scale conversions; nonzero for affine conversions like °C or gauge pressure
+- **Offset**: zero for pure scale conversions; nonzero for affine conversions like °C. For **gauge pressure** units, do **not** hardcode the offset — set `gauge = true` in TOML or use `define_gauge()` in Rust so the offset is resolved dynamically from `registry.atmospheric_pressure_kpa` (configurable via `set_atmospheric_pressure()`)
 - **Uniqueness**: if a unit name already exists, `define()` returns an error unless `overwrite=true` is passed
 - **Reserved names**: the VLE canonical unit names (`kelvin`, `kilopascal`, `kilojoule_per_kilomole`, etc.) cannot be redefined
 

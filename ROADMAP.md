@@ -10,7 +10,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Analyze legacy VB6 codebase (~15,000 lines)
 - [x] Analyze legacy Pascal codebase (~2,500 lines)
 - [x] Create Pascal vs VB6 comparison document
-- [x] Create modernization plan with 15 implementation phases
+- [x] Create modernization plan with 16 implementation phases
 - [x] Map algorithms to 22 academic references (ACS format)
 - [x] Propose 8 algorithm performance improvements (A–H)
 - [x] Initialize git repository
@@ -40,6 +40,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 
 - [ ] Scaffold `units/` Rust crate with `uom` dependency
 - [ ] Define VLE-specific quantity types (Temperature, TemperatureDiff, Pressure, MolarEnergy, MolarEntropy, MolarVolume, Amount)
+- [ ] Implement built-in gauge pressure units (barg, psig, kPag) with configurable atmospheric pressure offset
 - [ ] Implement extensible runtime `UnitRegistry` (allows user-added units alongside the compile-time typed API)
 - [ ] Implement unit string parser (`parse_unit_string("kPa")` → typed quantity)
 - [ ] Implement `to_canonical()` / `from_canonical()` conversion functions
@@ -50,9 +51,22 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [ ] Write Python conversion tests (parity with Rust + custom user-added units)
 - [ ] Document units API and extension guide in `docs/en/units/`
 
+## Milestone 2.5: Component Property Database
+**Goal**: SQLite database with Chapter IV validation data, CLI tool, and interactive Jupyter notebook.
+*Phase 3 of MODERNIZATION_PLAN.md*
+
+- [ ] Define SQLite schema (`data/schema.sql`)
+- [ ] Implement Python `vle.db` package (connection, queries, models, seed)
+- [ ] Extract and seed Chapter IV compound properties (15 compounds from DIPPR)
+- [ ] Seed binary params (van Laar methanol/water, kij CO2/n-butane) and experimental VLE data
+- [ ] Implement CLI tool (`vle-db init`, `seed`, `validate`, `show`, `list`, `export`)
+- [ ] Create interactive Jupyter notebook (`notebooks/00_component_database.ipynb`)
+- [ ] Implement optional `thermo` library seeding for ~70K compounds
+- [ ] Write Chapter IV validation test (`vle-db validate chapter4`)
+
 ## Milestone 2: Dev Environment & Scaffolding
 **Goal**: Rust crate compiles, Python package builds, empty module importable.
-*Phase 3 of MODERNIZATION_PLAN.md*
+*Phase 4 of MODERNIZATION_PLAN.md*
 
 - [ ] Install and verify Rust toolchain
 - [ ] Set up conda environment and install maturin
@@ -65,7 +79,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 
 ## Milestone 3: Numerics
 **Goal**: Core numerical utilities tested and benchmarked.
-*Phase 4 of MODERNIZATION_PLAN.md*
+*Phase 5 of MODERNIZATION_PLAN.md*
 
 - [ ] Cardano cubic solver with (12) Poling & Prausnitz robustness
 - [ ] Brent's method root finder (default bracketed solver)
@@ -77,7 +91,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 
 ## Milestone 4: Pure Component Models
 **Goal**: All pure component EOS, saturation pressure, and virial working.
-*Phases 5–7 of MODERNIZATION_PLAN.md*
+*Phases 6–8 of MODERNIZATION_PLAN.md*
 
 - [ ] EOS family constants — k1, k2, k3 parameterization (5)
 - [ ] All 22+ alpha(Tr) functions with analytical dα/dTr (§D)
@@ -91,7 +105,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 
 ## Milestone 5: Mixture Models
 **Goal**: Activity models, mixing rules, and multicomponent EOS working.
-*Phases 8–11 of MODERNIZATION_PLAN.md*
+*Phases 9–12 of MODERNIZATION_PLAN.md*
 
 - [ ] 5 activity coefficient models with analytical dGE/dT (§E)
 - [ ] Rackett and Thomson (18) liquid molar volume
@@ -103,7 +117,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 
 ## Milestone 6: Flash & Regression
 **Goal**: All flash calculations pass Chapter IV validation.
-*Phase 12 of MODERNIZATION_PLAN.md*
+*Phase 13 of MODERNIZATION_PLAN.md*
 
 - [ ] Bubble point (T and P) with Broyden NR (§A)
 - [ ] Dew point (T and P)
@@ -116,7 +130,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 
 ## Milestone 7: Python Bindings & Wrapper
 **Goal**: Python package installable, high-level API usable.
-*Phases 13–14 of MODERNIZATION_PLAN.md*
+*Phases 14–15 of MODERNIZATION_PLAN.md*
 
 - [ ] PyO3 bindings for core types and calculation functions
 - [ ] Python `System` class (high-level API)
@@ -128,7 +142,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 
 ## Milestone 8: Jupyter Notebooks
 **Goal**: Interactive notebooks reproducing all thesis results.
-*Phase 15 of MODERNIZATION_PLAN.md*
+*Phase 16 of MODERNIZATION_PLAN.md*
 
 - [ ] 01_introduction — Overview, installation, basic API
 - [ ] 02_pure_component — PVT, EOS comparison, saturation curves
