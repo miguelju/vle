@@ -182,7 +182,7 @@ An **independent `units/` Rust crate** (sibling to `engine/`) plus a Python comp
 
 **References**: Bridgman, P.W. *Dimensional Analysis*, Yale University Press, 1922; BIPM, *The International System of Units (SI)*, 9th ed., 2019.
 
-**Detailed design document**: [`docs/en/units/dimensional-analysis.md`](docs/en/units/dimensional-analysis.md) explains the 7 SI base dimensions, dimensional homogeneity principle, conversion strategy, and the Rust phantom-type / Python runtime implementation approach. See also `ROADMAP.md` Milestone 1.5 for task breakdown.
+**Detailed design document**: [`docs/en/units/dimensional-analysis.md`](docs/en/units/dimensional-analysis.md) explains the 7 SI base dimensions, dimensional homogeneity principle, conversion strategy, and the Rust phantom-type / Python runtime implementation approach. See also `ROADMAP.md` Milestone 3 for task breakdown.
 
 ---
 
@@ -345,7 +345,14 @@ vle/
 - Create comprehensive parameter reference document
 - Create architecture decision records
 
-### Phase 2: Units of Measurement Library *(Milestone 1.5)*
+### Phase 2: Project Scaffolding *(Milestone 2)*
+- Initialize Rust crate (`engine/`) with Cargo.toml, nalgebra + PyO3 dependencies
+- Initialize Python package (`python/`) with pyproject.toml and maturin config
+- Define all Rust enums merging both programs: `CubicEos` (22+ variants: 19 VB6 + Schmidt-Wenzel, Patel-Teja, Chao-Seader from Pascal), `ActivityModel` (5, identical in both), `MixingRule` (8 from VB6 + Patel-Teja/Schmidt-Wenzel C-parameter mixing from Pascal), `SatPressureModel` (6: Antoine from Pascal + 5 from VB6)
+- Define core structs: `Component` (union of VB6 and Pascal fields, including Pascal's `momentoDip`, `delta`, `vl`), `Mixture`, `Flow`, `Tolerances`, `ReferenceState`
+- Verify maturin builds and Python can import the empty module
+
+### Phase 3: Units of Measurement Library *(Milestone 3)*
 - Scaffold independent `units/` Rust crate with `uom` dependency — works without the VLE engine
 - Built-in gauge pressure support (barg, psig, kPag → absolute kPa). Atmospheric pressure (P_atm) is a **runtime-configurable parameter** stored in the registry — never hardcoded. Default: 101.325 kPa. Configurable via `registry.set_atmospheric_pressure()` (Rust) / `set_atmospheric_pressure()` (Python). See `docs/en/units/dimensional-analysis.md` §3.4.
 - Define VLE-specific quantity types (Temperature, Pressure, MolarEnergy, MolarEntropy, MolarVolume, Amount) as aliases for `uom`'s SI types
@@ -356,7 +363,7 @@ vle/
 - **Important**: All VLE calculations use absolute pressure internally. Gauge pressure (barg, psig, kPag) is converted to absolute kPa at the API boundary. See `docs/en/units/dimensional-analysis.md` §3.4 for the full explanation.
 - See `docs/en/units/dimensional-analysis.md` for the full design and extension rules
 
-### Phase 3: Component Property Database *(Milestone 2.5)*
+### Phase 4: Component Property Database *(Milestone 4)*
 - SQLite database (`data/components.db`) for component properties, binary interaction parameters (kij), activity model parameters (Aij), and experimental VLE data
 - Schema: 4 tables — `components` (per-compound properties in canonical units), `kij_params` (model-dependent, symmetric), `activity_params` (asymmetric), `experimental_vle` (P-x-y data)
 - Python `vle.db` package for database access (connection, queries, models)
@@ -367,20 +374,13 @@ vle/
 - All values in canonical units: K, kPa (absolute), cm3/mol, kJ/(kmol·K), g/mol
 - See `data/schema.sql` for full schema and `docs/en/parameters/parameter_reference.md` for parameter catalog
 
-### Phase 4: Project Scaffolding *(Milestone 2)*
-- Initialize Rust crate (`engine/`) with Cargo.toml, nalgebra + PyO3 dependencies
-- Initialize Python package (`python/`) with pyproject.toml and maturin config
-- Define all Rust enums merging both programs: `CubicEos` (22+ variants: 19 VB6 + Schmidt-Wenzel, Patel-Teja, Chao-Seader from Pascal), `ActivityModel` (5, identical in both), `MixingRule` (8 from VB6 + Patel-Teja/Schmidt-Wenzel C-parameter mixing from Pascal), `SatPressureModel` (6: Antoine from Pascal + 5 from VB6)
-- Define core structs: `Component` (union of VB6 and Pascal fields, including Pascal's `momentoDip`, `delta`, `vl`), `Mixture`, `Flow`, `Tolerances`, `ReferenceState`
-- Verify maturin builds and Python can import the empty module
-
-### Phase 5: Numerics *(Milestone 3)*
+### Phase 5: Numerics *(Milestone 5)*
 - Cardano cubic solver (from `McommonFunctions.bas:324`) (12),(13) — see also §H for robustness improvements
 - Gaussian elimination with partial pivoting (from `McommonFunctions.bas:24`) — replaced by nalgebra LU
 - Brent's method and Illinois algorithm root finders — replace legacy Regula Falsi (from `clsSatPressureSolver.cls`) — see §C
 - Utility functions: `SumFrac`, `Norm`, convergence checks
 
-### Phase 6: Pure Component EOS *(Milestone 4)*
+### Phase 6: Pure Component EOS *(Milestone 6)*
 - `GeneralConstantsEOS` parameter lookup for 3 EOS families (from `McommonFunctions.bas:273`) (5)
 - All 19 VB6 `alpha(Tr)` functions (from `clsQbicsPure.cls:1719`)
 - **Pascal-origin EOS** (4) (from `legacy/pascal/TERMOII.PAS`):
@@ -392,7 +392,7 @@ vle/
 - Maxwell equal-area test for saturation
 - **Key source files:** `legacy/vb6/clsQbicsPure.cls`, `legacy/pascal/TERMOII.PAS`
 
-### Phase 7: Saturation Pressure *(Milestone 4)*
+### Phase 7: Saturation Pressure *(Milestone 6)*
 - **Antoine** correlation (4): ln(P/Pc) = a1 - a2/(a3+T) (from `legacy/pascal/TERMOI.PAS`)
   - Includes `PseudoAntoine` procedure for converting other models to local Antoine equivalents
 - Riedel, Muller, RPM correlations (shared by both programs; VB6: `clsSatPressureSolver.cls:146`, Pascal: `TERMOI.PAS:154`)
@@ -402,12 +402,12 @@ vle/
 - Poynting correction factor (identical in both: `exp((P-Psat)*Vl/R/T/10)`)
 - **Key source files:** `legacy/vb6/clsSatPressureSolver.cls`, `legacy/pascal/TERMOI.PAS`
 
-### Phase 8: Virial Equation *(Milestone 4)*
+### Phase 8: Virial Equation *(Milestone 6)*
 - Pitzer correlation: B0 = 0.083 - 0.422/Tr^1.6, B1 = 0.139 - 0.172/Tr^4.2
 - Pure and multicomponent Z, fugacity, HR/SR
 - **Key source files:** `legacy/vb6/clsVirial.cls`, `legacy/vb6/clsVirialMulticomp.cls`
 
-### Phase 9: Activity Coefficient Models *(Milestone 5)*
+### Phase 9: Activity Coefficient Models *(Milestone 7)*
 - Ideal, Margules, van Laar, Wilson, Scatchard-Hildebrand (identical in both programs)
 - Excess Gibbs energy, excess enthalpy/entropy — implement analytical dGE/dT for ALL models (Pascal (4) has analytical for Wilson; extend to all) — see §E
 - Rackett and Thomson (18) liquid molar volume (VB6)
@@ -415,21 +415,21 @@ vle/
 - Wilson binary parameter calculation from infinite-dilution activity coefficients: `CalcParBinWilson` (4) (from Pascal `TERMOIII.PAS:342`, Newton-Raphson)
 - **Key source files:** `legacy/vb6/clsActivityMulticomp.cls`, `legacy/pascal/TERMOIII.PAS`
 
-### Phase 10: Mixing Rules *(Milestone 5)*
+### Phase 10: Mixing Rules *(Milestone 7)*
 - Classical (IVDW, IIVDW) with kij (IVDW identical in both programs)
 - Wong-Sandler, Huron-Vidal (original + simplified), MHV1, MHV2 (21) (VB6)
 - Schmidt-Wenzel C-parameter mixing (4): C = F/E weighted average using acentric factors (from Pascal `TERMOII.PAS:234`)
 - Patel-Teja C-parameter mixing (4): two variants -- linear (PatelT) and square-root-weighted (PatelTUSB) (from Pascal `TERMOII.PAS:243`)
 - **Key source files:** `legacy/vb6/clsQbicsMulticomp.cls:395`, `legacy/pascal/TERMOII.PAS:211`
 
-### Phase 11: Multicomponent EOS *(Milestone 5)*
+### Phase 11: Multicomponent EOS *(Milestone 7)*
 - Partial fugacity coefficients in solution for all mixing rules (9) (Müller et al. general expressions, Eqs 2.28–2.34)
 - Mixture Z-factor calculation
 - 3-parameter EOS fugacity coefficients (4): Schmidt-Wenzel and Patel-Teja partial fugacity with u,w,delta,g auxiliary variables (from Pascal `TERMOII.PAS:317`, significantly more complex than 2-parameter EOS)
 - Chao-Seader liquid fugacity for multicomponent mixtures (4) (from Pascal `TERMOII.PAS:386`)
 - **Key source files:** `legacy/vb6/clsQbicsMulticomp.cls`, `legacy/pascal/TERMOII.PAS`
 
-### Phase 12: Enthalpy & Entropy *(Milestone 5)*
+### Phase 12: Enthalpy & Entropy *(Milestone 7)*
 - Ideal gas Cp integration (polynomial, identical in both programs)
 - Departure functions for cubic EOS (9) and virial
 - Departure functions for 3-parameter EOS (4): Schmidt-Wenzel (note: marked as discontinuous in Pascal, returns NaN) and Patel-Teja (from Pascal `TERMOII.PAS:471`)
@@ -439,7 +439,7 @@ vle/
 - Reference state handling (LiqSat, VapSat, IdealGas)
 - **Key source files:** `legacy/pascal/TERMOII.PAS`, `legacy/pascal/TERMOIII.PAS`
 
-### Phase 13: Flash Calculations *(Milestone 6)*
+### Phase 13: Flash Calculations *(Milestone 8)*
 - Raoult's law initial estimates (4) (identical in both: Ki = Psat_i/P)
 - Newton-Raphson solver with Broyden quasi-Newton Jacobian (10) (2n+4 equation system) — replaces VB6's full numerical Jacobian — see §A
 - Bubble point (T and P), Dew point (T and P) (4),(14),(17),(20) — same algorithm in both programs (parabolic interpolation on ln(sum), low-pressure and high-pressure paths via Asselineau/Anderson-Prausnitz 2nd stage)
@@ -454,19 +454,19 @@ vle/
   - Correlation factor analysis for quality of initial estimates
 - **Key source files:** `legacy/vb6/clsLVE.cls`, `legacy/pascal/TERMOIV.PAS`, `legacy/pascal/TERMOV.PAS`, `legacy/pascal/TERMOVI.PAS`
 
-### Phase 14: PyO3 Bindings *(Milestone 7)*
+### Phase 14: PyO3 Bindings *(Milestone 9)*
 - Expose core types as `#[pyclass]`
 - Expose calculation functions as `#[pyfunction]`
 - Main `VleEngine` Python class with methods for each calculation type
 
-### Phase 15: Python Wrapper Library *(Milestone 7)*
+### Phase 15: Python Wrapper Library *(Milestone 9)*
 - High-level `System` class for configuring VLE problems
 - Result dataclasses (`FlashResult`, `BubbleResult`, `DewResult`)
 - Component database (JSON) with built-in common substances
 - Plotting helpers (Pxy, Txy diagrams via matplotlib)
 - Convenience API: `system.bubble_point_T()`, `system.flash_isothermal()`, etc.
 
-### Phase 16: Jupyter Notebooks *(Milestone 8)*
+### Phase 16: Jupyter Notebooks *(Milestone 10)*
 Each notebook reproduces specific results from the research paper:
 - **01_introduction**: Overview, installation, basic API usage
 - **02_pure_component**: PVT behavior, compare EOS variants (including 3-parameter Schmidt-Wenzel and Patel-Teja from Pascal), saturation curves

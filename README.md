@@ -147,7 +147,7 @@ Each milestone records which AI model was used (e.g., `Claude Opus 4.6 (1M conte
 
 ## Getting Started
 
-> **Status**: Milestones 0–1 complete (documentation, translation). Milestone 2.5 (component database) implemented. Milestones 1.5–8 (engine, bindings, notebooks) not yet started.
+> **Status**: Milestones 0–1 complete (documentation, translation). Milestone 4 (component database) in progress. Milestones 2–10 (scaffolding, units, engine, bindings, notebooks) not yet started.
 
 ### Prerequisites
 - Python 3.10+ (for the component database and future Python wrapper)

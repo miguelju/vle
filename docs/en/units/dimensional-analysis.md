@@ -1,6 +1,6 @@
 # Dimensional Analysis for Units of Measurement
 
-**Design document for the Units of Measurement Add-On (Milestone 1.5)**
+**Design document for the Units of Measurement Add-On (Milestone 3)**
 
 This document explains the theoretical foundation of dimensional analysis, how it is used to implement type-safe unit conversion, and how it will be applied to build the `units/` Rust crate and `python/src/vle/units.py` wrapper for the VLE project.
 
@@ -1078,7 +1078,7 @@ For an unfamiliar physical quantity, always cross-check the dimension vector aga
 
 - [MODERNIZATION_PLAN.md](../../../MODERNIZATION_PLAN.md) — Overall project plan (references this document)
 - [CLAUDE.md](../../../CLAUDE.md) — "Units Documentation Rules" (units must be stated in every function doc comment)
-- [ROADMAP.md](../../../ROADMAP.md) — Milestone 1.5 tracks implementation of this add-on
+- [ROADMAP.md](../../../ROADMAP.md) — Milestone 3 tracks implementation of this add-on
 - [TODO.md](../../../TODO.md) — Detailed task breakdown with time estimates
 
 ---

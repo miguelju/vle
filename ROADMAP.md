@@ -34,9 +34,22 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Create parameter reference document (`docs/en/parameters/parameter_reference.md`)
 - [x] Write developer setup guide (`docs/en/SETUP.md`)
 
-## Milestone 1.5: Units of Measurement Library
+## Milestone 2: Dev Environment & Scaffolding
+**Goal**: Rust crate compiles, Python package builds, empty module importable.
+*Phase 2 of MODERNIZATION_PLAN.md*
+
+- [ ] Install and verify Rust toolchain
+- [ ] Set up conda environment and install maturin
+- [ ] Scaffold Rust crate (`engine/Cargo.toml` — nalgebra, PyO3 deps)
+- [ ] Scaffold Python package (`python/pyproject.toml` — maturin backend)
+- [ ] Define all Rust enums (CubicEos, ActivityModel, MixingRule, SatPressureModel)
+- [ ] Define core structs (Component, Mixture, Flow, Tolerances, ReferenceState)
+- [ ] Verify end-to-end: `cargo build` → `maturin develop` → `python -c "import vle"`
+- [ ] Push to GitHub
+
+## Milestone 3: Units of Measurement Library
 **Goal**: Independent Rust crate + Python wrapper for unit conversion using dimensional analysis.
-*Phase 2 of MODERNIZATION_PLAN.md — add-on sub-project, works independently of VLE engine*
+*Phase 3 of MODERNIZATION_PLAN.md — add-on sub-project, works independently of VLE engine*
 
 - [ ] Scaffold `units/` Rust crate with `uom` dependency
 - [ ] Define VLE-specific quantity types (Temperature, TemperatureDiff, Pressure, MolarEnergy, MolarEntropy, MolarVolume, Amount)
@@ -51,33 +64,20 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [ ] Write Python conversion tests (parity with Rust + custom user-added units)
 - [ ] Document units API and extension guide in `docs/en/units/`
 
-## Milestone 2.5: Component Property Database
+## Milestone 4: Component Property Database
 **Goal**: SQLite database with Chapter IV validation data, CLI tool, and interactive Jupyter notebook.
-*Phase 3 of MODERNIZATION_PLAN.md*
+*Phase 4 of MODERNIZATION_PLAN.md*
 
-- [ ] Define SQLite schema (`data/schema.sql`)
+- [x] Define SQLite schema (`data/schema.sql`)
 - [ ] Implement Python `vle.db` package (connection, queries, models, seed)
-- [ ] Extract and seed Chapter IV compound properties (15 compounds from DIPPR)
+- [x] Extract and seed Chapter IV compound properties (15 compounds from DIPPR)
 - [ ] Seed binary params (van Laar methanol/water, kij CO2/n-butane) and experimental VLE data
 - [ ] Implement CLI tool (`vle-db init`, `seed`, `validate`, `show`, `list`, `export`)
 - [ ] Create interactive Jupyter notebook (`notebooks/00_component_database.ipynb`)
 - [ ] Implement optional `thermo` library seeding for ~70K compounds
 - [ ] Write Chapter IV validation test (`vle-db validate chapter4`)
 
-## Milestone 2: Dev Environment & Scaffolding
-**Goal**: Rust crate compiles, Python package builds, empty module importable.
-*Phase 4 of MODERNIZATION_PLAN.md*
-
-- [ ] Install and verify Rust toolchain
-- [ ] Set up conda environment and install maturin
-- [ ] Scaffold Rust crate (`engine/Cargo.toml` — nalgebra, PyO3 deps)
-- [ ] Scaffold Python package (`python/pyproject.toml` — maturin backend)
-- [ ] Define all Rust enums (CubicEos, ActivityModel, MixingRule, SatPressureModel)
-- [ ] Define core structs (Component, Mixture, Flow, Tolerances, ReferenceState)
-- [ ] Verify end-to-end: `cargo build` → `maturin develop` → `python -c "import vle"`
-- [ ] Push to GitHub
-
-## Milestone 3: Numerics
+## Milestone 5: Numerics
 **Goal**: Core numerical utilities tested and benchmarked.
 *Phase 5 of MODERNIZATION_PLAN.md*
 
@@ -89,7 +89,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [ ] Utility functions: SumFrac, Norm, convergence checks
 - [ ] Unit tests for all numerical methods
 
-## Milestone 4: Pure Component Models
+## Milestone 6: Pure Component Models
 **Goal**: All pure component EOS, saturation pressure, and virial working.
 *Phases 6–8 of MODERNIZATION_PLAN.md*
 
@@ -103,7 +103,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [ ] Virial equation — pure + multicomponent (Pitzer/Tsonopoulos)
 - [ ] Unit tests for all pure component calculations
 
-## Milestone 5: Mixture Models
+## Milestone 7: Mixture Models
 **Goal**: Activity models, mixing rules, and multicomponent EOS working.
 *Phases 9–12 of MODERNIZATION_PLAN.md*
 
@@ -115,7 +115,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [ ] Enthalpy and entropy (ideal + departure + excess)
 - [ ] Unit tests for all mixture calculations
 
-## Milestone 6: Flash & Regression
+## Milestone 8: Flash & Regression
 **Goal**: All flash calculations pass Chapter IV validation.
 *Phase 13 of MODERNIZATION_PLAN.md*
 
@@ -128,7 +128,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [ ] Aij regression with analytical Jacobian (4)
 - [ ] Validate all 8 Chapter IV test cases (<1–5% error)
 
-## Milestone 7: Python Bindings & Wrapper
+## Milestone 9: Python Bindings & Wrapper
 **Goal**: Python package installable, high-level API usable.
 *Phases 14–15 of MODERNIZATION_PLAN.md*
 
@@ -140,7 +140,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [ ] Python test suite (reproduce Chapter IV validation)
 - [ ] Write end-user installation guide
 
-## Milestone 8: Jupyter Notebooks
+## Milestone 10: Jupyter Notebooks
 **Goal**: Interactive notebooks reproducing all thesis results.
 *Phase 16 of MODERNIZATION_PLAN.md*
 

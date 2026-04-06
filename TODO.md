@@ -18,7 +18,20 @@ Check off items as they're completed. Time estimates assume working with Claude 
 - [x] **Create parameter reference** (~3–4h) — `docs/en/parameters/parameter_reference.md` (167 lines)
 - [x] **Write developer setup guide** (~1–2h) — `docs/en/SETUP.md`: Rust toolchain, conda env, maturin, how to build/test
 
-## Milestone 1.5: Units of Measurement Library
+## Milestone 2: Dev Environment & Scaffolding
+
+- [ ] **Install Rust toolchain** (~0.5h) — `rustup`, verify `cargo --version`
+- [ ] **Set up conda environment** (~0.5h) — `conda create -n vle python=3.11`, install maturin via pip inside the conda env
+- [ ] **Create `engine/Cargo.toml`** (~1h) — deps: nalgebra, pyo3, ndarray, approx (for tests)
+- [ ] **Create `engine/src/lib.rs`** (~0.5h) — crate root with module declarations
+- [ ] **Define Rust enums** (~2–3h) — `CubicEos` (22+ variants), `ActivityModel` (5), `MixingRule` (8+), `SatPressureModel` (6). Map from VB6 `Enum` and Pascal `case` statements
+- [ ] **Define core structs** (~2–3h) — `Component`, `Mixture`, `Flow`, `Tolerances`, `ReferenceState`. Union of VB6 and Pascal fields
+- [ ] **Create `python/pyproject.toml`** (~0.5h) — maturin build backend, package metadata
+- [ ] **Create `python/src/vle/__init__.py`** (~0.5h) — empty public API skeleton
+- [ ] **Verify end-to-end build** (~1h) — `conda activate vle` → `cargo build` → `maturin develop` → `python -c "import vle"` works
+- [ ] **Push to GitHub** (~0.5h) — create remote, initial push, verify README renders
+
+## Milestone 3: Units of Measurement Library
 
 Independent add-on (~12–15h total). Uses dimensional analysis via the 7 SI base dimensions. Rust: `uom` crate (compile-time checks, phantom types). Python: `pint` library (runtime checks).
 
@@ -35,32 +48,19 @@ Independent add-on (~12–15h total). Uses dimensional analysis via the 7 SI bas
 - [ ] **Write Python conversion tests** (~1–2h) — verify parity with Rust side via golden values, test user-added units via `ureg.define()`
 - [ ] **Document units API + extension guide** (~1–2h) — update `docs/en/units/dimensional-analysis.md` with working code examples; add `docs/en/units/README.md` quickstart
 
-## Milestone 2.5: Component Property Database
+## Milestone 4: Component Property Database
 
 SQLite-based property database with CLI and Jupyter notebook interface (~8–10h total).
 
-- [ ] **Define SQLite schema** (~0.5h) — `data/schema.sql` with 4 tables: components, kij_params, activity_params, experimental_vle
+- [x] **Define SQLite schema** (~0.5h) — `data/schema.sql` with 4 tables: components, kij_params, activity_params, experimental_vle
 - [ ] **Implement Python db package** (~3h) — `python/src/vle/db/` with connection.py, queries.py, models.py, seed.py
-- [ ] **Extract and seed Chapter IV data** (~1h) — 15 compounds from `thermo`/DIPPR, binary params from thesis tables, experimental VLE data
+- [x] **Extract and seed Chapter IV data** (~1h) — 15 compounds from `thermo`/DIPPR, binary params from thesis tables, experimental VLE data
 - [ ] **Implement CLI tool** (~1.5h) — `python/src/vle/cli/main.py` with init, seed, validate, show, list, export commands
 - [ ] **Create Jupyter notebook** (~1.5h) — `notebooks/00_component_database.ipynb` with interactive browsing, search, add/edit
 - [ ] **Implement optional thermo seeding** (~1h) — `vle-db seed --source thermo` for ~70K compounds (optional dependency)
 - [ ] **Write validation tests** (~0.5h) — `vle-db validate chapter4` verifies all 15 compounds + binary params + experimental data
 
-## Milestone 2: Dev Environment & Scaffolding
-
-- [ ] **Install Rust toolchain** (~0.5h) — `rustup`, verify `cargo --version`
-- [ ] **Set up conda environment** (~0.5h) — `conda create -n vle python=3.11`, install maturin via pip inside the conda env
-- [ ] **Create `engine/Cargo.toml`** (~1h) — deps: nalgebra, pyo3, ndarray, approx (for tests)
-- [ ] **Create `engine/src/lib.rs`** (~0.5h) — crate root with module declarations
-- [ ] **Define Rust enums** (~2–3h) — `CubicEos` (22+ variants), `ActivityModel` (5), `MixingRule` (8+), `SatPressureModel` (6). Map from VB6 `Enum` and Pascal `case` statements
-- [ ] **Define core structs** (~2–3h) — `Component`, `Mixture`, `Flow`, `Tolerances`, `ReferenceState`. Union of VB6 and Pascal fields
-- [ ] **Create `python/pyproject.toml`** (~0.5h) — maturin build backend, package metadata
-- [ ] **Create `python/src/vle/__init__.py`** (~0.5h) — empty public API skeleton
-- [ ] **Verify end-to-end build** (~1h) — `conda activate vle` → `cargo build` → `maturin develop` → `python -c "import vle"` works
-- [ ] **Push to GitHub** (~0.5h) — create remote, initial push, verify README renders
-
-## Milestone 3: Numerics
+## Milestone 5: Numerics
 
 - [ ] **Implement Cardano cubic solver** (~2–3h) — from `McommonFunctions.bas:324`, add (12) robustness for near-degenerate discriminant, (13) volume root selection
 - [ ] **Implement Brent's method** (~2h) — default bracketed root finder, from VB6 `clsLVE.cls` (Numerical Recipes reference)
@@ -70,7 +70,7 @@ SQLite-based property database with CLI and Jupyter notebook interface (~8–10h
 - [ ] **Implement utility functions** (~1h) — SumFrac, Norm, convergence checks, parabolic interpolation
 - [ ] **Write numerical method tests** (~2–3h) — test against known roots, convergence rates, edge cases
 
-## Milestone 4: Pure Component Models
+## Milestone 6: Pure Component Models
 
 - [ ] **Implement EOS family constants** (~1–2h) — k1, k2, k3, OmA, OmB lookup table per (5)
 - [ ] **Implement 22+ alpha functions** (~4–6h) — all VB6 + Pascal variants, each with `alpha(tr)` and `d_alpha_d_tr(tr)`
@@ -84,7 +84,7 @@ SQLite-based property database with CLI and Jupyter notebook interface (~8–10h
 - [ ] **Implement virial equation** (~2–3h) — Pitzer B0/B1, pure + multicomp Z/fugacity/HR/SR
 - [ ] **Write pure component tests** (~3–4h) — compare against known values, cross-validate EOS variants
 
-## Milestone 5: Mixture Models
+## Milestone 7: Mixture Models
 
 - [ ] **Implement 5 activity models** (~4–6h) — Ideal, Margules, van Laar, Wilson, Scatchard-Hildebrand, each with analytical excess enthalpy
 - [ ] **Implement liquid volume models** (~1–2h) — Rackett, Thomson/COSTALD (18)
@@ -93,7 +93,7 @@ SQLite-based property database with CLI and Jupyter notebook interface (~8–10h
 - [ ] **Implement enthalpy/entropy** (~3–4h) — ideal Cp integration, departure functions (9), condensation enthalpy (4), reference state handling
 - [ ] **Write mixture model tests** (~3–4h) — compare against VB6/Pascal outputs
 
-## Milestone 6: Flash & Regression
+## Milestone 8: Flash & Regression
 
 - [ ] **Implement bubble point (T and P)** (~4–6h) — parabolic interpolation (4), Asselineau high-pressure path (14), Anderson-Prausnitz 2nd stage (20)
 - [ ] **Implement dew point (T and P)** (~3–4h) — same algorithm structure as bubble point
@@ -104,7 +104,7 @@ SQLite-based property database with CLI and Jupyter notebook interface (~8–10h
 - [ ] **Implement Aij regression** (~4–6h) — NR with analytical Jacobian for Margules/VanLaar/Wilson (4), experimental gamma calculation, correlation factor analysis
 - [ ] **Validate Chapter IV cases** (~3–4h) — all 8 test cases, verify <1–5% error vs. published results
 
-## Milestone 7: Python Bindings & Wrapper
+## Milestone 9: Python Bindings & Wrapper
 
 - [ ] **Create PyO3 bindings** (~4–6h) — expose core types as `#[pyclass]`, calculation functions as `#[pyfunction]`, `VleEngine` class
 - [ ] **Build Python `System` class** (~3–4h) — high-level API: `system.bubble_point_T()`, `system.flash_isothermal()`, etc.
@@ -114,7 +114,7 @@ SQLite-based property database with CLI and Jupyter notebook interface (~8–10h
 - [ ] **Write Python test suite** (~2–3h) — `test_validation.py` reproducing all Chapter IV results
 - [ ] **Write installation guide** (~1h) — end-user: `pip install`, basic usage example
 
-## Milestone 8: Jupyter Notebooks
+## Milestone 10: Jupyter Notebooks
 
 - [ ] **01_introduction** (~2–3h) — overview, installation, basic API walkthrough
 - [ ] **02_pure_component** (~3–4h) — PVT diagrams, compare 22+ EOS variants, saturation curves
@@ -133,13 +133,13 @@ SQLite-based property database with CLI and Jupyter notebook interface (~8–10h
 |-----------|-----------|--------|
 | 0. Foundation | — | Done |
 | 1. Documentation & Translation | ~20–28h | **Done** |
-| 1.5. Units Library | ~19–26h | Not started |
-| 2.5. Component Database | ~8–10h | Not started |
 | 2. Dev Environment & Scaffolding | ~9–12h | Not started |
-| 3. Numerics | ~12–15h | Not started |
-| 4. Pure Component Models | ~24–32h | Not started |
-| 5. Mixture Models | ~21–30h | Not started |
-| 6. Flash & Regression | ~26–37h | Not started |
-| 7. Python Bindings & Wrapper | ~15–22h | Not started |
-| 8. Jupyter Notebooks | ~19–26h | Not started |
+| 3. Units Library | ~19–26h | Not started |
+| 4. Component Database | ~8–10h | In progress |
+| 5. Numerics | ~12–15h | Not started |
+| 6. Pure Component Models | ~24–32h | Not started |
+| 7. Mixture Models | ~21–30h | Not started |
+| 8. Flash & Regression | ~26–37h | Not started |
+| 9. Python Bindings & Wrapper | ~15–22h | Not started |
+| 10. Jupyter Notebooks | ~19–26h | Not started |
 | **Total** | **~172–236h** | |
