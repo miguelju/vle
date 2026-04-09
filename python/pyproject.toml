@@ -1,0 +1,28 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "vle"
+version = "0.1.0"
+description = "VLE (Vapor-Liquid Equilibrium) thermodynamic calculator"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+plot = ["matplotlib>=3.7"]
+dev = ["pytest>=7.0", "maturin>=1.0"]
+db = ["thermo>=0.3"]
+
+[tool.maturin]
+# Path to the Rust crate that produces the native extension module
+manifest-path = "../engine/Cargo.toml"
+# Build with the "python" feature flag to enable PyO3 bindings
+features = ["python"]
+# Python source layout: pure Python code lives alongside the native module
+python-source = "src"
+# The native module will be importable as vle._engine
+module-name = "vle._engine"

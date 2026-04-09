@@ -20,16 +20,17 @@ Check off items as they're completed. Time estimates assume working with Claude 
 - [x] **Push to GitHub** (~0.5h) — create remote, initial push, verify README renders
 
 ## Milestone 2: Dev Environment & Scaffolding
+*Executed by Claude Code using Claude Opus 4.6 (1M context)*
 
-- [ ] **Install Rust toolchain** (~0.5h) — `rustup`, verify `cargo --version`
-- [ ] **Set up conda environment** (~0.5h) — `conda create -n vle python=3.11`, install maturin via pip inside the conda env
-- [ ] **Create `engine/Cargo.toml`** (~1h) — deps: nalgebra, pyo3, ndarray, approx (for tests)
-- [ ] **Create `engine/src/lib.rs`** (~0.5h) — crate root with module declarations
-- [ ] **Define Rust enums** (~2–3h) — `CubicEos` (22+ variants), `ActivityModel` (5), `MixingRule` (8+), `SatPressureModel` (6). Map from VB6 `Enum` and Pascal `case` statements
-- [ ] **Define core structs** (~2–3h) — `Component`, `Mixture`, `Flow`, `Tolerances`, `ReferenceState`. Union of VB6 and Pascal fields
-- [ ] **Create `python/pyproject.toml`** (~0.5h) — maturin build backend, package metadata
-- [ ] **Create `python/src/vle/__init__.py`** (~0.5h) — empty public API skeleton
-- [ ] **Verify end-to-end build** (~1h) — `conda activate vle` → `cargo build` → `maturin develop` → `python -c "import vle"` works
+- [x] **Install Rust toolchain** (~0.5h) — `rustup`, verify `cargo --version`
+- [x] **Set up conda environment** (~0.5h) — `conda create -n vle python=3.11`, install maturin via pip inside the conda env
+- [x] **Create `engine/Cargo.toml`** (~1h) — deps: nalgebra, pyo3, ndarray, approx (for tests)
+- [x] **Create `engine/src/lib.rs`** (~0.5h) — crate root with module declarations
+- [x] **Define Rust enums** (~2–3h) — `CubicEos` (22+ variants), `ActivityModel` (5), `MixingRule` (11), `SatPressureModel` (6). Map from VB6 `Enum` and Pascal `case` statements
+- [x] **Define core structs** (~2–3h) — `Component`, `Mixture`, `Flow`, `Tolerances`, `ReferenceState`. Union of VB6 and Pascal fields
+- [x] **Create `python/pyproject.toml`** (~0.5h) — maturin build backend, package metadata
+- [x] **Create `python/src/vle/__init__.py`** (~0.5h) — empty public API skeleton
+- [x] **Verify end-to-end build** (~1h) — `conda activate vle` → `cargo build` → `maturin develop` → `python -c "import vle"` works
 
 ## Milestone 3: Units of Measurement Library
 
@@ -133,7 +134,7 @@ SQLite-based property database with CLI and Jupyter notebook interface (~8–10h
 |-----------|-----------|--------|
 | 0. Foundation | — | Done |
 | 1. Documentation & Translation | ~20–28h | **Done** |
-| 2. Dev Environment & Scaffolding | ~9–12h | Not started |
+| 2. Dev Environment & Scaffolding | ~9–12h | **Done** |
 | 3. Units Library | ~19–26h | Not started |
 | 4. Component Database | ~8–10h | In progress |
 | 5. Numerics | ~12–15h | Not started |

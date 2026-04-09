@@ -34,17 +34,18 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Create parameter reference document (`docs/en/parameters/parameter_reference.md`)
 - [x] Write developer setup guide (`docs/en/SETUP.md`)
 
-## Milestone 2: Dev Environment & Scaffolding
+## Milestone 2: Dev Environment & Scaffolding ✓
 **Goal**: Rust crate compiles, Python package builds, empty module importable.
 *Phase 2 of MODERNIZATION_PLAN.md*
+*Executed by Claude Code using Claude Opus 4.6 (1M context)*
 
-- [ ] Install and verify Rust toolchain
-- [ ] Set up conda environment and install maturin
-- [ ] Scaffold Rust crate (`engine/Cargo.toml` — nalgebra, PyO3 deps)
-- [ ] Scaffold Python package (`python/pyproject.toml` — maturin backend)
-- [ ] Define all Rust enums (CubicEos, ActivityModel, MixingRule, SatPressureModel)
-- [ ] Define core structs (Component, Mixture, Flow, Tolerances, ReferenceState)
-- [ ] Verify end-to-end: `cargo build` → `maturin develop` → `python -c "import vle"`
+- [x] Install and verify Rust toolchain
+- [x] Set up conda environment and install maturin
+- [x] Scaffold Rust crate (`engine/Cargo.toml` — nalgebra, PyO3 deps)
+- [x] Scaffold Python package (`python/pyproject.toml` — maturin backend)
+- [x] Define all Rust enums (CubicEos, ActivityModel, MixingRule, SatPressureModel)
+- [x] Define core structs (Component, Mixture, Flow, Tolerances, ReferenceState)
+- [x] Verify end-to-end: `cargo build` → `maturin develop` → `python -c "import vle"`
 - [ ] Push to GitHub
 
 ## Milestone 3: Units of Measurement Library

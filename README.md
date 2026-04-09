@@ -83,7 +83,7 @@ vle/
 ├── notebooks/               # Jupyter notebooks
 │   └── 00_component_database.ipynb  # Interactive component browser
 ├── units/                   # Independent units crate (planned — dimensional analysis)
-├── engine/                  # Rust computation engine (planned — PyO3 bindings)
+├── engine/                  # Rust computation engine (scaffolded — enums, structs, PyO3 bindings)
 ├── docs/
 │   ├── en/research-paper/   # English translation (navigatable)
 │   ├── en/units/            # Units add-on design document
@@ -147,7 +147,7 @@ Each milestone records which AI model was used (e.g., `Claude Opus 4.6 (1M conte
 
 ## Getting Started
 
-> **Status**: Milestones 0–1 complete (documentation, translation). Milestone 4 (component database) in progress. Milestones 2–10 (scaffolding, units, engine, bindings, notebooks) not yet started.
+> **Status**: Milestones 0–2 complete (documentation, translation, dev environment & scaffolding). Milestone 4 (component database) in progress. Milestones 3, 5–10 (units, numerics, models, flash, bindings, notebooks) not yet started.
 
 ### Prerequisites
 - Python 3.10+ (for the component database and future Python wrapper)
@@ -162,10 +162,12 @@ PYTHONPATH=python/src python -m vle.cli.main list               # Browse compone
 PYTHONPATH=python/src python -m vle.cli.main show methane       # View details
 ```
 
-### Build (planned — Milestones 2+)
+### Build
 ```bash
+conda activate vle                    # Activate conda environment
 cd engine && cargo build --release    # Build Rust engine
 cd python && maturin develop          # Build Python bindings
+python -c "import vle; print(vle.__version__)"  # Verify
 ```
 
 ## Documentation

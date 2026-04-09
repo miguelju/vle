@@ -35,17 +35,28 @@ Source: CalebBell/thermo library (wraps DIPPR 801, ChemSep, CoolProp).
 See https://github.com/CalebBell/thermo
 """
 
-import argparse
-import json
-import sys
+# --- Standard library imports ---
+import argparse        # Builds command-line interfaces (--preset, --format, etc.)
+import json            # Converts Python objects to/from JSON strings
+import sys             # Access to stdin/stdout/stderr and sys.exit()
+# dataclass: a decorator that auto-generates __init__, __repr__, etc. for a class
+#   based on its type-annotated fields (saves a lot of boilerplate).
+# asdict: converts a dataclass instance into a plain dictionary (useful for JSON output).
 from dataclasses import dataclass, asdict
+# Optional[X] means the value can be either type X or None.
 from typing import Optional
 
 
 # ---------------------------------------------------------------------------
 # Compound presets
 # ---------------------------------------------------------------------------
+# These are predefined lists of compounds used as input to the extraction.
+# Each entry is a tuple of (our_name, CAS_number, notes). The CAS number is
+# a unique identifier for each chemical substance (like an ISBN for books)
+# and is used to look up the compound in the `thermo` library.
 
+# Compounds from Chapter IV of the research paper — these are the validation
+# test cases. The notes indicate which tables/tests reference each compound.
 CHAPTER4_COMPOUNDS = [
     # (canonical_name, identifier_for_thermo, notes)
     ("methane",           "74-82-8",   "Chapter IV: critical points (4.1), bubble T (4.5)"),
@@ -65,6 +76,7 @@ CHAPTER4_COMPOUNDS = [
     ("2-propanol",        "67-63-0",   "Chapter IV: dew point (4.4)"),
 ]
 
+# Additional commonly used industrial compounds, grouped by chemical family.
 COMMON_COMPOUNDS = [
     # Light gases
     ("hydrogen",          "1333-74-0",  "Light gas"),
@@ -112,6 +124,11 @@ COMMON_COMPOUNDS = [
 # Data extraction
 # ---------------------------------------------------------------------------
 
+# @dataclass is a decorator that auto-generates boilerplate methods for a class:
+#   - __init__: so you can create instances with ComponentData(name="methane", tc=190.6, ...)
+#   - __repr__: so printing an instance shows all its field values
+#   - __eq__: so you can compare two instances with ==
+# Fields with `= None` or `= "thermo/DIPPR"` are optional with default values.
 @dataclass
 class ComponentData:
     """Extracted component properties in VLE canonical units."""
@@ -149,12 +166,21 @@ def extract_component(identifier: str, canonical_name: Optional[str] = None,
         - Temperature: K (thermo) -> K (VLE canonical) — no conversion needed
         - Dipole: Debye (thermo) -> Debye (VLE canonical) — no conversion needed
     """
+    # Import here (not at top of file) so the script can show a helpful
+    # error message if `thermo` is not installed, instead of crashing
+    # immediately on startup.
     from thermo import Chemical
 
+    # Chemical() looks up the compound in thermo's database by CAS number
+    # or name, and populates properties like Tc, Pc, MW, etc.
     c = Chemical(identifier)
 
+    # Use our canonical name if provided; otherwise fall back to whatever
+    # name the thermo library returns (lowercased for consistency).
     name = canonical_name or (c.name.lower() if c.name else identifier.lower())
 
+    # Build and return a ComponentData instance, converting units from
+    # thermo's defaults (Pa, m3/mol) to our canonical units (kPa, cm3/mol).
     return ComponentData(
         name=name,
         formula=c.formula,
@@ -194,13 +220,19 @@ def extract_preset(preset: str) -> list[ComponentData]:
         raise ValueError(f"Unknown preset: {preset}. Use 'chapter4' or 'common'.")
 
     results = []
+    # Unpack each tuple into its three parts: our name, the CAS lookup
+    # identifier, and notes about which Chapter IV test uses this compound.
     for canonical_name, identifier, notes in compound_list:
         try:
             data = extract_component(identifier, canonical_name=canonical_name, notes=notes)
             results.append(data)
+            # Progress output goes to stderr so it doesn't mix with the
+            # actual data output on stdout (which may be piped to a file).
             print(f"  OK: {data.name:25s}  Tc={data.tc:>10}  Pc={data.pc:>10}  w={data.w}",
                   file=sys.stderr)
         except Exception as e:
+            # If a compound fails (e.g., not in thermo's database), log
+            # the error but continue with the rest of the list.
             print(f"  ERROR: {canonical_name}: {e}", file=sys.stderr)
     return results
 
@@ -231,10 +263,19 @@ def extract_by_names(names: list[str]) -> list[ComponentData]:
 # ---------------------------------------------------------------------------
 
 def _sql_val(v) -> str:
-    """Format a Python value for SQL."""
+    """Format a Python value for SQL.
+
+    Converts Python values to their SQL equivalents:
+        None        -> NULL
+        "methane"   -> 'methane'
+        190.56      -> 190.56
+    Strings with single quotes are escaped by doubling them (SQL standard):
+        "it's"      -> 'it''s'
+    """
     if v is None:
         return "NULL"
     if isinstance(v, str):
+        # Wrap in single quotes; escape any internal single quotes by doubling.
         return "'" + v.replace("'", "''") + "'"
     return str(v)
 
@@ -256,6 +297,9 @@ def format_sql(components: list[ComponentData]) -> str:
         "",
     ]
 
+    # Generate one INSERT statement per compound. "INSERT OR IGNORE" means:
+    # if a row with the same unique key already exists, skip it silently
+    # instead of raising an error (useful for re-running the script safely).
     for c in components:
         lines.append(
             f"INSERT OR IGNORE INTO components "
@@ -271,6 +315,10 @@ def format_sql(components: list[ComponentData]) -> str:
 
 def format_json(components: list[ComponentData]) -> str:
     """Format extracted data as JSON."""
+    # asdict() converts each dataclass into a plain dict, then json.dumps()
+    # serializes the list of dicts into a JSON string.
+    # indent=2: pretty-print with 2-space indentation.
+    # default=str: if a value isn't JSON-serializable, convert it to a string.
     return json.dumps([asdict(c) for c in components], indent=2, default=str) + "\n"
 
 
@@ -280,6 +328,10 @@ def format_table(components: list[ComponentData]) -> str:
     sep = "-" * len(header)
     lines = [header, sep]
     for c in components:
+        # `or ''` / `or 0`: if the value is None, substitute an empty string
+        # (for text) or 0 (for numbers) so the formatting doesn't crash.
+        # Format specs: :8.2f means 8 chars wide with 2 decimal places;
+        # :10.3f means 10 chars wide with 3 decimal places, etc.
         lines.append(
             f"{c.name:25s}  {c.formula or '':10s}  {c.cas_number or '':12s}  "
             f"{c.mw or 0:8.2f}  {c.tc or 0:10.3f}  {c.pc or 0:10.3f}  "
@@ -308,9 +360,14 @@ def main():
                "  python scripts/extract_component_data.py --compounds ethylene acetone\n",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    # add_mutually_exclusive_group: the user must provide EITHER --preset
+    # OR --compounds, but NOT both. `required=True` means at least one
+    # of the two must be given.
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--preset", choices=["chapter4", "common"],
                        help="Extract a predefined set of compounds")
+    # nargs="+" means "one or more values" — the user can list multiple
+    # compound names/CAS numbers after --compounds.
     group.add_argument("--compounds", nargs="+", metavar="NAME",
                        help="Extract specific compounds by name or CAS number")
     parser.add_argument("--format", choices=["sql", "json", "table"], default="sql",
@@ -336,15 +393,21 @@ def main():
         print("No compounds extracted.", file=sys.stderr)
         sys.exit(1)
 
-    # Format and output
+    # Format and output.
+    # This dict maps format names to their formatter functions. We look up
+    # the user's chosen format and call the corresponding function.
+    # This is a common Python pattern to avoid long if/elif/else chains.
     formatters = {
         "sql": format_sql,
         "json": format_json,
         "table": format_table,
     }
     output = formatters[args.format](components)
+    # Write to stdout so the user can redirect to a file with `> filename`.
     sys.stdout.write(output)
 
 
+# Standard Python idiom: only run main() when this file is executed directly
+# (e.g., `python extract_component_data.py`), not when imported as a module.
 if __name__ == "__main__":
     main()

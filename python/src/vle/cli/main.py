@@ -118,6 +118,12 @@ def cmd_show(args: argparse.Namespace) -> None:
         print(f"Component not found: {args.name}", file=sys.stderr)
         sys.exit(1)
 
+    # Format spec `:>25s` means: right-align (>) the string (s) in a
+    # field 25 characters wide, padding with spaces on the left. This
+    # makes all the labels line up neatly in a column, e.g.:
+    #                      Name: methane
+    #                   Formula: CH4
+    #                        MW: 16.04
     print(f"{'Name':>25s}: {comp.name}")
     print(f"{'Formula':>25s}: {comp.formula or '—'}")
     print(f"{'CAS':>25s}: {comp.cas_number or '—'}")
@@ -146,6 +152,15 @@ def cmd_list(args: argparse.Namespace) -> None:
         print("No components in database. Run 'vle-db seed --source chapter4' first.")
         return
 
+    # Table header using Python f-string format specifiers:
+    #   :>3s  — right-align (>), 3 chars wide, string (s)  →  "  #"
+    #   :25s  — left-align (default for strings), 25 chars wide  →  "Name                     "
+    #   :10s  — left-align, 10 chars wide  →  "Formula   "
+    #   :>10s — right-align, 10 chars wide →  "    Tc (K)"
+    #   :>8s  — right-align, 8 chars wide  →  "       w"
+    # Left-align is the default for strings; > overrides it to right-align.
+    # Numbers (Tc, Pc, w) are right-aligned so decimal points will line up
+    # with the data rows below.
     print(f"{'#':>3s}  {'Name':25s}  {'Formula':10s}  {'Tc (K)':>10s}  {'Pc (kPa)':>10s}  {'w':>8s}")
     print("-" * 75)
     for i, c in enumerate(comps, 1):

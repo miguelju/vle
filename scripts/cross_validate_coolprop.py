@@ -128,15 +128,26 @@ def validate_compound(cas: str, tolerance_pct: float) -> dict:
 
 
 def main():
+    # --- Parse command-line arguments ---
+    # argparse builds a CLI interface automatically: --help, type checking, defaults.
     parser = argparse.ArgumentParser(
         description="Cross-validate thermo vs CoolProp component properties.",
     )
+    # --tolerance: max allowed % deviation before a compound is flagged as FAIL.
     parser.add_argument("--tolerance", type=float, default=0.5,
                         help="Maximum acceptable deviation in %% (default: 0.5)")
+    # --compounds: optional list of CAS numbers; if omitted, uses the default
+    # Chapter IV compounds from the research paper.
+    # nargs="*" means "zero or more values", so the user can pass multiple CAS numbers.
     parser.add_argument("--compounds", nargs="*", metavar="CAS",
                         help="CAS numbers to validate (default: Chapter IV compounds)")
     args = parser.parse_args()
 
+    # --- Check that required third-party libraries are installed ---
+    # `thermo` and `CoolProp` are external packages that provide reference
+    # property data. If they're missing, we print a helpful install message.
+    # `# noqa: F401` tells the linter to ignore the "imported but unused"
+    # warning — we're only importing here to check availability.
     try:
         import thermo  # noqa: F401
         import CoolProp  # noqa: F401
@@ -145,27 +156,37 @@ def main():
         print("Install with: pip install thermo CoolProp", file=sys.stderr)
         sys.exit(1)
 
+    # Use user-supplied CAS numbers, or fall back to the default list.
     cas_list = args.compounds or CHAPTER4_CAS
 
+    # --- Print table header ---
     print(f"Cross-validating {len(cas_list)} compounds (tolerance: {args.tolerance}%)")
     print(f"{'Name':25s}  {'Tc diff%':>8s}  {'Pc diff%':>8s}  {'w diff%':>8s}  {'Status':>8s}")
     print("-" * 70)
 
+    # --- Loop over each compound and validate ---
     pass_count = 0
     skip_count = 0
     fail_count = 0
 
     for cas in cas_list:
         result = validate_compound(cas, args.tolerance)
+
+        # result is None when the compound couldn't be found in either library.
         if result is None:
             print(f"{'(CAS: ' + cas + ')':25s}  {'—':>8s}  {'—':>8s}  {'—':>8s}  {'SKIP':>8s}")
             skip_count += 1
             continue
+
+        # result contains "error" when the lookup succeeded but comparison failed.
         if "error" in result:
             print(f"{result['name']:25s}  ERROR: {result['error']}")
             fail_count += 1
             continue
 
+        # Format the % deviations for Tc, Pc, and acentric factor (w).
+        # :.3f means 3 decimal places (e.g., "0.123"). If a value is None
+        # (property not available), show a dash instead.
         status = "PASS" if result["passed"] else "FAIL"
         tc_str = f"{result['tc_diff_pct']:.3f}" if result['tc_diff_pct'] is not None else "—"
         pc_str = f"{result['pc_diff_pct']:.3f}" if result['pc_diff_pct'] is not None else "—"
@@ -178,12 +199,18 @@ def main():
         else:
             fail_count += 1
 
+    # --- Print summary and exit ---
     print("-" * 70)
     print(f"Results: {pass_count} passed, {fail_count} failed, {skip_count} skipped")
 
+    # Exit with code 1 (error) if any compound failed validation.
+    # This lets CI pipelines detect failures automatically.
     if fail_count > 0:
         sys.exit(1)
 
 
+# Standard Python idiom: only run main() when this file is executed directly
+# (e.g., `python cross_validate_coolprop.py`), not when it's imported as a
+# module by another script.
 if __name__ == "__main__":
     main()

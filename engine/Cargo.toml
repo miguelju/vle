@@ -1,0 +1,22 @@
+[package]
+name = "vle-engine"
+version = "0.1.0"
+edition = "2024"
+description = "VLE (Vapor-Liquid Equilibrium) thermodynamic calculator engine"
+license = "MIT"
+
+[lib]
+name = "vle_engine"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+nalgebra = "0.33"
+ndarray = "0.16"
+pyo3 = { version = "0.22", features = ["extension-module"], optional = true }
+
+[dev-dependencies]
+approx = "0.5"
+
+[features]
+default = []
+python = ["pyo3"]
