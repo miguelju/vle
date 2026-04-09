@@ -46,7 +46,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Define all Rust enums (CubicEos, ActivityModel, MixingRule, SatPressureModel)
 - [x] Define core structs (Component, Mixture, Flow, Tolerances, ReferenceState)
 - [x] Verify end-to-end: `cargo build` → `maturin develop` → `python -c "import vle"`
-- [ ] Push to GitHub
+- [x] Push to GitHub
 
 ## Milestone 3: Units of Measurement Library
 **Goal**: Independent Rust crate + Python wrapper for unit conversion using dimensional analysis.
