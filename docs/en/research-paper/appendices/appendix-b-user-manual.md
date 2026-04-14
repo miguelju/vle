@@ -1,6 +1,6 @@
 # Appendix B — User Manual for the Thermodynamic Library
 
-> **Translation status**: Complete. See [Spanish original](../../../es/research-paper/programdocs/dllManual.md).
+> **Translation status**: Complete. See [Spanish original](../../../es/research-paper/markdown/programdocs/dllManual.md).
 
 ---
 

@@ -1,6 +1,6 @@
 # Abstract
 
-> **Translation status**: Complete. See [Spanish original](../../es/research-paper/Resumen.md).
+> **Translation status**: Complete. See [Spanish original](../../es/research-paper/markdown/Resumen.md).
 
 ---
 

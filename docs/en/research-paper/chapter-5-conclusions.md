@@ -1,6 +1,6 @@
 # Chapter V — Conclusions and Recommendations
 
-> **Translation status**: Complete. See [Spanish original](../../es/research-paper/Capitulo%20V.md).
+> **Translation status**: Complete. See [Spanish original](../../es/research-paper/pdf/Capitulo%20V.pdf).
 
 ---
 

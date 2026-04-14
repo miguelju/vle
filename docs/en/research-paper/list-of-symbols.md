@@ -1,6 +1,6 @@
 # List of Symbols
 
-> See [Spanish original](../../es/research-paper/Lista%20de%20simbolos.md).
+> See [Spanish original](../../es/research-paper/pdf/Lista%20de%20simbolos.pdf).
 
 ---
 

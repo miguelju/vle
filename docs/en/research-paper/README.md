@@ -72,7 +72,7 @@ A thermodynamic library and a master program were developed with the capability 
 
 ## Spanish Original
 
-The original Spanish text is preserved in [`docs/es/research-paper/`](../../es/research-paper/).
+The original Spanish text is preserved in [`docs/es/research-paper/`](../../es/research-paper/README.md) (PDFs with Markdown fallbacks).
 
 ## Related Documents
 

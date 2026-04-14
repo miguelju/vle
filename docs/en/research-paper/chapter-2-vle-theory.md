@@ -1,6 +1,6 @@
 # Chapter II -- Description of Vapor-Liquid Equilibrium
 
-> **Translation status**: Complete. See [Spanish original](../../es/research-paper/Capitulo%20II.md).
+> **Translation status**: Complete. See [Spanish original](../../es/research-paper/pdf/Capitulo%20II.pdf).
 
 ---
 

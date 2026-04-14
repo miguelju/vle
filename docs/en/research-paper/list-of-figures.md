@@ -1,6 +1,6 @@
 # List of Figures
 
-> See [Spanish original](../../es/research-paper/Lista%20de%20Figuras.md).
+> See [Spanish original](../../es/research-paper/markdown/Lista%20de%20Figuras.md).
 
 ---
 

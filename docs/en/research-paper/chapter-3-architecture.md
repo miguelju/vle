@@ -1,6 +1,6 @@
 # Chapter III — Development and Structure of the Thermodynamic Package
 
-> **Translation status**: Complete. See [Spanish original](../../es/research-paper/Capitulo%20III.md).
+> **Translation status**: Complete. See [Spanish original](../../es/research-paper/pdf/Capitulo%20III.pdf).
 
 ---
 

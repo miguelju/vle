@@ -1,6 +1,6 @@
 # Chapter IV — Validation of the Thermodynamic Package
 
-> **Translation status**: Complete. See [Spanish original](../../es/research-paper/Capitulo%20IV.md).
+> **Translation status**: Complete. See [Spanish original](../../es/research-paper/pdf/Capitulo%20IV.pdf).
 
 ---
 

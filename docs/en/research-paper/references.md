@@ -1,7 +1,7 @@
 # References
 
 > Formatted in ACS (American Chemical Society) style, the standard for chemical engineering literature.
-> Translated from the original Spanish. See [Spanish original](../../es/research-paper/REFERENCIAS.md).
+> Translated from the original Spanish. See [Spanish original](../../es/research-paper/pdf/REFERENCIAS.pdf).
 
 ---
 

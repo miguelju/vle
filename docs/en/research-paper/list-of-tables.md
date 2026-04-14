@@ -1,6 +1,6 @@
 # List of Tables
 
-> See [Spanish original](../../es/research-paper/Lista%20de%20Tablas.md).
+> See [Spanish original](../../es/research-paper/pdf/Lista%20de%20Tablas.pdf).
 
 ---
 

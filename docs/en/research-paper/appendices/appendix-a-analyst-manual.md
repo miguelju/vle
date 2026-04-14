@@ -2,7 +2,7 @@
 
 ## Description of Classes and Modules in the Project
 
-> **Translation status**: Complete. See [Spanish original](../../../es/research-paper/programdocs/Analista.md).
+> **Translation status**: Complete. See [Spanish original](../../../es/research-paper/markdown/programdocs/Analista.md).
 
 ---
 
