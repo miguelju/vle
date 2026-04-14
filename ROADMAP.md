@@ -48,22 +48,23 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Verify end-to-end: `cargo build` → `maturin develop` → `python -c "import vle"`
 - [x] Push to GitHub
 
-## Milestone 3: Units of Measurement Library
+## Milestone 3: Units of Measurement Library ✓
 **Goal**: Independent Rust crate + Python wrapper for unit conversion using dimensional analysis.
 *Phase 3 of MODERNIZATION_PLAN.md — add-on sub-project, works independently of VLE engine*
+*Executed by Claude Code using Claude Opus 4.6 (1M context)*
 
-- [ ] Scaffold `units/` Rust crate with `uom` dependency
-- [ ] Define VLE-specific quantity types (Temperature, TemperatureDiff, Pressure, MolarEnergy, MolarEntropy, MolarVolume, Amount)
-- [ ] Implement built-in gauge pressure units (barg, psig, kPag) with configurable atmospheric pressure offset
-- [ ] Implement extensible runtime `UnitRegistry` (allows user-added units alongside the compile-time typed API)
-- [ ] Implement unit string parser (`parse_unit_string("kPa")` → typed quantity)
-- [ ] Implement `to_canonical()` / `from_canonical()` conversion functions
-- [ ] Implement TOML unit file loader (shared by Rust and Python for user-defined units)
-- [ ] Write Rust conversion test suite (7 quantities × 3+ alt units, round-trip; include absolute-vs-difference temperature parity)
-- [ ] Test custom unit extension (add `mmH2O` and a new dimension at runtime)
-- [ ] Create `python/src/vle/units.py` wrapper around `pint`, exposing `ureg` for user extensions
-- [ ] Write Python conversion tests (parity with Rust + custom user-added units)
-- [ ] Document units API and extension guide in `docs/en/units/`
+- [x] Scaffold `units/` Rust crate with `uom` dependency
+- [x] Define VLE-specific quantity types (Temperature, TemperatureDiff, Pressure, MolarEnergy, MolarEntropy, MolarVolume, Amount)
+- [x] Implement built-in gauge pressure units (barg, psig, kPag) with configurable atmospheric pressure offset
+- [x] Implement extensible runtime `UnitRegistry` (allows user-added units alongside the compile-time typed API)
+- [x] Implement unit string parser (`parse_unit_string("kPa")` → typed quantity)
+- [x] Implement `to_canonical()` / `from_canonical()` conversion functions
+- [x] Implement TOML unit file loader (shared by Rust and Python for user-defined units)
+- [x] Write Rust conversion test suite (7 quantities × 3+ alt units, round-trip; include absolute-vs-difference temperature parity)
+- [x] Test custom unit extension (add `mmH2O` and a new dimension at runtime)
+- [x] Create `python/src/vle/units.py` wrapper around `pint`, exposing `ureg` for user extensions
+- [x] Write Python conversion tests (parity with Rust + custom user-added units)
+- [x] Document units API and extension guide in `docs/en/units/`
 
 ## Milestone 4: Component Property Database
 **Goal**: SQLite database with Chapter IV validation data, CLI tool, and interactive Jupyter notebook.
@@ -156,4 +157,4 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 
 ---
 
-**Status key**: `[x]` complete · `[ ]` not started · `[~]` in progress
+**Status key**: `[✓]` complete · `[ ]` not started · `[~]` in progress

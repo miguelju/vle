@@ -5,6 +5,8 @@
 
 # Rust
 /engine/target/
+/units/target/
+**/*.dSYM/
 **/*.rs.bk
 Cargo.lock
 

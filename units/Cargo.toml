@@ -1,0 +1,18 @@
+[package]
+name = "vle-units"
+version = "0.1.0"
+edition = "2024"
+description = "Dimensional analysis & unit conversion for VLE thermodynamic calculations (Milestone 3 add-on)"
+license = "MIT"
+
+[lib]
+name = "vle_units"
+
+[dependencies]
+uom = { version = "0.36", default-features = false, features = ["autoconvert", "f64", "si", "std"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+thiserror = "1"
+
+[dev-dependencies]
+approx = "0.5"

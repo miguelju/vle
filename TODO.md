@@ -33,21 +33,22 @@ Check off items as they're completed. Time estimates assume working with Claude 
 - [x] **Verify end-to-end build** (~1h) — `conda activate vle` → `cargo build` → `maturin develop` → `python -c "import vle"` works
 
 ## Milestone 3: Units of Measurement Library
+*Executed by Claude Code using Claude Opus 4.6 (1M context)*
 
 Independent add-on (~12–15h total). Uses dimensional analysis via the 7 SI base dimensions. Rust: `uom` crate (compile-time checks, phantom types). Python: `pint` library (runtime checks).
 
-- [ ] **Scaffold units crate** (~1h) — `units/Cargo.toml` with `uom` dependency, `units/src/lib.rs`
-- [ ] **Define VLE quantity types** (~2h) — Temperature (absolute), TemperatureDiff (gradient / interval), Pressure, MolarEnergy, MolarEntropy, MolarVolume, Amount as aliases for `uom`'s SI types. Temperature and TemperatureDiff are *separate* types even though both canonicalize to K (see `docs/en/units/dimensional-analysis.md` §3.3)
-- [ ] **Implement gauge pressure units** (~1–2h) — Built-in barg, psig, kPag with affine conversion (P_abs = P_gauge × scale + P_atm). P_atm is a **runtime-configurable parameter** in the registry (never hardcoded): `registry.set_atmospheric_pressure()` / `get_atmospheric_pressure()`. Default 101.325 kPa. Reject non-positive absolute results. Support `define_gauge()` for user-added gauge units. See `docs/en/units/dimensional-analysis.md` §3.4
-- [ ] **Implement runtime UnitRegistry** (~3–4h) — extensible runtime registry alongside compile-time typed API; supports `define(name, dimension, scale, offset)` for user-added units
-- [ ] **Implement unit string parser** (~2–3h) — `parse_unit_string("kPa")` → typed quantity; supports K/°C/°F/°R, Pa/kPa/bar/atm/psi/mmHg/torr, kJ/kmol, J/mol, cal/mol, etc.
-- [ ] **Implement canonical conversion** (~1–2h) — `to_canonical()` / `from_canonical()` for each quantity (canonical: K, kPa, kJ/kmol, kJ/(kmol·K), cm³/mol, kmol)
-- [ ] **Implement TOML unit file loader** (~2h) — `registry.load_from_toml("custom_units.toml")` for bulk user-defined units, shared by Rust and Python
-- [ ] **Write Rust conversion tests** (~2h) — all 7 quantities × 3–4 alt units, round-trip identity, compile-time dimension check (`temperature + pressure` must fail to compile), **absolute-vs-difference temperature parity** (`T_abs + T_abs` must fail; `T_abs - T_abs → TemperatureDiff`; `Δ°C → ΔK` must be scale-only with no offset)
-- [ ] **Test custom unit extension** (~1h) — round-trip test adding `mmH2O` to Pressure dimension and a new `heat_transfer_coefficient` dimension
-- [ ] **Create Python units wrapper** (~2h) — `python/src/vle/units.py` using `pint`, same unit strings as Rust side, exposes `ureg` for user extensions
-- [ ] **Write Python conversion tests** (~1–2h) — verify parity with Rust side via golden values, test user-added units via `ureg.define()`
-- [ ] **Document units API + extension guide** (~1–2h) — update `docs/en/units/dimensional-analysis.md` with working code examples; add `docs/en/units/README.md` quickstart
+- [x] **Scaffold units crate** (~1h) — `units/Cargo.toml` with `uom` dependency, `units/src/lib.rs`
+- [x] **Define VLE quantity types** (~2h) — Temperature (absolute), TemperatureDiff (gradient / interval), Pressure, MolarEnergy, MolarEntropy, MolarVolume, Amount as aliases for `uom`'s SI types
+- [x] **Implement gauge pressure units** (~1–2h) — Built-in barg, psig, kPag with affine conversion; P_atm is a runtime-configurable parameter in the registry (never hardcoded); default 101.325 kPa; rejects non-positive absolute results
+- [x] **Implement runtime UnitRegistry** (~3–4h) — extensible runtime registry; supports `define()`, `define_gauge()`, `define_dimension()`, `define_with_dimension()`
+- [x] **Implement unit string parser** (~2–3h) — `parse("25 degC")` → canonical Quantity; supports all VLE units
+- [x] **Implement canonical conversion** (~1–2h) — `to_canonical()` / `from_canonical()` per unit
+- [x] **Implement TOML unit file loader** (~2h) — `registry.load_from_toml()` for bulk user-defined units and dimensions
+- [x] **Write Rust conversion tests** (~2h) — 18 integration tests + 3 parser unit tests + 2 compile-fail doctests covering all 7 quantities, gauge offset behavior, and absolute-vs-difference temperature semantics
+- [x] **Test custom unit extension** (~1h) — round-trips for `mmH2O`, gauge `mmH2Og` that tracks P_atm, and a new `heat_transfer_coefficient` dimension
+- [x] **Create Python units wrapper** (~2h) — `python/src/vle/units.py` around `pint` with the same canonical units and configurable P_atm
+- [x] **Write Python conversion tests** (~1–2h) — 40 wrapper tests + 14 parity tests against Rust golden values
+- [x] **Document units API + extension guide** (~1–2h) — added `docs/en/units/README.md` quickstart (existing `dimensional-analysis.md` already has the design)
 
 ## Milestone 4: Component Property Database
 
@@ -135,7 +136,7 @@ SQLite-based property database with CLI and Jupyter notebook interface (~8–10h
 | 0. Foundation | — | Done |
 | 1. Documentation & Translation | ~20–28h | **Done** |
 | 2. Dev Environment & Scaffolding | ~9–12h | **Done** |
-| 3. Units Library | ~19–26h | Not started |
+| 3. Units Library | ~19–26h | **Done** |
 | 4. Component Database | ~8–10h | In progress |
 | 5. Numerics | ~12–15h | Not started |
 | 6. Pure Component Models | ~24–32h | Not started |

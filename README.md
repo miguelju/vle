@@ -24,7 +24,7 @@ The VB6 program in turn builds upon an earlier Pascal package:
 
 > **(4)** Da Silva, F. A.; Báez, L. Desarrollo de un Paquete Computacional para la Predicción de Propiedades Termodinámicas y de Equilibrio de Fases. Thesis, Universidad Simón Bolívar, 1989.
 
-The full research paper is available in both [English](docs/en/research-paper/README.md) and [Spanish](docs/es/research-paper/) in the `docs/` directory.
+The full research paper is available in both [English](docs/en/research-paper/README.md) and [Spanish](docs/es/research-paper/README.md) in the `docs/` directory.
 
 ## Features
 
@@ -82,12 +82,12 @@ vle/
 │   └── cli/                 # CLI tool (vle-db)
 ├── notebooks/               # Jupyter notebooks
 │   └── 00_component_database.ipynb  # Interactive component browser
-├── units/                   # Independent units crate (planned — dimensional analysis)
+├── units/                   # Independent units crate (dimensional analysis, gauge pressure, custom units)
 ├── engine/                  # Rust computation engine (scaffolded — enums, structs, PyO3 bindings)
 ├── docs/
 │   ├── en/research-paper/   # English translation (navigatable)
 │   ├── en/units/            # Units add-on design document
-│   └── es/research-paper/   # Spanish original
+│   └── es/research-paper/   # Spanish original (pdf/ + markdown/)
 ├── legacy/
 │   ├── vb6/                 # Original VB6 source (~15,000 lines, reference)
 │   └── pascal/              # Original Pascal source (~2,500 lines, reference) (4)
@@ -147,7 +147,7 @@ Each milestone records which AI model was used (e.g., `Claude Opus 4.6 (1M conte
 
 ## Getting Started
 
-> **Status**: Milestones 0–2 complete (documentation, translation, dev environment & scaffolding). Milestone 4 (component database) in progress. Milestones 3, 5–10 (units, numerics, models, flash, bindings, notebooks) not yet started.
+> **Status**: Milestones 0–3 complete (documentation, translation, dev environment & scaffolding, units library). Milestone 4 (component database) in progress. Milestones 5–10 (numerics, models, flash, bindings, notebooks) not yet started.
 
 ### Prerequisites
 - Python 3.10+ (for the component database and future Python wrapper)
@@ -177,7 +177,7 @@ python -c "import vle; print(vle.__version__)"  # Verify
 - [Modernization Plan](MODERNIZATION_PLAN.md) — Full technical plan with academic references, algorithm mapping, and performance improvements
 - [Pascal vs VB6 Comparison](PASCAL_VB6_COMPARISON.md) — Detailed comparison of the two legacy codebases
 - [Research Paper (English)](docs/en/research-paper/README.md) — Navigatable English translation
-- [Research Paper (Spanish)](docs/es/research-paper/) — Original Spanish text
+- [Research Paper (Spanish)](docs/es/research-paper/README.md) — Original Spanish text (PDFs)
 
 ## Academic References
 
