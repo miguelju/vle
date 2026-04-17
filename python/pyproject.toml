@@ -17,6 +17,9 @@ plot = ["matplotlib>=3.7"]
 dev = ["pytest>=7.0", "maturin>=1.0"]
 db = ["thermo>=0.3"]
 
+[project.scripts]
+vle-db = "vle.cli.main:main"
+
 [tool.maturin]
 # Path to the Rust crate that produces the native extension module
 manifest-path = "../engine/Cargo.toml"

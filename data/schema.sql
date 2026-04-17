@@ -103,7 +103,10 @@ CREATE TABLE IF NOT EXISTS experimental_vle (
     x1              REAL NOT NULL,                   -- liquid mole fraction of component 1
     y1              REAL NOT NULL,                   -- vapor mole fraction of component 1
     source          TEXT,                            -- e.g., "dasilva1989_table411"
-    notes           TEXT
+    notes           TEXT,
+    -- Idempotent seeding: re-running the Chapter IV seed file must not
+    -- duplicate data points. Pair with INSERT OR IGNORE in seed scripts.
+    UNIQUE(system_name, temperature, pressure, x1, y1)
 );
 
 -- Indexes for common lookups

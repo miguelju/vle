@@ -1,0 +1,75 @@
+# VLE deployment compose file.
+#
+# All environment-specific values (hostname, network name, resource limits,
+# auth settings, admin email) come from ../.env — see ../.env.example.
+#
+# Usage:
+#   cd deploy/compose
+#   docker compose --env-file ../.env build
+#   docker compose --env-file ../.env up -d
+
+name: vle
+
+services:
+  # ---------------------------------------------------------------------------
+  # JupyterHub — the long-running service. Traefik routes ${DOMAIN} to it.
+  # ---------------------------------------------------------------------------
+  jupyterhub:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.jupyterhub
+    image: vle-jupyterhub:latest
+    container_name: vle-jupyterhub
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      # Forward a canonical set of vars into the hub process. jupyterhub_config.py
+      # reads them directly; listing them here makes the contract explicit and
+      # lets env_file stay the single source of truth.
+      DOMAIN: ${DOMAIN}
+      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN}
+      CONTAINER_MEM_LIMIT: ${CONTAINER_MEM_LIMIT}
+      CONTAINER_CPU_LIMIT: ${CONTAINER_CPU_LIMIT}
+      IDLE_TIMEOUT_MINUTES: ${IDLE_TIMEOUT_MINUTES}
+      JUPYTERHUB_ADMIN_EMAIL: ${JUPYTERHUB_ADMIN_EMAIL}
+      NOTEBOOK_IMAGE: ${NOTEBOOK_IMAGE:-vle-notebook:latest}
+      DOCKER_NETWORK_NAME: ${TRAEFIK_NETWORK}
+      AUTH_MODE: ${AUTH_MODE:-cloudflare}
+      HUB_CONNECT_NAME: vle-jupyterhub
+    volumes:
+      # The hub spawns per-user containers by talking to the host Docker daemon.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Persist hub state (sqlite db, cookie secret, etc.) across restarts.
+      - jupyterhub-data:/srv/jupyterhub/state
+    networks:
+      - web
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${TRAEFIK_NETWORK}
+      - traefik.http.routers.vle.rule=Host(`${DOMAIN}`)
+      - traefik.http.routers.vle.entrypoints=websecure
+      - traefik.http.routers.vle.tls=true
+      - traefik.http.services.vle.loadbalancer.server.port=8000
+
+  # ---------------------------------------------------------------------------
+  # Notebook image builder — not a service that runs. This entry exists so
+  # `docker compose build` produces the per-user image tag referenced by
+  # DockerSpawner (NOTEBOOK_IMAGE). The `build-only` profile keeps `up` from
+  # trying to start it.
+  # ---------------------------------------------------------------------------
+  notebook:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.notebook
+    image: ${NOTEBOOK_IMAGE:-vle-notebook:latest}
+    profiles: [build-only]
+    command: ["true"]
+
+networks:
+  web:
+    external: true
+    name: ${TRAEFIK_NETWORK}
+
+volumes:
+  jupyterhub-data:

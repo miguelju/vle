@@ -40,3 +40,9 @@ data/components.db-shm
 # Claude Code
 .claude/
 !.claude/settings.json
+
+#Deploy local
+deploy/local/
+deploy/.env
+*.pem
+*.key

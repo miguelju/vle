@@ -186,6 +186,26 @@ An **independent `units/` Rust crate** (sibling to `engine/`) plus a Python comp
 
 ---
 
+## Deployment Strategy
+
+The project maintains **two parallel deployment tracks**. Both evolve together as milestones ship, but only the public track is committed to GitHub. See `CLAUDE.md` → *Deployment Rules* for the authoritative checklist.
+
+- **Public (generic, committed)** — a JupyterHub + Docker stack that works on any ARM64 Linux host with a reverse proxy + header-setting auth gateway. Lives under `deploy/` (excluding `deploy/local/` and `deploy/.env`):
+  - `deploy/README.md` — multi-user JupyterHub stack (Traefik + DockerSpawner + header auth)
+  - `deploy/NOTEBOOKS.md` — minimum install to run any VLE notebook outside the stack
+  - `deploy/.env.example` — documented env var template (no real values)
+  - `deploy/docker/` — `Dockerfile.jupyterhub`, `Dockerfile.notebook` (ARM64)
+  - `deploy/compose/` — `docker-compose.yml`, `jupyterhub_config.py`
+  - `deploy/scripts/deploy.sh` — pull + rebuild + restart
+- **Private (operator-specific, gitignored)** — the concrete architecture, secrets, and per-milestone deploy log for Miguel's Oracle Cloud VPS. Lives under `deploy/local/`:
+  - `deploy/local/DEPLOYMENT.md` — host, domain, Traefik setup, Cloudflare Access config
+  - `deploy/local/deploy-notes/milestone-NN.md` — one per active milestone; captures the exact commands + outcomes
+  - `deploy/.env` — populated env file
+
+Each non-completed milestone (4–10) ends with four parallel steps after validation tests pass: (1) create a milestone notebook following CLAUDE.md *Notebook Conventions*, (2) update the public deploy docs with any generic delta, (3) update the private deploy notes with operator-specific steps, (4) rebuild the notebook image and redeploy. Milestone 10 performs a final full redeployment that includes a Chapter IV walkthrough notebook.
+
+---
+
 ## Project Structure
 
 ```
@@ -466,16 +486,28 @@ vle/
 - Plotting helpers (Pxy, Txy diagrams via matplotlib)
 - Convenience API: `system.bubble_point_T()`, `system.flash_isothermal()`, etc.
 
-### Phase 16: Jupyter Notebooks *(Milestone 10)*
-Each notebook reproduces specific results from the research paper:
-- **01_introduction**: Overview, installation, basic API usage
-- **02_pure_component**: PVT behavior, compare EOS variants (including 3-parameter Schmidt-Wenzel and Patel-Teja from Pascal), saturation curves
-- **03_activity_models**: Gamma vs composition, excess Gibbs energy plots
-- **04_bubble_dew_point**: Reproduce Tables 4.6-4.9 (methanol/water, 2-propanol/water)
-- **05_flash_calculations**: Reproduce Tables 4.3-4.4, 4.10 (adiabatic, isothermal)
-- **06_critical_points**: Reproduce Tables 4.1-4.2 (4 mixture critical points)
-- **07_kij_regression**: Reproduce Tables 4.11-4.12 (CO2/butane)
-- **08_aij_regression**: Demonstrate activity model Aij fitting (from Pascal program) -- regress Margules, Van Laar, Wilson parameters from experimental VLE data, compare analytical vs numerical Jacobian convergence
+### Phase 16: Chapter IV Walkthrough & Final Deployment *(Milestone 10)*
+
+Notebooks 01–08 are produced by the milestone that builds the underlying feature (see table below), each following CLAUDE.md *Notebook Conventions*. Phase 16 is the capstone that adds the Chapter IV walkthrough notebook and performs a final clean-state redeployment:
+
+- **09_chapter4_validation_walkthrough**: Single end-to-end notebook that narrates every section of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md). For each of §4.1–§4.7 it quotes the research-paper text, runs the `vle` library against the referenced table (4.1–4.12), reports absolute and percent error against published values, and presents ≥2 user exercises (e.g. "repeat the kij regression for a different binary pair").
+- **Full redeploy**: `docker compose down` → rebuild both `Dockerfile.jupyterhub` and `Dockerfile.notebook` from a clean state → bring the stack back up → verify every notebook listed in [`deploy/NOTEBOOKS.md`](../deploy/NOTEBOOKS.md) opens and Runs-All without error via `${DOMAIN}`.
+
+**Notebook-to-milestone map (produced incrementally through Milestones 4–9):**
+
+| Notebook                                    | Authored in | Covers                                       |
+|---------------------------------------------|-------------|----------------------------------------------|
+| `00_component_database.ipynb`               | Milestone 4 | SQLite DB browsing, Chapter IV compounds     |
+| `m05_numerics.ipynb`                        | Milestone 5 | Brent / Illinois / Broyden / Halley demos    |
+| `01_introduction.ipynb`                     | Milestone 9 | Install + `vle.System` API tour              |
+| `02_pure_component.ipynb`                   | Milestone 6 | PVT, EOS variant comparison, saturation      |
+| `03_activity_models.ipynb`                  | Milestone 7 | Gamma plots, excess Gibbs, mixing rules      |
+| `04_bubble_dew_point.ipynb`                 | Milestone 8 | Tables 4.6–4.9                               |
+| `05_flash_calculations.ipynb`               | Milestone 8 | Tables 4.3–4.4, 4.10                         |
+| `06_critical_points.ipynb`                  | Milestone 8 | Tables 4.1–4.2                               |
+| `07_kij_regression.ipynb`                   | Milestone 8 | Tables 4.11–4.12                             |
+| `08_aij_regression.ipynb`                   | Milestone 8 | Aij fitting (Pascal-origin)                  |
+| `09_chapter4_validation_walkthrough.ipynb`  | Milestone 10| End-to-end Chapter IV walkthrough            |
 
 ---
 

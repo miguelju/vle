@@ -69,15 +69,19 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 ## Milestone 4: Component Property Database
 **Goal**: SQLite database with Chapter IV validation data, CLI tool, and interactive Jupyter notebook.
 *Phase 4 of MODERNIZATION_PLAN.md*
+*Executed by Claude Code using Claude Opus 4.7 (1M context)*
 
 - [x] Define SQLite schema (`data/schema.sql`)
-- [ ] Implement Python `vle.db` package (connection, queries, models, seed)
+- [x] Implement Python `vle.db` package (connection, queries, models, seed)
 - [x] Extract and seed Chapter IV compound properties (15 compounds from DIPPR)
-- [ ] Seed binary params (van Laar methanol/water, kij CO2/n-butane) and experimental VLE data
-- [ ] Implement CLI tool (`vle-db init`, `seed`, `validate`, `show`, `list`, `export`)
-- [ ] Create interactive Jupyter notebook (`notebooks/00_component_database.ipynb`)
-- [ ] Implement optional `thermo` library seeding for ~70K compounds
-- [ ] Write Chapter IV validation test (`vle-db validate chapter4`)
+- [x] Seed binary params (van Laar methanol/water, kij CO2/n-butane) and experimental VLE data
+- [x] Implement CLI tool (`vle-db init`, `seed`, `validate`, `show`, `list`, `export`) — wired as `vle-db` console script
+- [x] Implement optional `thermo` library seeding for ~70K compounds
+- [x] Write Chapter IV validation test (`vle-db validate chapter4`) — validation passes; 16 pytest cases in `python/tests/test_db.py` cover CRUD + kij round-trip + seed
+- [x] Create milestone notebook (`notebooks/00_component_database.ipynb`) — 24 cells, executed top-to-bottom; Chapter IV §4.1 / §4.3 / §4.7 snippets, worked example over all four tables, 2 user exercises with collapsed solutions
+- [x] Update public deploy docs (`deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`) — added `vle-db init / seed` step, optional `thermo` dep, first-start user-home seed hook
+- [x] Update private deploy notes (`deploy/local/deploy-notes/milestone-04.md`)
+- [ ] Deploy notebook to JupyterHub — rebuild notebook image, restart hub, verify via `${DOMAIN}` *(run `deploy/scripts/deploy.sh` on the VPS)*
 
 ## Milestone 5: Numerics
 **Goal**: Core numerical utilities tested and benchmarked.
@@ -89,7 +93,11 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [ ] Broyden quasi-Newton solver with periodic Jacobian refresh
 - [ ] Halley's method for scalar equations
 - [ ] Utility functions: SumFrac, Norm, convergence checks
-- [ ] Unit tests for all numerical methods
+- [ ] Unit tests for all numerical methods — validation test passes
+- [ ] Create milestone notebook (`notebooks/m05_numerics.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: research-paper snippets (§A–§H algorithm choices), worked convergence comparisons, ≥2 user exercises
+- [ ] Update public deploy docs (`deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`) — generic install deltas only
+- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-05.md`)
+- [ ] Deploy notebook to JupyterHub — rebuild notebook image, restart hub, verify via `${DOMAIN}`
 
 ## Milestone 6: Pure Component Models
 **Goal**: All pure component EOS, saturation pressure, and virial working.
@@ -103,7 +111,11 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [ ] Maxwell equal-area test for saturation
 - [ ] Saturation pressure: Antoine (4), Riedel, Muller, RPM, polynomial, Maxwell
 - [ ] Virial equation — pure + multicomponent (Pitzer/Tsonopoulos)
-- [ ] Unit tests for all pure component calculations
+- [ ] Unit tests for all pure component calculations — validation test passes
+- [ ] Create milestone notebook (`notebooks/02_pure_component.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: Chapter II §2.3 (cubic EOS) snippets, PVT diagrams comparing EOS variants, saturation curves, ≥2 user exercises
+- [ ] Update public deploy docs (`deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`) — generic install deltas only
+- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-06.md`)
+- [ ] Deploy notebook to JupyterHub — rebuild notebook image, restart hub, verify via `${DOMAIN}`
 
 ## Milestone 7: Mixture Models
 **Goal**: Activity models, mixing rules, and multicomponent EOS working.
@@ -115,7 +127,11 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [ ] Multicomponent fugacity coefficients (9)
 - [ ] 3-parameter EOS mixture fugacity (4)
 - [ ] Enthalpy and entropy (ideal + departure + excess)
-- [ ] Unit tests for all mixture calculations
+- [ ] Unit tests for all mixture calculations — validation test passes
+- [ ] Create milestone notebook (`notebooks/03_activity_models.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: Chapter II §2.4–2.5 (activity / mixing rules) snippets, gamma-vs-composition plots, excess Gibbs energy, ≥2 user exercises
+- [ ] Update public deploy docs (`deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`) — generic install deltas only
+- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-07.md`)
+- [ ] Deploy notebook to JupyterHub — rebuild notebook image, restart hub, verify via `${DOMAIN}`
 
 ## Milestone 8: Flash & Regression
 **Goal**: All flash calculations pass Chapter IV validation.
@@ -128,7 +144,16 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [ ] Critical point — Heidemann with analytical Helmholtz derivatives (§G)
 - [ ] kij regression via Brent's method (§B)
 - [ ] Aij regression with analytical Jacobian (4)
-- [ ] Validate all 8 Chapter IV test cases (<1–5% error)
+- [ ] Validate all 8 Chapter IV test cases (<1–5% error) — validation tests pass
+- [ ] Create milestone notebooks — professional structure per CLAUDE.md *Notebook Conventions*; one notebook per thesis table group, each reproducing the referenced Chapter IV table(s) with snippets from the research paper and ≥2 user exercises:
+  - `notebooks/04_bubble_dew_point.ipynb` — Tables 4.6–4.9
+  - `notebooks/05_flash_calculations.ipynb` — Tables 4.3–4.4, 4.10
+  - `notebooks/06_critical_points.ipynb` — Tables 4.1–4.2
+  - `notebooks/07_kij_regression.ipynb` — Tables 4.11–4.12
+  - `notebooks/08_aij_regression.ipynb` — Aij fitting (Pascal-origin)
+- [ ] Update public deploy docs (`deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`) — generic install deltas only
+- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-08.md`)
+- [ ] Deploy notebooks to JupyterHub — rebuild notebook image, restart hub, verify each new notebook opens via `${DOMAIN}`
 
 ## Milestone 9: Python Bindings & Wrapper
 **Goal**: Python package installable, high-level API usable.
@@ -139,21 +164,24 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [ ] Result dataclasses (FlashResult, BubbleResult, DewResult)
 - [ ] Component database (JSON)
 - [ ] Plotting helpers (Pxy, Txy diagrams via matplotlib)
-- [ ] Python test suite (reproduce Chapter IV validation)
+- [ ] Python test suite (reproduce Chapter IV validation) — validation tests pass
 - [ ] Write end-user installation guide
+- [ ] Create milestone notebook (`notebooks/01_introduction.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: Chapter I + Appendix B (User Manual) snippets, installation walk-through, `vle.System` basic API tour, ≥2 user exercises
+- [ ] Update public deploy docs (`deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`) — generic install deltas only
+- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-09.md`)
+- [ ] Deploy notebook to JupyterHub — rebuild notebook image, restart hub, verify via `${DOMAIN}`
 
-## Milestone 10: Jupyter Notebooks
-**Goal**: Interactive notebooks reproducing all thesis results.
+## Milestone 10: Chapter IV Walkthrough & Final Deployment
+**Goal**: One cohesive walkthrough of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md) and a final full-stack redeploy of every milestone notebook.
 *Phase 16 of MODERNIZATION_PLAN.md*
 
-- [ ] 01_introduction — Overview, installation, basic API
-- [ ] 02_pure_component — PVT, EOS comparison, saturation curves
-- [ ] 03_activity_models — Gamma plots, excess Gibbs energy
-- [ ] 04_bubble_dew_point — Reproduce Tables 4.6–4.9
-- [ ] 05_flash_calculations — Reproduce Tables 4.3–4.4, 4.10
-- [ ] 06_critical_points — Reproduce Tables 4.1–4.2
-- [ ] 07_kij_regression — Reproduce Tables 4.11–4.12
-- [ ] 08_aij_regression — Activity model Aij fitting
+> Notebooks 01–08 ship incrementally through Milestones 4–9 (each milestone produces the notebook for the feature it built). This milestone is the capstone: it adds the Chapter IV walkthrough and verifies every notebook is still reachable after a fresh deploy.
+
+- [ ] Re-run every existing milestone notebook top-to-bottom in a fresh kernel — validation pass
+- [ ] Create `notebooks/09_chapter4_validation_walkthrough.ipynb` — professional structure per CLAUDE.md *Notebook Conventions*; walks a reader through all seven Chapter IV cases (Tables 4.1–4.12), pulls quoted snippets from [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md), runs the `vle` library against each table, reports % error vs. published values, and ends with ≥2 user exercises (e.g. "repeat the kij regression for a different binary").
+- [ ] Update public deploy docs (`deploy/README.md`, `deploy/NOTEBOOKS.md`) — mark the full notebook catalogue as published
+- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-10.md`) — final redeploy steps, smoke test checklist
+- [ ] Full redeploy — rebuild both hub and notebook images from a clean state, restart the stack, verify every notebook in `deploy/NOTEBOOKS.md`'s catalogue opens and Runs-All cleanly through `${DOMAIN}`
 
 ---
 

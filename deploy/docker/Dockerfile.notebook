@@ -1,0 +1,98 @@
+# syntax=docker/dockerfile:1.6
+#
+# Single-user notebook image for the VLE deployment.
+#
+# - Target platform: linux/arm64.
+# - Based on jupyter/scipy-notebook, which already ships numpy, scipy, matplotlib,
+#   pandas and JupyterLab. We layer on: a Rust toolchain, and the locally-built
+#   vle wheel (produced by maturin from engine/ + python/).
+# - This is the image JupyterHub's DockerSpawner launches one of per user.
+#
+# Build context is the repository root. Manually:
+#     docker build --platform=linux/arm64 \
+#         -f deploy/docker/Dockerfile.notebook \
+#         -t vle-notebook:latest .
+
+FROM --platform=linux/arm64 quay.io/jupyter/scipy-notebook:latest
+
+ARG NB_USER=jovyan
+ARG NB_UID=1000
+ARG NB_GID=100
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+USER root
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        curl \
+        libssl-dev \
+        pkg-config \
+ && rm -rf /var/lib/apt/lists/*
+
+USER ${NB_UID}
+
+# Rust toolchain owned by the notebook user so `cargo`/`maturin` Just Work in-cell.
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --default-toolchain stable --profile minimal
+ENV PATH="/home/${NB_USER}/.cargo/bin:${PATH}"
+
+RUN pip install "maturin>=1.5,<2"
+
+# Build and install the vle wheel from the local source.
+COPY --chown=${NB_UID}:${NB_GID} engine/ /tmp/build/engine/
+COPY --chown=${NB_UID}:${NB_GID} python/ /tmp/build/python/
+
+RUN cd /tmp/build/python \
+ && maturin build --release --out /tmp/wheels \
+ && pip install /tmp/wheels/vle-*.whl \
+ && rm -rf /tmp/build /tmp/wheels /home/${NB_USER}/.cargo/registry /home/${NB_USER}/.cargo/git
+
+# Extra Python deps. scipy-notebook already provides numpy/scipy/matplotlib/jupyterlab,
+# but we pin them here so the image is self-describing.
+RUN pip install \
+        "jupyterlab>=4" \
+        "numpy>=1.24" \
+        "scipy>=1.11" \
+        "matplotlib>=3.7"
+
+# Bundle the repo's notebooks and the prebuilt SQLite component database into
+# the image. The files live in /opt/vle so they are available to every spawned
+# user container regardless of whose home volume is mounted. A small shell hook
+# (see below) copies them into the user's ~/work/ on first login.
+USER root
+COPY --chown=${NB_UID}:${NB_GID} notebooks/ /opt/vle/notebooks/
+COPY --chown=${NB_UID}:${NB_GID} data/schema.sql /opt/vle/data/schema.sql
+COPY --chown=${NB_UID}:${NB_GID} data/seed_chapter4.sql /opt/vle/data/seed_chapter4.sql
+
+# Build the database once at image-build time so every spawned container starts
+# with a seeded ~/work/data/components.db. init + seed_chapter4 is idempotent,
+# so re-running it on startup is cheap.
+USER ${NB_UID}
+RUN VLE_DB_PATH=/opt/vle/data/components.db \
+    python -m vle.cli.main init \
+ && VLE_DB_PATH=/opt/vle/data/components.db \
+    python -m vle.cli.main seed --source chapter4
+
+# First-start hook: copy bundled notebooks + DB into the user's persistent
+# home volume if ~/work/ is empty. Users can freely edit their own copies
+# without affecting the baked-in originals.
+COPY --chown=${NB_UID}:${NB_GID} deploy/scripts/seed-user-home.sh /usr/local/bin/seed-user-home.sh
+USER root
+RUN chmod +x /usr/local/bin/seed-user-home.sh
+USER ${NB_UID}
+ENV VLE_DB_PATH=/home/${NB_USER}/work/data/components.db
+
+WORKDIR /home/${NB_USER}/work
+
+# DockerSpawner starts the container with the standard scipy-notebook
+# entrypoint; we just prepend the seed hook to its PATH of start hooks by
+# dropping a script into /usr/local/bin/before-notebook.d/, which the base
+# image sources at container start.
+USER root
+RUN mkdir -p /usr/local/bin/before-notebook.d \
+ && ln -s /usr/local/bin/seed-user-home.sh /usr/local/bin/before-notebook.d/10-seed-user-home.sh
+USER ${NB_UID}

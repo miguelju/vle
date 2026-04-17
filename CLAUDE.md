@@ -13,8 +13,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 5. **CLAUDE.md** — Update if new conventions, paths, or tools were introduced
 6. **PASCAL_VB6_COMPARISON.md** — Update if new legacy code analysis was done
 7. **docs/en/research-paper/** — Update if translations were completed or links changed
+8. **deploy/README.md** and **deploy/NOTEBOOKS.md** — Update if any generic install step, env var, or prerequisite changed
+9. **deploy/.env.example** — Update if any new environment variable was added (with a safe example value, never a real one)
 
 Do NOT push until all documentation accurately reflects the current state of the code. When in doubt, read each file and verify.
+
+**Pre-push private-data gate** (run from repo root before every push):
+
+```sh
+# Anything matching this pattern in a to-be-pushed file is a leak.
+git diff --cached origin/main -- ':!deploy/local' ':!deploy/.env' \
+  | grep -E '(migueljackson\.dev|163\.192\.214\.135|cloudflareaccess\.com|BEGIN (RSA |EC )?PRIVATE KEY)' \
+  && { echo "ABORT: private infrastructure detail found in staged changes"; exit 1; } \
+  || echo "clean: no private details in diff"
+```
+
+If the grep hits anything, stop and move the offending content under `deploy/local/` or replace it with an `${ENV_VAR}` / `example.com` placeholder before pushing.
 
 ## Phase / Milestone Synchronization Rules
 
@@ -162,6 +176,94 @@ See `MODERNIZATION_PLAN.md` "Algorithm Performance Improvements" for full justif
 6. Bubble point temperature — 4-component with Raoult's law (Table 4.9)
 7. Isothermal flash — n-heptane/butane with RKS at 300K, 100kPa (Table 4.10)
 8. kij regression — CO2/butane, kij=0.1357 (Tables 4.11–4.12)
+
+## Deployment Rules
+
+The project ships a public, generic deployment story in parallel with a private,
+operator-specific one. Both evolve together, but **only the public track is
+ever committed to GitHub**.
+
+### Two-track layout
+
+| Track | Location | Scope | In git? |
+|-------|----------|-------|---------|
+| Public — generic | `deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`, `deploy/docker/`, `deploy/compose/`, `deploy/scripts/` | Works on any ARM64 Linux host with Docker + a reverse proxy + a header-setting auth gateway | Yes |
+| Private — operator-specific | `deploy/local/DEPLOYMENT.md`, `deploy/local/deploy-notes/milestone-*.md`, `deploy/.env` | Hostname, IPs, cert paths, admin emails, Cloudflare Access team, real secrets | **No** — gitignored |
+
+The `.gitignore` already blocks `deploy/local/`, `deploy/.env`, `*.pem`, `*.key`.
+Do not undo these entries. When adding new private files, put them under
+`deploy/local/` so they are covered automatically.
+
+### What must never appear in a committed file
+
+- Real domain names — use `vle.example.com` or `${DOMAIN}` in examples.
+- Real public IP addresses — use `203.0.113.10` (TEST-NET-3) or `${HOST_IP}`.
+- Real email addresses — use `admin@example.com` or `${JUPYTERHUB_ADMIN_EMAIL}`.
+- Real Cloudflare Access team names — use `example.cloudflareaccess.com`.
+- Any value from `deploy/local/.env` or `deploy/local/DEPLOYMENT.md`.
+- TLS certificate or key material, even if expired.
+- VPS provider, region, instance size, or SSH/Tailscale routing details.
+
+If you need a non-generic value in a public file, it is almost certainly wrong —
+push it through `.env` / `.env.example` via a `${VAR}` substitution instead.
+
+### Per-milestone deployment workflow
+
+Every non-completed milestone that produces a user-facing artifact (notebook,
+CLI, or library API) ends with **four parallel steps**, executed in this
+order after validation tests pass:
+
+1. **Create the milestone notebook** — see *Notebook Conventions* below.
+2. **Update the public deployment docs** — `deploy/README.md`, `deploy/NOTEBOOKS.md`,
+   and `deploy/.env.example` get any new generic install step, env var, or
+   prerequisite that this milestone introduced.
+3. **Update the private deployment notes** — append a new
+   `deploy/local/deploy-notes/milestone-NN.md` with the operator-specific
+   build/rebuild/restart commands for Miguel's host, referencing the values in
+   `deploy/local/.env` and `deploy/local/DEPLOYMENT.md`.
+4. **Deploy the notebook to JupyterHub** — rebuild the notebook image, restart
+   the hub, and verify the notebook is reachable through the production URL.
+   Record the outcome at the bottom of `deploy/local/deploy-notes/milestone-NN.md`.
+
+Steps 2 and 3 happen **in the same commit series** so the two tracks never
+diverge. After all milestones complete, Milestone 10 performs one final
+redeployment that includes the Chapter IV walkthrough notebook.
+
+## Notebook Conventions
+
+Every milestone-level Jupyter notebook MUST follow a professional structure so
+the collection works as a coherent learning path for users on the hub.
+
+**Required sections (top to bottom):**
+
+1. **Title + one-sentence motivation** (H1 + lead paragraph).
+2. **Context from the research paper** — quote or paraphrase the relevant
+   chapter/section/table from `docs/en/research-paper/`, with a relative link
+   back to the source. Use blockquotes for direct quotes and cite the chapter:
+   e.g. *"From [Chapter II §2.3](../docs/en/research-paper/chapter-2-vle-theory.md#23-cubic-equations-of-state)..."*.
+3. **What was built in this milestone** — short prose pointing at the modules,
+   structs, or CLI commands that the reader will call.
+4. **Worked example** — one fully-executed example end-to-end, with markdown
+   explaining each step, matching a result in the research paper where possible.
+5. **User exercises — at least 2** — each with: a problem statement, a template
+   code cell containing `# TODO:` markers, and a hidden/collapsed solution cell
+   (use a `<details>` block in markdown, or a separate "Solutions" section at
+   the bottom).
+6. **References** — cross-links to the research paper, the parameter reference,
+   and any MODERNIZATION_PLAN sections that describe the underlying algorithm.
+
+**Other requirements:**
+
+- All cells must execute top-to-bottom in a fresh kernel (no hidden state).
+  Verify this with `jupyter nbconvert --to notebook --execute` before committing.
+- Use `import matplotlib.pyplot as plt` and inline `%matplotlib inline`
+  (JupyterLab renders it fine) for plots.
+- Import units as `from vle.units import ureg, Q_` and express inputs with
+  explicit units, e.g. `T = Q_(300, "K")`.
+- Pin numeric expectations (research-paper table values) in assertion cells so
+  regressions show up as a failing notebook, not a silent number drift.
+- Snippets quoted from the research paper must preserve the original wording
+  and cite the source. Never paraphrase equations — render them with LaTeX.
 
 ## Source Code Navigation
 

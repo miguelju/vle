@@ -1,0 +1,63 @@
+# syntax=docker/dockerfile:1.6
+#
+# JupyterHub image for the VLE deployment.
+#
+# - Target platform: linux/arm64 (e.g. Oracle Cloud Ampere, Raspberry Pi, AWS Graviton).
+# - Builds the local Rust/PyO3 `vle` library via maturin and installs the resulting
+#   wheel into the hub's Python environment. This lets hub-side services (idle
+#   culler, admin utilities, health checks) import `vle` if needed.
+# - Installs DockerSpawner + OAuthenticator + idle culler so the hub can spawn
+#   per-user notebook containers and authenticate via the header set by the
+#   upstream reverse proxy (Cloudflare Access).
+#
+# Build context is the repository root. Build from deploy/compose via
+# docker compose, or manually:
+#     docker build --platform=linux/arm64 \
+#         -f deploy/docker/Dockerfile.jupyterhub \
+#         -t vle-jupyterhub:latest .
+
+FROM --platform=linux/arm64 jupyterhub/jupyterhub:5
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Toolchain for building the Rust/PyO3 extension.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        curl \
+        git \
+        libssl-dev \
+        pkg-config \
+ && rm -rf /var/lib/apt/lists/*
+
+# Rust toolchain (installed into /root because jupyterhub image runs as root).
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --default-toolchain stable --profile minimal
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# JupyterHub plugins.
+RUN pip install \
+        "dockerspawner>=13" \
+        "oauthenticator>=16" \
+        "jupyterhub-idle-culler>=1.3" \
+        "maturin>=1.5,<2"
+
+# Build and install the local vle wheel.
+WORKDIR /build
+COPY engine/ ./engine/
+COPY python/ ./python/
+RUN cd python \
+ && maturin build --release --out /build/wheels \
+ && pip install /build/wheels/vle-*.whl \
+ && rm -rf /build /root/.cargo/registry /root/.cargo/git
+
+# Hub configuration (can be overridden by mounting a different file at runtime).
+COPY deploy/compose/jupyterhub_config.py /srv/jupyterhub/jupyterhub_config.py
+
+WORKDIR /srv/jupyterhub
+EXPOSE 8000
+
+CMD ["jupyterhub", "-f", "/srv/jupyterhub/jupyterhub_config.py"]

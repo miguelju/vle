@@ -51,16 +51,20 @@ Independent add-on (~12–15h total). Uses dimensional analysis via the 7 SI bas
 - [x] **Document units API + extension guide** (~1–2h) — added `docs/en/units/README.md` quickstart (existing `dimensional-analysis.md` already has the design)
 
 ## Milestone 4: Component Property Database
+*Executed by Claude Code using Claude Opus 4.7 (1M context)*
 
-SQLite-based property database with CLI and Jupyter notebook interface (~8–10h total).
+SQLite-based property database with CLI, Jupyter notebook, and first deploy to the hub (~12–15h total).
 
 - [x] **Define SQLite schema** (~0.5h) — `data/schema.sql` with 4 tables: components, kij_params, activity_params, experimental_vle
-- [ ] **Implement Python db package** (~3h) — `python/src/vle/db/` with connection.py, queries.py, models.py, seed.py
+- [x] **Implement Python db package** (~3h) — `python/src/vle/db/` with connection.py, queries.py, models.py, seed.py
 - [x] **Extract and seed Chapter IV data** (~1h) — 15 compounds from `thermo`/DIPPR, binary params from thesis tables, experimental VLE data
-- [ ] **Implement CLI tool** (~1.5h) — `python/src/vle/cli/main.py` with init, seed, validate, show, list, export commands
-- [ ] **Create Jupyter notebook** (~1.5h) — `notebooks/00_component_database.ipynb` with interactive browsing, search, add/edit
-- [ ] **Implement optional thermo seeding** (~1h) — `vle-db seed --source thermo` for ~70K compounds (optional dependency)
-- [ ] **Write validation tests** (~0.5h) — `vle-db validate chapter4` verifies all 15 compounds + binary params + experimental data
+- [x] **Implement CLI tool** (~1.5h) — `python/src/vle/cli/main.py` with init, seed, validate, show, list, export commands; wired as `vle-db` console script via `[project.scripts]`
+- [x] **Implement optional thermo seeding** (~1h) — `vle-db seed --source thermo` for ~70K compounds (optional dependency)
+- [x] **Write validation tests** (~0.5h) — `vle-db validate chapter4` passes; 16 pytest cases in `python/tests/test_db.py` cover CRUD + kij round-trip (+ pair-order normalization) + seed artifact
+- [x] **Create milestone notebook** (~2h) — `notebooks/00_component_database.ipynb` per CLAUDE.md *Notebook Conventions*: Chapter IV §4.1 / §4.3 / §4.7 blockquotes, worked example over all 4 tables, 2 user exercises with collapsed solutions, References section; generated deterministically by `scripts/build_notebook_00.py`
+- [x] **Update public deploy docs** (~0.5h) — `deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example` updated for `vle-db init/seed`, optional `thermo` dep; `Dockerfile.notebook` now bakes `/opt/vle/notebooks/` and a pre-seeded `components.db`, with a first-start hook (`seed-user-home.sh`) that copies them into the user's `~/work/` on login
+- [x] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-04.md` with Miguel's host-specific rebuild/restart steps
+- [ ] **Deploy notebook to JupyterHub** (~1h) — run `deploy/scripts/deploy.sh` on the VPS to rebuild the notebook image and bounce the stack; then work through the smoke-test checklist in `deploy/local/deploy-notes/milestone-04.md`
 
 ## Milestone 5: Numerics
 
@@ -70,7 +74,11 @@ SQLite-based property database with CLI and Jupyter notebook interface (~8–10h
 - [ ] **Implement Broyden quasi-Newton** (~3–4h) — rank-1 Jacobian update, periodic full refresh every K=5 steps, stall detection fallback
 - [ ] **Implement Halley's method** (~1h) — for scalar equations (used in Rachford-Rice)
 - [ ] **Implement utility functions** (~1h) — SumFrac, Norm, convergence checks, parabolic interpolation
-- [ ] **Write numerical method tests** (~2–3h) — test against known roots, convergence rates, edge cases
+- [ ] **Write numerical method tests** (~2–3h) — test against known roots, convergence rates, edge cases — validation tests pass
+- [ ] **Create milestone notebook** (~2–3h) — `notebooks/m05_numerics.ipynb` per CLAUDE.md *Notebook Conventions*: MODERNIZATION_PLAN §A–§H snippets, convergence plots comparing Brent / Illinois / Broyden / Halley vs. legacy Regula Falsi, ≥2 user exercises (e.g. "solve a custom cubic with Cardano")
+- [ ] **Update public deploy docs** (~0.5h) — `deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`
+- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-05.md`
+- [ ] **Deploy notebook to JupyterHub** (~1h) — rebuild, restart, verify via `${DOMAIN}`
 
 ## Milestone 6: Pure Component Models
 
@@ -84,7 +92,11 @@ SQLite-based property database with CLI and Jupyter notebook interface (~8–10h
 - [ ] **Implement Maxwell equal-area test** (~2h) — saturation pressure from EOS
 - [ ] **Implement saturation pressure models** (~3–4h) — Antoine (4), Riedel, Muller, RPM, polynomial, Maxwell, temperature derivatives
 - [ ] **Implement virial equation** (~2–3h) — Pitzer B0/B1, pure + multicomp Z/fugacity/HR/SR
-- [ ] **Write pure component tests** (~3–4h) — compare against known values, cross-validate EOS variants
+- [ ] **Write pure component tests** (~3–4h) — compare against known values, cross-validate EOS variants — validation tests pass
+- [ ] **Create milestone notebook** (~3–4h) — `notebooks/02_pure_component.ipynb` per CLAUDE.md *Notebook Conventions*: Chapter II §2.3 snippets (cubic EOS forms), PVT isotherms, EOS variant comparison, saturation curves, ≥2 user exercises
+- [ ] **Update public deploy docs** (~0.5h) — `deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`
+- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-06.md`
+- [ ] **Deploy notebook to JupyterHub** (~1h) — rebuild, restart, verify via `${DOMAIN}`
 
 ## Milestone 7: Mixture Models
 
@@ -93,7 +105,11 @@ SQLite-based property database with CLI and Jupyter notebook interface (~8–10h
 - [ ] **Implement 8+ mixing rules** (~6–8h) — IVDW, IIVDW, WS (21), HOV, HVS, MHV1, MHV2, Clasica_I, plus Schmidt-Wenzel/Patel-Teja C-parameter mixing (4)
 - [ ] **Implement multicomponent fugacity** (~4–6h) — partial fugacity coefficients for all mixing rules (9), 3-param EOS (4), Chao-Seader multicomp (4)
 - [ ] **Implement enthalpy/entropy** (~3–4h) — ideal Cp integration, departure functions (9), condensation enthalpy (4), reference state handling
-- [ ] **Write mixture model tests** (~3–4h) — compare against VB6/Pascal outputs
+- [ ] **Write mixture model tests** (~3–4h) — compare against VB6/Pascal outputs — validation tests pass
+- [ ] **Create milestone notebook** (~2–3h) — `notebooks/03_activity_models.ipynb` per CLAUDE.md *Notebook Conventions*: Chapter II §2.4–2.5 snippets, gamma vs. composition plots, excess Gibbs energy, mixing-rule comparison, ≥2 user exercises
+- [ ] **Update public deploy docs** (~0.5h) — `deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`
+- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-07.md`
+- [ ] **Deploy notebook to JupyterHub** (~1h) — rebuild, restart, verify via `${DOMAIN}`
 
 ## Milestone 8: Flash & Regression
 
@@ -104,7 +120,16 @@ SQLite-based property database with CLI and Jupyter notebook interface (~8–10h
 - [ ] **Implement critical point** (~4–6h) — Heidemann (16) with analytical Helmholtz derivatives, ZCriticoMezcla quick estimate (4)
 - [ ] **Implement kij regression** (~2–3h) — Brent's method replacing golden section (4)
 - [ ] **Implement Aij regression** (~4–6h) — NR with analytical Jacobian for Margules/VanLaar/Wilson (4), experimental gamma calculation, correlation factor analysis
-- [ ] **Validate Chapter IV cases** (~3–4h) — all 8 test cases, verify <1–5% error vs. published results
+- [ ] **Validate Chapter IV cases** (~3–4h) — all 8 test cases, verify <1–5% error vs. published results — validation tests pass
+- [ ] **Create milestone notebooks** (~10–13h total) — per CLAUDE.md *Notebook Conventions*, one notebook per Chapter IV table group with research-paper snippets, reproduction, and ≥2 exercises each:
+  - `notebooks/04_bubble_dew_point.ipynb` (~2–3h) — Tables 4.6–4.9
+  - `notebooks/05_flash_calculations.ipynb` (~2–3h) — Tables 4.3–4.4, 4.10
+  - `notebooks/06_critical_points.ipynb` (~2–3h) — Tables 4.1–4.2
+  - `notebooks/07_kij_regression.ipynb` (~2h) — Tables 4.11–4.12
+  - `notebooks/08_aij_regression.ipynb` (~2–3h) — Aij fitting (Pascal-origin)
+- [ ] **Update public deploy docs** (~0.5h) — `deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`
+- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-08.md`
+- [ ] **Deploy notebooks to JupyterHub** (~1h) — rebuild, restart, verify each new notebook via `${DOMAIN}`
 
 ## Milestone 9: Python Bindings & Wrapper
 
@@ -113,19 +138,22 @@ SQLite-based property database with CLI and Jupyter notebook interface (~8–10h
 - [ ] **Create result dataclasses** (~1–2h) — FlashResult, BubbleResult, DewResult with fields matching thesis notation
 - [ ] **Build component database** (~2–3h) — `notebooks/data/components.json` with common substances (Tc, Pc, w, Cp coefficients, etc.)
 - [ ] **Build plotting helpers** (~2–3h) — Pxy, Txy, phase envelope diagrams via matplotlib
-- [ ] **Write Python test suite** (~2–3h) — `test_validation.py` reproducing all Chapter IV results
+- [ ] **Write Python test suite** (~2–3h) — `test_validation.py` reproducing all Chapter IV results — validation tests pass
 - [ ] **Write installation guide** (~1h) — end-user: `pip install`, basic usage example
+- [ ] **Create milestone notebook** (~2–3h) — `notebooks/01_introduction.ipynb` per CLAUDE.md *Notebook Conventions*: Chapter I + Appendix B snippets, `vle.System` API tour, first flash calculation end-to-end, ≥2 user exercises
+- [ ] **Update public deploy docs** (~0.5h) — `deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`
+- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-09.md`
+- [ ] **Deploy notebook to JupyterHub** (~1h) — rebuild, restart, verify via `${DOMAIN}`
 
-## Milestone 10: Jupyter Notebooks
+## Milestone 10: Chapter IV Walkthrough & Final Deployment
 
-- [ ] **01_introduction** (~2–3h) — overview, installation, basic API walkthrough
-- [ ] **02_pure_component** (~3–4h) — PVT diagrams, compare 22+ EOS variants, saturation curves
-- [ ] **03_activity_models** (~2–3h) — gamma vs composition, excess Gibbs plots
-- [ ] **04_bubble_dew_point** (~2–3h) — reproduce Tables 4.6–4.9 (methanol/water, 2-propanol/water)
-- [ ] **05_flash_calculations** (~2–3h) — reproduce Tables 4.3–4.4, 4.10 (adiabatic, isothermal)
-- [ ] **06_critical_points** (~2–3h) — reproduce Tables 4.1–4.2 (4 mixture critical points)
-- [ ] **07_kij_regression** (~2–3h) — reproduce Tables 4.11–4.12 (CO2/butane)
-- [ ] **08_aij_regression** (~3–4h) — Aij fitting demo, compare analytical vs numerical Jacobian
+Notebooks 01–08 ship incrementally through Milestones 4–9. This milestone is the capstone: one new walkthrough notebook covering all Chapter IV results, plus a final clean-state redeployment of every notebook.
+
+- [ ] **Re-run all prior milestone notebooks** (~1–2h) — fresh kernel, Run All, verify no cell errors — validation pass
+- [ ] **Create `notebooks/09_chapter4_validation_walkthrough.ipynb`** (~4–6h) — per CLAUDE.md *Notebook Conventions*: narrated end-to-end walkthrough of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md) §4.1–§4.7, running the library against every Table 4.1–4.12 and reporting % error vs. published values, ≥2 user exercises
+- [ ] **Update public deploy docs** (~0.5h) — `deploy/README.md`, `deploy/NOTEBOOKS.md` catalogue marked complete
+- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-10.md` with final redeploy steps + smoke test checklist
+- [ ] **Full clean-state redeploy** (~1–2h) — `docker compose down`, rebuild both hub and notebook images from scratch, bring stack back up, verify every notebook in the catalogue opens and Run-All succeeds via `${DOMAIN}`
 
 ---
 
@@ -137,11 +165,13 @@ SQLite-based property database with CLI and Jupyter notebook interface (~8–10h
 | 1. Documentation & Translation | ~20–28h | **Done** |
 | 2. Dev Environment & Scaffolding | ~9–12h | **Done** |
 | 3. Units Library | ~19–26h | **Done** |
-| 4. Component Database | ~8–10h | In progress |
-| 5. Numerics | ~12–15h | Not started |
-| 6. Pure Component Models | ~24–32h | Not started |
-| 7. Mixture Models | ~21–30h | Not started |
-| 8. Flash & Regression | ~26–37h | Not started |
-| 9. Python Bindings & Wrapper | ~15–22h | Not started |
-| 10. Jupyter Notebooks | ~19–26h | Not started |
-| **Total** | **~172–236h** | |
+| 4. Component Database | ~12–15h | **Done** (pending VPS deploy) |
+| 5. Numerics | ~16–20h | Not started |
+| 6. Pure Component Models | ~28–37h | Not started |
+| 7. Mixture Models | ~25–35h | Not started |
+| 8. Flash & Regression | ~38–52h | Not started |
+| 9. Python Bindings & Wrapper | ~19–27h | Not started |
+| 10. Ch. IV Walkthrough & Final Deploy | ~7–11h | Not started |
+| **Total** | **~193–263h** | |
+
+Each active milestone's total now includes: milestone notebook (~2–4h) + public deploy docs (~0.5h) + private deploy notes (~0.5h) + deploy to hub (~1h).
