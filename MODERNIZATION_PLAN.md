@@ -294,9 +294,9 @@ vle/
 │       ├── test_flash.py
 │       └── test_validation.py       # Chapter IV test cases
 ├── data/                            # Component property database (generated, not in git)
-│   ├── schema.sql                   # SQLite schema (version-controlled)
-│   ├── seed_chapter4.sql            # Chapter IV validation data (version-controlled)
 │   └── components.db                # SQLite database (gitignored, built by vle-db init+seed)
+│                                      # Schema + seed SQL ships inside the wheel at
+│                                      # python/src/vle/db/sql/
 ├── scripts/                         # Data extraction and validation utilities
 │   ├── README.md                    # How to use these scripts
 │   ├── extract_component_data.py    # Pull properties from thermo/DIPPR library
@@ -392,7 +392,7 @@ vle/
 - Static seed data from DIPPR via `thermo` library for Chapter IV validation compounds (15) and common industrial compounds (~50)
 - Optional `thermo` dependency for on-demand seeding of ~70,000 compounds
 - All values in canonical units: K, kPa (absolute), cm3/mol, kJ/(kmol·K), g/mol
-- See `data/schema.sql` for full schema and `docs/en/parameters/parameter_reference.md` for parameter catalog
+- See `python/src/vle/db/sql/schema.sql` (bundled with the wheel) for full schema and `docs/en/parameters/parameter_reference.md` for parameter catalog
 
 ### Phase 5: Numerics *(Milestone 5)*
 - Cardano cubic solver (from `McommonFunctions.bas:324`) (12),(13) — see also §H for robustness improvements

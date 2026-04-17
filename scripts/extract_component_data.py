@@ -3,17 +3,17 @@
 
 This script pulls critical properties, boiling points, molecular weights,
 and dipole moments for a list of compounds and outputs them as SQL INSERT
-statements compatible with ``data/schema.sql``.
+statements compatible with ``python/src/vle/db/sql/schema.sql``.
 
 Requirements:
     pip install thermo
 
 Usage:
     # Extract Chapter IV validation compounds
-    python scripts/extract_component_data.py --preset chapter4 > data/seed_chapter4_generated.sql
+    python scripts/extract_component_data.py --preset chapter4 > python/src/vle/db/sql/seed_chapter4_generated.sql
 
     # Extract common industrial compounds
-    python scripts/extract_component_data.py --preset common > data/seed_common.sql
+    python scripts/extract_component_data.py --preset common > python/src/vle/db/sql/seed_common.sql
 
     # Extract specific compounds by name or CAS number
     python scripts/extract_component_data.py --compounds "ethylene" "74-85-1" "acetone"
@@ -283,8 +283,8 @@ def _sql_val(v) -> str:
 def format_sql(components: list[ComponentData]) -> str:
     """Format extracted data as SQL INSERT statements.
 
-    Output is compatible with data/schema.sql and can be executed directly
-    against the VLE component database.
+    Output is compatible with python/src/vle/db/sql/schema.sql and can be
+    executed directly against the VLE component database.
     """
     lines = [
         "-- Component data extracted from thermo library (DIPPR 801 backed)",

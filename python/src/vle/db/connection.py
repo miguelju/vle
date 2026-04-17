@@ -1,29 +1,42 @@
 """SQLite connection management for the VLE component database.
 
-The database file is located at ``data/components.db`` relative to the project
-root. It is NOT checked into git — run ``vle-db init`` to create it from the
-version-controlled schema (``data/schema.sql``).
+The database file defaults to ``<project_root>/data/components.db`` in a dev
+checkout, but it is NOT checked into git — run ``vle-db init`` to create it
+from the schema shipped with the package.
+
+The schema itself (``schema.sql``) and the Chapter IV seed
+(``seed_chapter4.sql``) live inside the installed wheel at
+:mod:`vle.db.sql`, so the package is self-contained wherever it is installed.
+Both locations can be overridden with environment variables for non-standard
+deployments:
+
+- ``VLE_DB_PATH`` — absolute path to the SQLite file to create/open.
+- ``VLE_SCHEMA_PATH`` — absolute path to a custom ``schema.sql``.
+- ``VLE_SEED_DIR`` — directory containing seed ``*.sql`` files
+  (see :mod:`vle.db.seed`).
 """
 
 import os
 import sqlite3
+from importlib import resources
 from pathlib import Path
 from typing import Optional
 
-# Default database location: <project_root>/data/components.db
-_PROJECT_ROOT = Path(__file__).resolve().parents[4]  # python/src/vle/db -> project root
+# Default DB location for developer checkouts: <project_root>/data/components.db.
+# When the package is installed as a wheel this path will simply not exist
+# until the user runs `vle-db init`, which honors VLE_DB_PATH.
+_PROJECT_ROOT = Path(__file__).resolve().parents[4]
 _DEFAULT_DB_PATH = _PROJECT_ROOT / "data" / "components.db"
-_SCHEMA_PATH = _PROJECT_ROOT / "data" / "schema.sql"
 
-# Allow override via environment variable
+# Allow override via set_db_path() for tests.
 _db_path_override: Optional[Path] = None
 
 
 def get_db_path() -> Path:
     """Return the path to the SQLite database file.
 
-    Returns:
-        Path to ``data/components.db`` (or override if set).
+    Resolution order: ``set_db_path()`` override, ``VLE_DB_PATH`` env var,
+    then the dev-checkout default at ``<repo>/data/components.db``.
     """
     if _db_path_override is not None:
         return _db_path_override
@@ -34,13 +47,27 @@ def get_db_path() -> Path:
 
 
 def set_db_path(path: Path) -> None:
-    """Override the default database path.
-
-    Args:
-        path: Path to the SQLite database file.
-    """
+    """Override the default database path (used by tests)."""
     global _db_path_override
     _db_path_override = Path(path)
+
+
+def _read_schema_sql() -> str:
+    """Return the contents of ``schema.sql``.
+
+    Prefers the ``VLE_SCHEMA_PATH`` env var when set, otherwise falls back to
+    the copy bundled inside the wheel at :mod:`vle.db.sql`.
+    """
+    env_path = os.environ.get("VLE_SCHEMA_PATH")
+    if env_path:
+        schema_path = Path(env_path)
+        if not schema_path.exists():
+            raise FileNotFoundError(
+                f"VLE_SCHEMA_PATH points to {schema_path} but that file "
+                "does not exist."
+            )
+        return schema_path.read_text(encoding="utf-8")
+    return resources.files("vle.db.sql").joinpath("schema.sql").read_text(encoding="utf-8")
 
 
 def get_connection(readonly: bool = False) -> sqlite3.Connection:
@@ -73,25 +100,19 @@ def get_connection(readonly: bool = False) -> sqlite3.Connection:
 
 
 def init_db() -> Path:
-    """Create the database from the schema file.
+    """Create the database from the bundled schema.
 
-    Reads ``data/schema.sql`` and executes it to create all tables.
-    If the database already exists, tables are created only if they
-    don't already exist (uses IF NOT EXISTS).
+    The schema is loaded from the package resource ``vle.db.sql/schema.sql``
+    (or from ``VLE_SCHEMA_PATH`` if that env var is set). Tables use
+    ``IF NOT EXISTS``, so re-running against an existing DB is a no-op.
 
     Returns:
         Path to the created database file.
-
-    Raises:
-        FileNotFoundError: If ``data/schema.sql`` is not found.
     """
-    if not _SCHEMA_PATH.exists():
-        raise FileNotFoundError(f"Schema file not found at {_SCHEMA_PATH}")
-
     db_path = get_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    schema_sql = _SCHEMA_PATH.read_text(encoding="utf-8")
+    schema_sql = _read_schema_sql()
     conn = sqlite3.connect(str(db_path))
     conn.executescript(schema_sql)
     conn.close()
@@ -105,8 +126,8 @@ def seed_from_sql(sql_path: Path) -> int:
         sql_path: Path to a ``.sql`` file containing INSERT statements.
 
     Returns:
-        Number of rows affected (approximate — SQLite doesn't track
-        INSERT OR IGNORE rows precisely).
+        Number of components in the DB after the seed runs (approximate —
+        SQLite does not distinguish IGNORE'd rows).
 
     Raises:
         FileNotFoundError: If the SQL file or database does not exist.
@@ -117,9 +138,8 @@ def seed_from_sql(sql_path: Path) -> int:
     conn = get_connection()
     try:
         seed_sql = sql_path.read_text(encoding="utf-8")
-        cursor = conn.executescript(seed_sql)
+        conn.executescript(seed_sql)
         conn.commit()
-        # Count components as a rough measure
         count = conn.execute("SELECT COUNT(*) FROM components").fetchone()[0]
         return count
     finally:

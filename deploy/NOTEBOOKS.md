@@ -107,8 +107,9 @@ vle-db seed --source thermo    # seeds ~40 common industrial compounds by defaul
 ```
 
 See [`docs/en/parameters/parameter_reference.md`](../docs/en/parameters/parameter_reference.md)
-for the parameter inventory and [`data/schema.sql`](../data/schema.sql) for
-the schema.
+for the parameter inventory and [`python/src/vle/db/sql/schema.sql`](../python/src/vle/db/sql/schema.sql)
+for the schema. The schema ships inside the installed wheel, so there is no
+separate install step for it.
 
 > When running through the JupyterHub Docker stack, you do not need to run
 > `vle-db init` yourself — `Dockerfile.notebook` bakes a pre-seeded

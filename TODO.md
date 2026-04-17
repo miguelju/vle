@@ -55,7 +55,7 @@ Independent add-on (~12–15h total). Uses dimensional analysis via the 7 SI bas
 
 SQLite-based property database with CLI, Jupyter notebook, and first deploy to the hub (~12–15h total).
 
-- [x] **Define SQLite schema** (~0.5h) — `data/schema.sql` with 4 tables: components, kij_params, activity_params, experimental_vle
+- [x] **Define SQLite schema** (~0.5h) — `python/src/vle/db/sql/schema.sql` (bundled with the wheel) with 4 tables: components, kij_params, activity_params, experimental_vle
 - [x] **Implement Python db package** (~3h) — `python/src/vle/db/` with connection.py, queries.py, models.py, seed.py
 - [x] **Extract and seed Chapter IV data** (~1h) — 15 compounds from `thermo`/DIPPR, binary params from thesis tables, experimental VLE data
 - [x] **Implement CLI tool** (~1.5h) — `python/src/vle/cli/main.py` with init, seed, validate, show, list, export commands; wired as `vle-db` console script via `[project.scripts]`

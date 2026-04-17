@@ -71,7 +71,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 *Phase 4 of MODERNIZATION_PLAN.md*
 *Executed by Claude Code using Claude Opus 4.7 (1M context)*
 
-- [x] Define SQLite schema (`data/schema.sql`)
+- [x] Define SQLite schema (`python/src/vle/db/sql/schema.sql`, bundled with the wheel)
 - [x] Implement Python `vle.db` package (connection, queries, models, seed)
 - [x] Extract and seed Chapter IV compound properties (15 compounds from DIPPR)
 - [x] Seed binary params (van Laar methanol/water, kij CO2/n-butane) and experimental VLE data

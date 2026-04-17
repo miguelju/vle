@@ -29,3 +29,9 @@ features = ["python"]
 python-source = "src"
 # The native module will be importable as vle._engine
 module-name = "vle._engine"
+# Ship the bundled SQLite schema + seed data inside the wheel and sdist so
+# the package is self-contained. Loaded via importlib.resources in
+# vle.db.connection / vle.db.seed.
+include = [
+    { path = "src/vle/db/sql/*.sql", format = ["sdist", "wheel"] },
+]

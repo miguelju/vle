@@ -59,20 +59,22 @@ RUN pip install \
         "scipy>=1.11" \
         "matplotlib>=3.7"
 
-# Bundle the repo's notebooks and the prebuilt SQLite component database into
-# the image. The files live in /opt/vle so they are available to every spawned
-# user container regardless of whose home volume is mounted. A small shell hook
-# (see below) copies them into the user's ~/work/ on first login.
+# Bundle the repo's notebooks into the image so they are available to every
+# spawned user container regardless of whose home volume is mounted. A small
+# shell hook (see below) copies them into the user's ~/work/ on first login.
+#
+# The SQL schema + Chapter IV seed now ship inside the installed wheel at
+# vle/db/sql/, so they do NOT need to be copied separately — `vle.cli.main`
+# loads them via importlib.resources.
 USER root
 COPY --chown=${NB_UID}:${NB_GID} notebooks/ /opt/vle/notebooks/
-COPY --chown=${NB_UID}:${NB_GID} data/schema.sql /opt/vle/data/schema.sql
-COPY --chown=${NB_UID}:${NB_GID} data/seed_chapter4.sql /opt/vle/data/seed_chapter4.sql
 
 # Build the database once at image-build time so every spawned container starts
 # with a seeded ~/work/data/components.db. init + seed_chapter4 is idempotent,
 # so re-running it on startup is cheap.
 USER ${NB_UID}
-RUN VLE_DB_PATH=/opt/vle/data/components.db \
+RUN mkdir -p /opt/vle/data \
+ && VLE_DB_PATH=/opt/vle/data/components.db \
     python -m vle.cli.main init \
  && VLE_DB_PATH=/opt/vle/data/components.db \
     python -m vle.cli.main seed --source chapter4

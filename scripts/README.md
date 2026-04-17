@@ -1,6 +1,6 @@
 # Data Extraction Scripts
 
-Utility scripts for extracting and validating thermodynamic component properties from public data sources. These scripts were used to generate the static seed data in `data/seed_chapter4.sql` and can be re-run to update or extend the dataset.
+Utility scripts for extracting and validating thermodynamic component properties from public data sources. These scripts were used to generate the static seed data in `python/src/vle/db/sql/seed_chapter4.sql` (shipped inside the wheel) and can be re-run to update or extend the dataset.
 
 ## Prerequisites
 
@@ -117,7 +117,7 @@ pip install CoolProp
 python scripts/cross_validate_coolprop.py
 # (all available compounds passed within 0.5%)
 
-# 4. The verified values were used to write data/seed_chapter4.sql
+# 4. The verified values were used to write python/src/vle/db/sql/seed_chapter4.sql
 #    (the SQL file also includes binary params and experimental VLE data
 #    that were manually transcribed from the thesis Chapter IV tables)
 ```

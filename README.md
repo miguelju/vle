@@ -73,12 +73,11 @@ See [MODERNIZATION_PLAN.md](MODERNIZATION_PLAN.md) for full details and justific
 ```
 vle/
 ├── data/                    # Component property database
-│   ├── schema.sql           # SQLite schema (version-controlled)
-│   ├── seed_chapter4.sql    # Chapter IV validation data (version-controlled)
 │   └── components.db        # SQLite database (generated, gitignored)
 ├── scripts/                 # Data extraction utilities (see scripts/README.md)
 ├── python/src/vle/          # Python package
 │   ├── db/                  # Component database (connection, queries, models)
+│   │   └── sql/             # Bundled schema.sql + seed_chapter4.sql (ship in wheel)
 │   └── cli/                 # CLI tool (vle-db)
 ├── notebooks/               # Jupyter notebooks
 │   └── 00_component_database.ipynb  # Interactive component browser

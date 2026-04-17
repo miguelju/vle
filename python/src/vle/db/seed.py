@@ -11,39 +11,66 @@ All seeded values use canonical units:
 - Molecular weight: **g/mol**
 """
 
+import os
+from contextlib import contextmanager
+from importlib import resources
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional
 
 from vle.db.connection import get_connection, seed_from_sql, get_db_path
 from vle.db.models import ComponentRecord
 from vle.db.queries import upsert_component
 
-_DATA_DIR = Path(__file__).resolve().parents[4] / "data"
+
+@contextmanager
+def _resolve_seed_file(filename: str) -> Iterator[Path]:
+    """Yield a filesystem Path to a bundled seed file.
+
+    When ``VLE_SEED_DIR`` is set, seeds are read from that directory
+    verbatim. Otherwise the file is loaded from the ``vle.db.sql`` package
+    resource; ``importlib.resources.as_file`` materializes it to a temporary
+    path for callers that need a real file path (e.g. ``seed_from_sql``).
+    """
+    env_dir = os.environ.get("VLE_SEED_DIR")
+    if env_dir:
+        candidate = Path(env_dir) / filename
+        if not candidate.exists():
+            raise FileNotFoundError(
+                f"VLE_SEED_DIR is {env_dir} but {candidate} does not exist."
+            )
+        yield candidate
+        return
+
+    resource = resources.files("vle.db.sql").joinpath(filename)
+    with resources.as_file(resource) as real_path:
+        yield real_path
 
 
 def seed_chapter4() -> int:
     """Seed the database with Chapter IV validation compounds.
 
-    Executes ``data/seed_chapter4.sql`` which contains 15 compounds,
-    binary interaction parameters, and experimental VLE data.
+    Runs the bundled ``seed_chapter4.sql`` (15 compounds + binary parameters
+    + experimental VLE points) shipped inside the wheel. Override the source
+    directory with the ``VLE_SEED_DIR`` environment variable.
 
     Returns:
         Total number of components in the database after seeding.
     """
-    sql_path = _DATA_DIR / "seed_chapter4.sql"
-    return seed_from_sql(sql_path)
+    with _resolve_seed_file("seed_chapter4.sql") as sql_path:
+        return seed_from_sql(sql_path)
 
 
 def seed_common() -> int:
     """Seed the database with common industrial compounds.
 
-    Executes ``data/seed_common.sql`` (~50 compounds).
+    Executes ``seed_common.sql`` from ``VLE_SEED_DIR`` (or the packaged
+    ``vle.db.sql`` resource) — ~50 compounds.
 
     Returns:
         Total number of components in the database after seeding.
     """
-    sql_path = _DATA_DIR / "seed_common.sql"
-    return seed_from_sql(sql_path)
+    with _resolve_seed_file("seed_common.sql") as sql_path:
+        return seed_from_sql(sql_path)
 
 
 def seed_from_thermo(compound_names: Optional[list[str]] = None) -> int:
