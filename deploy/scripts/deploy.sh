@@ -22,6 +22,15 @@ cd "${REPO_ROOT}"
 echo "==> Updating source (git pull --ff-only origin main)"
 git pull --ff-only origin main
 
+echo "==> Regenerating notebooks/index.ipynb landing page"
+# Only needs nbformat (pure-Python) — no full vle install required on the host.
+if command -v python3 >/dev/null 2>&1; then
+  INDEX_PY="python3"
+else
+  INDEX_PY="python"
+fi
+"${INDEX_PY}" scripts/build_index.py
+
 echo "==> Building notebook image (profile=build-only)"
 ( cd "${COMPOSE_DIR}" \
   && docker compose --env-file "${ENV_FILE}" --profile build-only build )

@@ -40,7 +40,56 @@ c = get_config()  # noqa: F821 — provided by JupyterHub at load time
 AUTH_MODE = os.environ.get("AUTH_MODE", "cloudflare").lower()
 NOTEBOOK_IMAGE = os.environ.get("NOTEBOOK_IMAGE", "vle-notebook:latest")
 DOCKER_NETWORK = os.environ.get("DOCKER_NETWORK_NAME", "web")
-MEM_LIMIT = os.environ.get("CONTAINER_MEM_LIMIT", "512m")
+
+
+# DockerSpawner.mem_limit is an `Int` trait: it will not accept "512m" style
+# strings that Docker itself happily parses. Normalize the env var to bytes.
+# Suffixes follow Docker's convention (IEC: k=1024, m=1024**2, ...).
+_MEM_UNITS = {
+    "b": 1,
+    "k": 1024,
+    "kb": 1024,
+    "m": 1024**2,
+    "mb": 1024**2,
+    "g": 1024**3,
+    "gb": 1024**3,
+    "t": 1024**4,
+    "tb": 1024**4,
+}
+
+
+def _parse_mem_limit(value: object) -> int:
+    """Convert a human-readable memory string to an integer number of bytes.
+
+    Accepts ints (returned unchanged) or strings like ``"512m"``, ``"1g"``,
+    ``"2048"``, ``"512MB"``. Suffixes are case-insensitive and use IEC 1024
+    multipliers (same as ``docker run --memory``). No suffix means raw bytes.
+    """
+    if isinstance(value, int):
+        return value
+    s = str(value).strip().lower()
+    if not s:
+        raise ValueError("CONTAINER_MEM_LIMIT must not be empty")
+    i = 0
+    while i < len(s) and (s[i].isdigit() or s[i] == "."):
+        i += 1
+    num_part, suffix = s[:i], s[i:]
+    if not num_part:
+        raise ValueError(f"Invalid CONTAINER_MEM_LIMIT: {value!r}")
+    if suffix == "":
+        multiplier = 1
+    else:
+        multiplier = _MEM_UNITS.get(suffix)
+        if multiplier is None:
+            raise ValueError(
+                f"Invalid CONTAINER_MEM_LIMIT suffix {suffix!r} in {value!r}. "
+                "Expected one of: b, k/kb, m/mb, g/gb, t/tb, or a bare byte "
+                "count."
+            )
+    return int(float(num_part) * multiplier)
+
+
+MEM_LIMIT = _parse_mem_limit(os.environ.get("CONTAINER_MEM_LIMIT", "512m"))
 CPU_LIMIT = float(os.environ.get("CONTAINER_CPU_LIMIT", "0.5"))
 IDLE_TIMEOUT_MIN = int(os.environ.get("IDLE_TIMEOUT_MINUTES", "15"))
 ADMIN_EMAIL = os.environ.get("JUPYTERHUB_ADMIN_EMAIL", "").strip()
@@ -61,7 +110,7 @@ c.DockerSpawner.cpu_limit = CPU_LIMIT
 c.DockerSpawner.remove = True
 c.DockerSpawner.notebook_dir = "/home/jovyan/work"
 c.DockerSpawner.volumes = {"vle-user-{username}": "/home/jovyan/work"}
-c.DockerSpawner.default_url = "/lab"
+c.DockerSpawner.default_url = "/lab/tree/notebooks/index.ipynb"
 # DockerSpawner starts the container on the same network as the hub and
 # reaches back to the hub by container name.
 c.JupyterHub.hub_ip = "0.0.0.0"
