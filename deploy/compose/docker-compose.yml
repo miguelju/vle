@@ -12,6 +12,20 @@ name: vle
 
 services:
   # ---------------------------------------------------------------------------
+  # Cloudflare Tunnel — terminates the connection from Cloudflare's edge and
+  # forwards to Traefik over the internal web network. Closes the need for
+  # any public ingress ports on the host.
+  # ---------------------------------------------------------------------------
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TUNNEL_TOKEN}
+    networks:
+      - web
+    depends_on:
+      - jupyterhub
+  # ---------------------------------------------------------------------------
   # JupyterHub — the long-running service. Traefik routes ${DOMAIN} to it.
   # ---------------------------------------------------------------------------
   jupyterhub:

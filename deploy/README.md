@@ -46,6 +46,12 @@ On the deployment host:
    x86_64 host you can build cross-platform with `docker buildx`, or edit the
    `FROM` lines to drop the platform pin.
 
+Optionally, if you do not want to expose any public ports on the host, set
+`CLOUDFLARED_TUNNEL_TOKEN` in `.env` and the stack will also run a
+`cloudflared` container that terminates a Cloudflare Tunnel and forwards to
+Traefik on the internal `web` network. Leave the token blank if you terminate
+TLS/ingress yourself (e.g. via a public port on Traefik).
+
 ## First-time setup
 
 ```sh
@@ -73,10 +79,15 @@ Verify with `docker compose --env-file ../.env ps` and `docker compose logs -f j
 Use the convenience script:
 
 ```sh
-deploy/scripts/deploy.sh
+deploy/scripts/deploy.sh              # fast, uses Docker layer cache
+deploy/scripts/deploy.sh --no-cache   # full rebuild from scratch
 ```
 
-It pulls `origin/main`, rebuilds both images, and restarts the stack.
+It pulls `origin/main`, rebuilds both images, restarts the stack, and then
+runs a short self-check (hub running, config sentinels present in the built
+images). If `--no-cache` is passed, both images are rebuilt from scratch —
+slower but guaranteed-fresh. Use it after big changes or if the previous
+deploy looks like it is running stale code.
 
 ## Local development (no reverse proxy)
 

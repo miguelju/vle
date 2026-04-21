@@ -12,6 +12,9 @@
 # start.sh on its own unset variables (e.g. JUPYTER_DOCKER_STACKS_QUIET).
 # Keep the whole body inside a subshell so strict mode stays strict here and
 # does not escape to the caller.
+#
+# SUBSHELL-WRAPPER-v1  ← sentinel grepped by deploy/scripts/deploy.sh to
+# confirm this file made it into the built notebook image. Do not remove.
 
 (
   set -euo pipefail
