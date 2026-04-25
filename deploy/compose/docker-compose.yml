@@ -20,6 +20,10 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared
     restart: unless-stopped
+    # Gated behind the `tunnel` profile so an empty CLOUDFLARED_TUNNEL_TOKEN
+    # in deploy/.env does not crash-loop the container. deploy/scripts/deploy.sh
+    # adds `--profile tunnel` automatically when the token is set.
+    profiles: [tunnel]
     command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TUNNEL_TOKEN}
     networks:
       - web
@@ -64,6 +68,9 @@ services:
       - traefik.http.routers.vle.rule=Host(`${DOMAIN}`)
       - traefik.http.routers.vle.entrypoints=websecure
       - traefik.http.routers.vle.tls=true
+      - traefik.http.routers.vle-http.rule=Host(`${DOMAIN}`)
+      - traefik.http.routers.vle-http.entrypoints=web
+      - traefik.http.routers.vle-http.service=vle
       - traefik.http.services.vle.loadbalancer.server.port=8000
 
   # ---------------------------------------------------------------------------

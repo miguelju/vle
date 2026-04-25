@@ -33,6 +33,19 @@ fi
 
 cd "${REPO_ROOT}"
 
+# -------- Compose profile selection --------
+# The `cloudflared` service is gated behind the `tunnel` compose profile.
+# Activate it only when CLOUDFLARED_TUNNEL_TOKEN is non-empty in deploy/.env,
+# so hosts running behind another reverse-proxy / tunnel setup don't pull
+# in (and crash-loop) an unconfigured cloudflared container.
+COMPOSE_PROFILES=()
+if grep -E '^CLOUDFLARED_TUNNEL_TOKEN=.+' "${ENV_FILE}" >/dev/null 2>&1; then
+  COMPOSE_PROFILES+=(--profile tunnel)
+  echo "==> CLOUDFLARED_TUNNEL_TOKEN is set — including the tunnel profile"
+else
+  echo "==> CLOUDFLARED_TUNNEL_TOKEN is empty — skipping cloudflared service"
+fi
+
 # -------- Source update --------
 echo "==> Updating source (git pull --ff-only origin main)"
 git pull --ff-only origin main
@@ -40,13 +53,22 @@ git pull --ff-only origin main
 echo "==> Current HEAD: $(git rev-parse --short HEAD) — $(git log -1 --pretty=%s)"
 
 # -------- Regenerate landing page --------
+# notebooks/index.ipynb is committed, so this step is a "freshen on deploy"
+# nicety — if the host lacks nbformat (e.g. fresh Ubuntu without
+# python3-nbformat), warn and fall back to the committed copy.
 echo "==> Regenerating notebooks/index.ipynb landing page"
 if command -v python3 >/dev/null 2>&1; then
   INDEX_PY="python3"
 else
   INDEX_PY="python"
 fi
-"${INDEX_PY}" scripts/build_index.py
+if ! "${INDEX_PY}" -c 'import nbformat' >/dev/null 2>&1; then
+  echo "  ! nbformat not installed for ${INDEX_PY} — skipping regeneration"
+  echo "    (using committed notebooks/index.ipynb; install with"
+  echo "     'sudo apt-get install -y python3-nbformat' to enable refresh)"
+elif ! "${INDEX_PY}" scripts/build_index.py; then
+  echo "  ! build_index.py failed — falling back to committed index.ipynb"
+fi
 
 # -------- Build images --------
 echo "==> Building notebook image (profile=build-only)${BUILD_FLAGS:+ $BUILD_FLAGS}"
@@ -55,19 +77,19 @@ echo "==> Building notebook image (profile=build-only)${BUILD_FLAGS:+ $BUILD_FLA
 
 echo "==> Building hub image${BUILD_FLAGS:+ $BUILD_FLAGS}"
 ( cd "${COMPOSE_DIR}" \
-  && docker compose --env-file "${ENV_FILE}" build ${BUILD_FLAGS} )
+  && docker compose --env-file "${ENV_FILE}" "${COMPOSE_PROFILES[@]}" build ${BUILD_FLAGS} )
 
 # -------- Restart stack --------
 echo "==> Starting / updating stack"
 ( cd "${COMPOSE_DIR}" \
-  && docker compose --env-file "${ENV_FILE}" up -d )
+  && docker compose --env-file "${ENV_FILE}" "${COMPOSE_PROFILES[@]}" up -d )
 
 # Give the hub a moment to start before we query it
 sleep 3
 
 echo "==> Current state:"
 ( cd "${COMPOSE_DIR}" \
-  && docker compose --env-file "${ENV_FILE}" ps )
+  && docker compose --env-file "${ENV_FILE}" "${COMPOSE_PROFILES[@]}" ps )
 
 # -------- Verification --------
 echo "==> Verifying deployment"
