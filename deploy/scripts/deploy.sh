@@ -117,10 +117,14 @@ fi
 # container just to cat one file. The sentinel 'SUBSHELL-WRAPPER-v1' is
 # placed inside the seed script itself and survives reformatting, unlike a
 # regex on the subshell's opening paren.
+#
+# Read the real file path (not /usr/local/bin/before-notebook.d/10-…, which
+# is a symlink — docker cp would tar the symlink itself, leaving the grep
+# with empty input and a false-positive "stale" warning).
 SEED_SCRIPT=""
 SEED_CID="$(docker create vle-notebook:latest 2>/dev/null || true)"
 if [[ -n "${SEED_CID}" ]]; then
-  SEED_SCRIPT="$(docker cp "${SEED_CID}:/usr/local/bin/before-notebook.d/10-seed-user-home.sh" - 2>/dev/null \
+  SEED_SCRIPT="$(docker cp "${SEED_CID}:/usr/local/bin/seed-user-home.sh" - 2>/dev/null \
     | tar -xO 2>/dev/null || true)"
   docker rm "${SEED_CID}" >/dev/null 2>&1 || true
 fi
