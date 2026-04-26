@@ -10,6 +10,7 @@ Cloudflare Access or an equivalent header-setting gateway.
 ```
 deploy/
 ├── README.md              this file
+├── FAILOVER.md            optional warm-standby setup using a shared CF tunnel
 ├── .env.example           template — copy to .env and fill in
 ├── compose/
 │   ├── docker-compose.yml
@@ -18,7 +19,8 @@ deploy/
 │   ├── Dockerfile.jupyterhub   hub image (ARM64)
 │   └── Dockerfile.notebook     per-user image (ARM64)
 └── scripts/
-    └── deploy.sh          pull + rebuild + restart
+    ├── deploy.sh                pull + rebuild + restart
+    └── promote-standby.sh       promote a warm standby (see FAILOVER.md)
 ```
 
 Files under `deploy/local/` and `deploy/.env` are gitignored — use them for
@@ -51,6 +53,11 @@ Optionally, if you do not want to expose any public ports on the host, set
 `cloudflared` container that terminates a Cloudflare Tunnel and forwards to
 Traefik on the internal `web` network. Leave the token blank if you terminate
 TLS/ingress yourself (e.g. via a public port on Traefik).
+
+For a second host as warm standby on the same Cloudflare Tunnel — so the
+public URL stays reachable when the primary goes down — see
+[`FAILOVER.md`](FAILOVER.md). Free Cloudflare tier, no Load Balancer
+required, ~2-3 min cold-standby RTO.
 
 ## First-time setup
 
