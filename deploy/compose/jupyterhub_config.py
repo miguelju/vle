@@ -8,7 +8,16 @@ Auth modes
 ----------
 ``AUTH_MODE`` selects the authenticator:
 
-* ``cloudflare`` (default, production): trust the
+* ``oidc`` (production, recommended): OpenID Connect against a self-hosted
+  identity provider such as Pocket ID. The hub itself becomes the auth gate
+  and redirects unauthenticated users to the provider. Requires
+  ``OIDC_ISSUER``, ``OIDC_CLIENT_ID``, ``OIDC_CLIENT_SECRET``, and
+  ``OAUTH_CALLBACK_URL``. Endpoint paths default to Pocket ID conventions
+  (``/authorize``, ``/api/oidc/token``, ``/api/oidc/userinfo``) and can be
+  overridden with ``OIDC_AUTHORIZE_URL`` / ``OIDC_TOKEN_URL`` /
+  ``OIDC_USERINFO_URL`` for other OIDC providers.
+
+* ``cloudflare`` (legacy production): trust the
   ``Cf-Access-Authenticated-User-Email`` request header that Cloudflare Access
   sets on every request after it has authenticated the user. JupyterHub then
   does no login UI of its own — the upstream proxy is the sole auth gate.
@@ -28,6 +37,7 @@ import sys
 from dockerspawner import DockerSpawner
 from jupyterhub.auth import Authenticator, DummyAuthenticator
 from jupyterhub.handlers import BaseHandler
+from oauthenticator.generic import GenericOAuthenticator
 from tornado import web
 
 c = get_config()  # noqa: F821 — provided by JupyterHub at load time
@@ -159,14 +169,65 @@ class CloudflareAccessAuthenticator(Authenticator):
         return [("/login", CloudflareAccessLoginHandler)]
 
 
-if AUTH_MODE == "cloudflare":
+def _configure_oidc() -> type[Authenticator]:
+    """Build a GenericOAuthenticator subclass wired up for an OIDC provider.
+
+    Defaults match Pocket ID's standard endpoint layout. Override the
+    individual ``OIDC_*_URL`` env vars to point at a different OIDC provider.
+    """
+    issuer = os.environ.get("OIDC_ISSUER", "").rstrip("/")
+    client_id = os.environ.get("OIDC_CLIENT_ID", "")
+    client_secret = os.environ.get("OIDC_CLIENT_SECRET", "")
+    callback_url = os.environ.get("OAUTH_CALLBACK_URL", "")
+
+    missing = [
+        name
+        for name, val in [
+            ("OIDC_ISSUER", issuer),
+            ("OIDC_CLIENT_ID", client_id),
+            ("OIDC_CLIENT_SECRET", client_secret),
+            ("OAUTH_CALLBACK_URL", callback_url),
+        ]
+        if not val
+    ]
+    if missing:
+        raise ValueError(
+            f"AUTH_MODE=oidc requires {', '.join(missing)} to be set. "
+            "See deploy/.env.example."
+        )
+
+    authorize_url = os.environ.get("OIDC_AUTHORIZE_URL") or f"{issuer}/authorize"
+    token_url = os.environ.get("OIDC_TOKEN_URL") or f"{issuer}/api/oidc/token"
+    userinfo_url = os.environ.get("OIDC_USERINFO_URL") or f"{issuer}/api/oidc/userinfo"
+    username_claim = os.environ.get("OIDC_USERNAME_CLAIM", "email")
+    scopes = os.environ.get("OIDC_SCOPES", "openid email profile").split()
+
+    c.GenericOAuthenticator.client_id = client_id
+    c.GenericOAuthenticator.client_secret = client_secret
+    c.GenericOAuthenticator.oauth_callback_url = callback_url
+    c.GenericOAuthenticator.authorize_url = authorize_url
+    c.GenericOAuthenticator.token_url = token_url
+    c.GenericOAuthenticator.userdata_url = userinfo_url
+    c.GenericOAuthenticator.username_claim = username_claim
+    c.GenericOAuthenticator.scope = scopes
+    c.GenericOAuthenticator.login_service = os.environ.get(
+        "OIDC_LOGIN_SERVICE", "Pocket ID"
+    )
+    # Send users straight to the IdP instead of showing the JupyterHub login form.
+    c.GenericOAuthenticator.auto_login = True
+    return GenericOAuthenticator
+
+
+if AUTH_MODE == "oidc":
+    c.JupyterHub.authenticator_class = _configure_oidc()
+elif AUTH_MODE == "cloudflare":
     c.JupyterHub.authenticator_class = CloudflareAccessAuthenticator
 elif AUTH_MODE == "dummy":
     # Local development only. Accepts any username + any password.
     c.JupyterHub.authenticator_class = DummyAuthenticator
 else:
     raise ValueError(
-        f"Unknown AUTH_MODE={AUTH_MODE!r}. Expected 'cloudflare' or 'dummy'."
+        f"Unknown AUTH_MODE={AUTH_MODE!r}. Expected 'oidc', 'cloudflare', or 'dummy'."
     )
 
 if ADMIN_EMAIL:

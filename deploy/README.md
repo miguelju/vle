@@ -2,8 +2,24 @@
 
 This directory contains the Docker-based deployment for the VLE JupyterHub
 service. It is intended to be run on a Linux host (ARM64 targeted) behind a
-pre-existing Traefik reverse proxy, with upstream authentication handled by
-Cloudflare Access or an equivalent header-setting gateway.
+pre-existing Traefik reverse proxy. Authentication can be handled either by
+JupyterHub itself via OpenID Connect (e.g. a self-hosted Pocket ID) or by an
+upstream header-setting gateway such as Cloudflare Access.
+
+## Looking for a simpler install?
+
+If you just want to **use** `vle-thermo` (not host a multi-user hub), you
+probably don't need anything in this directory. Three zero-config options:
+
+| Goal | Command |
+|------|---------|
+| Use from Python | `pip install vle-thermo` |
+| Use from Rust | `cargo add vle-thermo` |
+| Run the notebooks locally | `docker run --rm -p 8888:8888 ghcr.io/miguelju/vle-thermo:latest` |
+
+See the main [README](../README.md#install) and [PUBLISHING.md](../PUBLISHING.md)
+for details. The JupyterHub stack described below is for operators who want
+to host a shared multi-user environment.
 
 ## Layout
 
@@ -40,10 +56,16 @@ On the deployment host:
    forwarding HTTP requests for `$DOMAIN` to the JupyterHub container. Traefik
    v3 with standard host-routing labels is assumed; the compose file emits the
    matching labels automatically.
-4. **An upstream authenticator** (e.g. Cloudflare Access) that injects an
-   authenticated email into the `Cf-Access-Authenticated-User-Email` header.
-   Your reverse proxy must not pass through a client-supplied copy of that
-   header. For local development, set `AUTH_MODE=dummy` to bypass this.
+4. **An authenticator.** Pick one of:
+   - `AUTH_MODE=oidc` (recommended): the hub talks OpenID Connect to a
+     provider such as Pocket ID. Set `OIDC_ISSUER`, `OIDC_CLIENT_ID`,
+     `OIDC_CLIENT_SECRET`, and `OAUTH_CALLBACK_URL` in `.env`. Register the
+     callback URL with the provider before first login.
+   - `AUTH_MODE=cloudflare` (legacy): an upstream gateway (Cloudflare Access)
+     injects an authenticated email into the `Cf-Access-Authenticated-User-Email`
+     header. Your reverse proxy must not pass through a client-supplied copy
+     of that header.
+   - `AUTH_MODE=dummy` (local development only): no auth.
 5. **ARM64 host** — the Dockerfiles pin `--platform=linux/arm64`. On an
    x86_64 host you can build cross-platform with `docker buildx`, or edit the
    `FROM` lines to drop the platform pin.
@@ -113,11 +135,18 @@ use it on a public host.
 
 **`network web not found`** — create it with `docker network create $TRAEFIK_NETWORK`.
 
-**Hub starts but browser hangs on `/hub/login`** — upstream auth isn't
-reaching the hub. Confirm the reverse proxy is forwarding the
-`Cf-Access-Authenticated-User-Email` header. You can exec into the hub and
-`curl -I http://localhost:8000/hub/login` to inspect behavior without the
-proxy in the loop.
+**Hub starts but browser hangs on `/hub/login`** —
+- `AUTH_MODE=cloudflare`: upstream auth isn't reaching the hub. Confirm the
+  reverse proxy is forwarding the `Cf-Access-Authenticated-User-Email`
+  header. You can exec into the hub and
+  `curl -I http://localhost:8000/hub/login` to inspect behavior without the
+  proxy in the loop.
+- `AUTH_MODE=oidc`: the OIDC handshake is failing. Check
+  `docker compose logs jupyterhub` for the redirect URL and the upstream
+  response. Most common causes are a `OAUTH_CALLBACK_URL` that does not
+  exactly match the redirect URI registered with the provider, an
+  `OIDC_ISSUER` that returns 404 on `/authorize`, or wrong client
+  credentials.
 
 **`Error response from daemon: No such image: vle-notebook:latest`** — the
 single-user image wasn't built. Run
