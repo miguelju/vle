@@ -1,12 +1,23 @@
 [package]
-name = "vle-engine"
-version = "0.1.0"
-edition = "2024"
-description = "VLE (Vapor-Liquid Equilibrium) thermodynamic calculator engine"
-license = "MIT"
+name = "vle-thermo"
+description = "Vapor-liquid equilibrium thermodynamic calculator: 22+ cubic EOS, activity models, mixing rules, flash algorithms"
+readme = "README.md"
+keywords = ["thermodynamics", "chemistry", "vle", "equation-of-state", "fluid"]
+categories = ["science", "mathematics"]
+documentation = "https://docs.rs/vle-thermo"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
 
 [lib]
-name = "vle_engine"
+# The `cdylib` artifact is what maturin packages into the Python wheel as
+# `vle/_engine.*.{so,dylib,pyd}`; the `rlib` artifact is what downstream Rust
+# crates link against via `cargo add vle-thermo`.
+name = "vle_thermo"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
@@ -19,4 +30,7 @@ approx = "0.5"
 
 [features]
 default = []
+# Gate all PyO3 bindings behind this feature so `cargo add vle-thermo` pulls a
+# pure-Rust crate without dragging in Python. Maturin enables it automatically
+# from python/pyproject.toml when building the wheel.
 python = ["pyo3"]

@@ -1,0 +1,103 @@
+# syntax=docker/dockerfile:1.6
+#
+# Standalone single-user VLE image for GHCR.
+#
+# Runs JupyterLab directly on :8888, no JupyterHub / DockerSpawner needed.
+# Designed for users who want to try vle-thermo without setting up a Python
+# env or cloning the repo.
+#
+#   docker run --rm -p 8888:8888 ghcr.io/miguelju/vle-thermo:latest
+#
+# Multi-arch: no explicit `--platform` pin — build with `docker buildx` to
+# produce linux/amd64 + linux/arm64 simultaneously. The base
+# `jupyter/scipy-notebook` image already publishes both.
+
+FROM quay.io/jupyter/scipy-notebook:latest
+
+ARG NB_USER=jovyan
+ARG NB_UID=1000
+ARG NB_GID=100
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Build dependencies for the Rust toolchain and PyO3 compilation.
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        curl \
+        libssl-dev \
+        pkg-config \
+ && rm -rf /var/lib/apt/lists/*
+USER ${NB_UID}
+
+# Rust toolchain owned by the notebook user. Kept installed after the wheel
+# build so users can also experiment with Rust cells in-notebook.
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --default-toolchain stable --profile minimal
+ENV PATH="/home/${NB_USER}/.cargo/bin:${PATH}"
+
+RUN pip install "maturin>=1.5,<2"
+
+# Build and install the vle-thermo wheel from the local source. We copy only
+# the directories needed by maturin (engine/, units/, python/) plus the
+# workspace root Cargo.toml so cargo can resolve the workspace context.
+COPY --chown=${NB_UID}:${NB_GID} Cargo.toml /tmp/build/Cargo.toml
+COPY --chown=${NB_UID}:${NB_GID} engine/ /tmp/build/engine/
+COPY --chown=${NB_UID}:${NB_GID} units/  /tmp/build/units/
+COPY --chown=${NB_UID}:${NB_GID} python/ /tmp/build/python/
+
+RUN cd /tmp/build/python \
+ && maturin build --release --out /tmp/wheels \
+ && pip install /tmp/wheels/vle_thermo-*.whl \
+ && rm -rf /tmp/build /tmp/wheels \
+           /home/${NB_USER}/.cargo/registry \
+           /home/${NB_USER}/.cargo/git
+
+# Extra Python deps used by the notebooks. scipy-notebook already provides
+# most of these, but pin them here so the image is self-describing.
+RUN pip install \
+        "jupyterlab>=4" \
+        "numpy>=1.24" \
+        "scipy>=1.11" \
+        "matplotlib>=3.7"
+
+# Bundle the repo's notebooks into the image so users land on a working
+# example as soon as the container starts.
+USER root
+COPY --chown=${NB_UID}:${NB_GID} notebooks/ /opt/vle/notebooks/
+
+# Build the SQLite component database once at image-build time. init +
+# seed_chapter4 is idempotent, so the first-start hook can re-run it safely
+# on user volumes too.
+USER ${NB_UID}
+RUN mkdir -p /opt/vle/data \
+ && VLE_DB_PATH=/opt/vle/data/components.db \
+    python -m vle.cli.main init \
+ && VLE_DB_PATH=/opt/vle/data/components.db \
+    python -m vle.cli.main seed --source chapter4
+
+# First-start hook: copy notebooks + DB into ~/work if the target paths are
+# empty. Lets the user mount a local directory over ~/work without losing
+# the bundled content — on first boot the mount is populated; on subsequent
+# boots edits are preserved.
+COPY --chown=${NB_UID}:${NB_GID} deploy/scripts/seed-user-home.sh /usr/local/bin/seed-user-home.sh
+USER root
+RUN chmod +x /usr/local/bin/seed-user-home.sh \
+ && mkdir -p /usr/local/bin/before-notebook.d \
+ && ln -s /usr/local/bin/seed-user-home.sh /usr/local/bin/before-notebook.d/10-seed-user-home.sh
+USER ${NB_UID}
+
+ENV VLE_DB_PATH=/home/${NB_USER}/work/data/components.db
+WORKDIR /home/${NB_USER}/work
+
+EXPOSE 8888
+
+# The jupyter/scipy-notebook base image's ENTRYPOINT/CMD already launches
+# JupyterLab on :8888; no override needed. Users can pass:
+#
+#   -e JUPYTER_TOKEN=<your-token>      set access token (default: random)
+#   -e JUPYTER_ENABLE_LAB=yes          force JupyterLab (default anyway)
+#   -v $(pwd)/work:/home/jovyan/work   persist notebooks locally

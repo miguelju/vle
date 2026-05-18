@@ -88,8 +88,8 @@ pub mod types;
 
 // `pub use` re-exports an item from a sub-module, making it available
 // directly at this crate's top level. Without these lines, users would
-// have to write the full path: `vle_engine::eos::CubicEos`. With them,
-// they can write the shorter `vle_engine::CubicEos` instead. It's purely
+// have to write the full path: `vle_thermo::eos::CubicEos`. With them,
+// they can write the shorter `vle_thermo::CubicEos` instead. It's purely
 // a convenience — the types still live in their original modules, but
 // `pub use` creates a public shortcut at the crate root.
 pub use eos::CubicEos;

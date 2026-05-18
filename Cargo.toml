@@ -1,0 +1,23 @@
+# Cargo workspace manifest.
+#
+# Declares the two publishable Rust crates in this repo as workspace members so
+# that `cargo build`, `cargo test`, and `cargo publish -p <name>` can be invoked
+# from the repo root.
+#
+# Shared metadata (version, license, author, repository) lives under
+# [workspace.package] and is inherited by each member's Cargo.toml via
+# `<field>.workspace = true`. Bump the version here to release a new version
+# of both crates at once.
+
+[workspace]
+resolver = "2"
+members = ["engine", "units"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+authors = ["Miguel Jackson <admin@migueljackson.dev>"]
+repository = "https://github.com/miguelju/vle"
+homepage = "https://github.com/miguelju/vle"

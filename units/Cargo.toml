@@ -1,9 +1,17 @@
 [package]
 name = "vle-units"
-version = "0.1.0"
-edition = "2024"
-description = "Dimensional analysis & unit conversion for VLE thermodynamic calculations (Milestone 3 add-on)"
-license = "MIT"
+description = "Dimensional analysis and unit conversion for vapor-liquid equilibrium and thermodynamic calculations"
+readme = "README.md"
+keywords = ["units", "dimensional-analysis", "thermodynamics", "si", "uom"]
+categories = ["science", "mathematics"]
+documentation = "https://docs.rs/vle-units"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
 
 [lib]
 name = "vle_units"

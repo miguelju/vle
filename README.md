@@ -68,6 +68,58 @@ The modernization introduces several numerical improvements over the original VB
 
 See [MODERNIZATION_PLAN.md](MODERNIZATION_PLAN.md) for full details and justifications.
 
+## Install
+
+The project is distributed on three registries — pick whichever matches how you
+want to use it. All three track the same version and are built from the same
+source tree.
+
+### Python (PyPI)
+
+```sh
+pip install vle-thermo
+```
+
+Distribution name is `vle-thermo`, import name is `vle` (like Pillow → PIL):
+
+```python
+import vle
+```
+
+Optional extras: `pip install "vle-thermo[plot]"` (matplotlib),
+`"vle-thermo[db]"` (extended component-database seeding via `thermo`).
+See [python/README.md](python/README.md).
+
+### Rust (crates.io)
+
+```sh
+cargo add vle-thermo
+# Optional: the companion units crate for gauge pressure / °C / psi parsing
+cargo add vle-units
+```
+
+API docs: <https://docs.rs/vle-thermo>. See [engine/README.md](engine/README.md).
+
+### Docker (GHCR)
+
+Zero-setup JupyterLab with the notebooks pre-loaded:
+
+```sh
+docker run --rm -p 8888:8888 ghcr.io/miguelju/vle-thermo:latest
+# → open http://localhost:8888
+```
+
+Multi-arch (linux/amd64 + linux/arm64). See [deploy/docker/Dockerfile.standalone](deploy/docker/Dockerfile.standalone).
+
+---
+
+The self-hosted **JupyterHub** deployment in [`deploy/`](deploy/) is a
+different thing — it provisions a multi-user hub behind an auth proxy for a
+team, not a single-user desktop experience. Most users want one of the three
+paths above.
+
+Release process and registry maintenance: [PUBLISHING.md](PUBLISHING.md).
+
 ## Project Structure
 
 ```

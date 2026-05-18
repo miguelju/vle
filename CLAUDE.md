@@ -23,12 +23,14 @@ Do NOT push until all documentation accurately reflects the current state of the
 ```sh
 # Anything matching this pattern in a to-be-pushed file is a leak.
 git diff --cached origin/main -- ':!deploy/local' ':!deploy/.env' \
-  | grep -E '(migueljackson\.dev|163\.192\.214\.135|cloudflareaccess\.com|BEGIN (RSA |EC )?PRIVATE KEY)' \
+  | grep -E '(163\.192\.214\.135|cloudflareaccess\.com|BEGIN (RSA |EC )?PRIVATE KEY)' \
   && { echo "ABORT: private infrastructure detail found in staged changes"; exit 1; } \
   || echo "clean: no private details in diff"
 ```
 
 If the grep hits anything, stop and move the offending content under `deploy/local/` or replace it with an `${ENV_VAR}` / `example.com` placeholder before pushing.
+
+Note: addresses on `migueljackson.dev` (e.g. `admin@migueljackson.dev`, `git@migueljackson.dev`) are Miguel's intentional public / professional identity and are safe to include in committed files — `Cargo.toml` / `pyproject.toml` `authors`, git commit author fields, READMEs, etc. They are **not** covered by this gate. The JupyterHub deployment hostname is still private and must be referenced via `${DOMAIN}` (see the rule list below).
 
 ## Phase / Milestone Synchronization Rules
 

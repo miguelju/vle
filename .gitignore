@@ -4,6 +4,7 @@
 .LSOverride
 
 # Rust
+/target/
 /engine/target/
 /units/target/
 **/*.dSYM/
