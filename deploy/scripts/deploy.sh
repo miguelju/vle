@@ -46,10 +46,12 @@ else
   echo "==> CLOUDFLARED_TUNNEL_TOKEN is empty — skipping cloudflared service"
 fi
 
-# -------- Source update --------
-echo "==> Updating source (git pull --ff-only origin main)"
-git pull --ff-only origin main
-
+# -------- Source state --------
+# This script no longer runs `git pull` itself. The expected callers are
+# (a) the auto-deploy wrapper /usr/local/bin/vle-deploy, which checks out a
+# specific tag before invoking us, or (b) a human operator who has already
+# checked out the desired revision. Running git pull here would race with
+# the wrapper's tag-checkout.
 echo "==> Current HEAD: $(git rev-parse --short HEAD) — $(git log -1 --pretty=%s)"
 
 # -------- Regenerate landing page --------

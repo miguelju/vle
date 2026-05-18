@@ -1,0 +1,192 @@
+# Release workflow: triggered when a tag matching `v*` is pushed.
+#
+# Five jobs run sequentially:
+#   build           - calls _build.yml to produce the wheel matrix + sdist
+#   publish-pypi    - PyPI Trusted Publishing (OIDC, no token; env: pypi)
+#   publish-crates  - cargo publish vle-units then vle-thermo (token loaded
+#                     from 1Password at runtime)
+#   gh-release      - creates the GitHub Release and attaches all wheels + sdist
+#   deploy-sandbox  - SSHes to rocky (plain SSH) and Oracle (Tailscale SSH),
+#                     each runs `/usr/local/bin/vle-deploy <tag>` via the
+#                     authorized_keys `command=` restriction
+#
+# Secrets:
+#   GitHub secret OP_SERVICE_ACCOUNT_TOKEN is the *only* GitHub-side secret;
+#   everything else (rocky/Oracle SSH keys, Tailscale OAuth, crates.io token,
+#   host names) is loaded from 1Password at workflow runtime via
+#   1password/load-secrets-action@v2. See docs/ci.md and PUBLISHING.md.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build wheels + sdist
+    uses: ./.github/workflows/_build.yml
+    with:
+      artifact-suffix: release
+    secrets: inherit
+
+  publish-pypi:
+    name: publish to PyPI
+    needs: [build]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/vle-thermo/
+    permissions:
+      id-token: write   # OIDC for PyPI Trusted Publishing
+    steps:
+      - name: Download all wheel + sdist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: "wheels-*-release"
+          merge-multiple: true
+      - name: Download sdist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sdist-release
+          path: dist
+      - name: List collected artifacts
+        run: ls -la dist
+      - name: Publish to PyPI (Trusted Publishing, OIDC)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          # No `password:` — Trusted Publishing reads the OIDC token from
+          # id-token: write above. PyPI must have a Trusted Publisher
+          # configured for miguelju/vle + workflow release.yml + env pypi
+          # (one-time setup; see PUBLISHING.md).
+
+  publish-crates:
+    name: publish to crates.io
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Load crates.io token from 1Password
+        uses: 1password/load-secrets-action@v2
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          CARGO_REGISTRY_TOKEN: op://vle-thermo-ci/crates-io/token
+      - name: cargo publish vle-units
+        # vle-units must publish first because vle-thermo depends on it.
+        # --no-verify because we already built and tested the wheels in
+        # the build job; re-verifying here just slows the release.
+        run: cargo publish -p vle-units --no-verify
+      - name: cargo publish vle-thermo
+        run: cargo publish -p vle-thermo --no-verify
+
+  gh-release:
+    name: create GitHub Release
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # for softprops/action-gh-release to create the release
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Flatten artifacts into a single dist/ dir
+        run: |
+          mkdir -p dist
+          find artifacts -name '*.whl' -exec cp {} dist/ \;
+          find artifacts -name '*.tar.gz' -exec cp {} dist/ \;
+          ls -la dist
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+
+  deploy-sandbox:
+    name: deploy sandbox (rocky + Oracle)
+    needs: [publish-pypi, publish-crates, gh-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Load deploy secrets from 1Password
+        uses: 1password/load-secrets-action@v2
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN:        ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          ROCKY_HOST:                      op://vle-thermo-ci/rocky-deploy/hostname
+          ROCKY_USER:                      op://vle-thermo-ci/rocky-deploy/username
+          ROCKY_SSH_KEY:                   op://vle-thermo-ci/rocky-deploy/private_key
+          ROCKY_HOST_KEY_FINGERPRINT:      op://vle-thermo-ci/rocky-deploy/host_key_fingerprint
+          ORACLE_HOST:                     op://vle-thermo-ci/oracle-deploy/tailnet_hostname
+          ORACLE_USER:                     op://vle-thermo-ci/oracle-deploy/username
+          ORACLE_SSH_KEY:                  op://vle-thermo-ci/oracle-deploy/private_key
+          TS_OAUTH_CLIENT_ID:              op://vle-thermo-ci/tailscale-ci/client_id
+          TS_OAUTH_SECRET:                 op://vle-thermo-ci/tailscale-ci/client_secret
+      - name: Set up SSH agent with both deploy keys
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: |
+            ${{ env.ROCKY_SSH_KEY }}
+            ${{ env.ORACLE_SSH_KEY }}
+      - name: Pin rocky's host key
+        # Pull the host key fresh and verify its SHA-256 fingerprint against
+        # the value stored in 1Password. If the fingerprint shifts (host
+        # reinstall, MITM), the step fails and the deploy aborts.
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keyscan -H "$ROCKY_HOST" > /tmp/rocky_known
+          actual=$(ssh-keygen -lf /tmp/rocky_known | awk '/ED25519|RSA|ECDSA/ {print $2; exit}')
+          if [[ -z "$ROCKY_HOST_KEY_FINGERPRINT" ]]; then
+            echo "ROCKY_HOST_KEY_FINGERPRINT not set in 1Password" >&2
+            exit 1
+          fi
+          if ! echo "$actual" | grep -qF "$ROCKY_HOST_KEY_FINGERPRINT"; then
+            echo "rocky host-key fingerprint mismatch" >&2
+            echo "  expected: $ROCKY_HOST_KEY_FINGERPRINT" >&2
+            echo "  actual:   $actual" >&2
+            exit 1
+          fi
+          cat /tmp/rocky_known >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Deploy to rocky (plain SSH)
+        # The host's authorized_keys binds this key to
+        # `command="/usr/local/bin/vle-deploy"`. SSH_ORIGINAL_COMMAND on the
+        # other end will be the tag name; the wrapper regex-validates it
+        # before doing anything destructive.
+        run: |
+          ssh -o StrictHostKeyChecking=yes \
+              -o BatchMode=yes \
+              "$ROCKY_USER@$ROCKY_HOST" \
+              "${GITHUB_REF_NAME}"
+      - name: Join Tailscale tailnet
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ env.TS_OAUTH_SECRET }}
+          tags: tag:ci
+      - name: Deploy to Oracle (SSH over Tailscale)
+        # ORACLE_HOST resolves only because the runner just joined the tailnet.
+        # No StrictHostKeyChecking pin needed -- Tailscale's authentication
+        # already establishes endpoint identity.
+        run: |
+          ssh -o BatchMode=yes \
+              -o StrictHostKeyChecking=accept-new \
+              "$ORACLE_USER@$ORACLE_HOST" \
+              "${GITHUB_REF_NAME}"

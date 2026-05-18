@@ -122,7 +122,11 @@ JupyterHub config and Traefik labels match.
 ### 3. First-run on standby (registers, then stop)
 
 ```sh
-ssh standby 'cd ~/vle && ./deploy/scripts/deploy.sh'
+# Check out the same tag that's running on primary, then run deploy.sh.
+# deploy.sh no longer pulls git itself (Milestone 5 onward); callers
+# decide which revision to deploy. The auto-deploy workflow uses
+# /usr/local/bin/vle-deploy <tag> to do this in one step.
+ssh standby 'cd ~/vle && git fetch origin --tags && git checkout <primary-tag> && ./deploy/scripts/deploy.sh'
 ```
 
 `deploy.sh` detects the populated token and activates the `tunnel` compose
