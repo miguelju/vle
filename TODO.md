@@ -64,7 +64,7 @@ SQLite-based property database with CLI, Jupyter notebook, and first deploy to t
 - [x] **Create milestone notebook** (~2h) — `notebooks/00_component_database.ipynb` per CLAUDE.md *Notebook Conventions*: Chapter IV §4.1 / §4.3 / §4.7 blockquotes, worked example over all 4 tables, 2 user exercises with collapsed solutions, References section; generated deterministically by `scripts/build_notebook_00.py`
 - [x] **Update public deploy docs** (~0.5h) — `deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example` updated for `vle-db init/seed`, optional `thermo` dep; `Dockerfile.notebook` now bakes `/opt/vle/notebooks/` and a pre-seeded `components.db`, with a first-start hook (`seed-user-home.sh`) that copies them into the user's `~/work/` on login
 - [x] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-04.md` with Miguel's host-specific rebuild/restart steps
-- [ ] **Deploy notebook to JupyterHub** (~1h) — run `deploy/scripts/deploy.sh` on the VPS to rebuild the notebook image and bounce the stack; then work through the smoke-test checklist in `deploy/local/deploy-notes/milestone-04.md`
+- [x] **Deploy notebook to JupyterHub** (~1h) — image rebuilt and deployed to both rocky (primary) and Oracle (standby); notebook `00_component_database.ipynb` runs top-to-bottom against the bundled `components.db`, all five pinned assertions match Chapter IV (`Components = 15`, `kij = 0.1357`, `A12 = 0.5853`, `A21 = 0.3458`, P-x-y plot renders for CO₂/n-butane)
 
 ## Milestone 5: Numerics
 
@@ -165,7 +165,7 @@ Notebooks 01–08 ship incrementally through Milestones 4–9. This milestone is
 | 1. Documentation & Translation | ~20–28h | **Done** |
 | 2. Dev Environment & Scaffolding | ~9–12h | **Done** |
 | 3. Units Library | ~19–26h | **Done** |
-| 4. Component Database | ~12–15h | **Done** (pending VPS deploy) |
+| 4. Component Database | ~12–15h | **Done** |
 | 5. Numerics | ~16–20h | Not started |
 | 6. Pure Component Models | ~28–37h | Not started |
 | 7. Mixture Models | ~25–35h | Not started |

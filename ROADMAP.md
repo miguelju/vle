@@ -66,7 +66,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Write Python conversion tests (parity with Rust + custom user-added units)
 - [x] Document units API and extension guide in `docs/en/units/`
 
-## Milestone 4: Component Property Database
+## Milestone 4: Component Property Database ✓
 **Goal**: SQLite database with Chapter IV validation data, CLI tool, and interactive Jupyter notebook.
 *Phase 4 of MODERNIZATION_PLAN.md*
 *Executed by Claude Code using Claude Opus 4.7 (1M context)*
@@ -81,7 +81,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Create milestone notebook (`notebooks/00_component_database.ipynb`) — 24 cells, executed top-to-bottom; Chapter IV §4.1 / §4.3 / §4.7 snippets, worked example over all four tables, 2 user exercises with collapsed solutions
 - [x] Update public deploy docs (`deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`) — added `vle-db init / seed` step, optional `thermo` dep, first-start user-home seed hook
 - [x] Update private deploy notes (`deploy/local/deploy-notes/milestone-04.md`)
-- [ ] Deploy notebook to JupyterHub — rebuild notebook image, restart hub, verify via `${DOMAIN}` *(run `deploy/scripts/deploy.sh` on the VPS)*
+- [x] Deploy notebook to JupyterHub — deployed to both rocky (primary) and Oracle (standby) via hot-standby architecture; notebook verified end-to-end (Components=15, kij=0.1357, A12=0.5853, A21=0.3458, P-x-y plot renders)
 
 ## Milestone 5: Numerics
 **Goal**: Core numerical utilities tested and benchmarked.
