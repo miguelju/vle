@@ -46,7 +46,11 @@ echo "--- vle-thermo ---"
 cargo publish -p vle-thermo "${FLAGS[@]}"
 
 if [[ $GO -eq 1 ]]; then
-    VERSION="$(grep -E '^version\s*=' Cargo.toml | head -1 | sed -E 's/version\s*=\s*"([^"]+)".*/\1/')"
+    # POSIX character class [[:space:]] in place of \s — BSD sed on macOS
+    # doesn't recognize \s, which silently leaves the line unchanged and
+    # produces a literal "version = X.Y.Z" tag instead of the bare version.
+    VERSION="$(grep -E '^version[[:space:]]*=' Cargo.toml | head -1 \
+        | sed -E 's/version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/')"
     echo ""
     echo "Published v${VERSION}. Verify at:"
     echo "  https://crates.io/crates/vle-units/${VERSION}"

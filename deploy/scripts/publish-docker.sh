@@ -37,7 +37,11 @@ for arg in "$@"; do
 done
 
 IMAGE="ghcr.io/miguelju/vle-thermo"
-VERSION="$(grep -E '^version\s*=' Cargo.toml | head -1 | sed -E 's/version\s*=\s*"([^"]+)".*/\1/')"
+# POSIX character class [[:space:]] in place of \s — BSD sed on macOS
+# doesn't recognize \s, which silently leaves the line unchanged and
+# produces a literal "version = X.Y.Z" tag instead of the bare version.
+VERSION="$(grep -E '^version[[:space:]]*=' Cargo.toml | head -1 \
+    | sed -E 's/version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/')"
 
 if [[ -z "$VERSION" ]]; then
     echo "ERROR: could not read version from workspace Cargo.toml" >&2

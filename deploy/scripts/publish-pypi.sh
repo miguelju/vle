@@ -37,7 +37,14 @@ for arg in "$@"; do
 done
 
 echo "== Building wheel + sdist =="
-maturin build --release --sdist --out target/wheels
+# Pin the Python interpreter explicitly so maturin uses the active env
+# (typically conda or venv) instead of auto-discovering a stray system
+# python that PyO3 may not yet support — for example homebrew's python@3.14
+# on macOS, which pyo3 0.22 cannot build against. set -e above will abort
+# if no python is on PATH, with a clearer error than maturin's downstream
+# failure.
+PYTHON_INTERP="$(command -v python)"
+maturin build --release --sdist --out target/wheels --interpreter "$PYTHON_INTERP"
 
 echo ""
 echo "Built:"
@@ -59,7 +66,10 @@ echo ""
 echo "== Uploading to PyPI =="
 maturin upload --skip-existing target/wheels/*
 
-VERSION="$(grep -E '^version\s*=' pyproject.toml | head -1 | sed -E 's/version\s*=\s*"([^"]+)".*/\1/')"
+# POSIX character class [[:space:]] in place of \s — BSD sed on macOS
+# doesn't recognize \s, which silently leaves the line unchanged.
+VERSION="$(grep -E '^version[[:space:]]*=' pyproject.toml | head -1 \
+    | sed -E 's/version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/')"
 echo ""
 echo "Published v${VERSION}. Verify at:"
 echo "  https://pypi.org/project/vle-thermo/${VERSION}/"
