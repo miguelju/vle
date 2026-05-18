@@ -169,6 +169,18 @@ def build() -> nbf.NotebookNode:
         "**Click a notebook link below to open it.**"
     ))
 
+    # ---- Persistence notice --------------------------------------------
+    # Mirrors the per-notebook notice required by CLAUDE.md *Notebook
+    # Conventions*: this hub does not promise to preserve user edits across
+    # container restarts or image rebuilds. The notice goes on the landing
+    # page so first-time visitors see it before opening any notebook.
+    cells.append(md(
+        "> 💾 **Heads up — this hub is a sandbox.** Edits you make to any "
+        "notebook here may not survive a container restart or a hub-image "
+        "rebuild. If you change a notebook and want to keep your work, use "
+        "**File → Download** to save a copy to your own storage."
+    ))
+
     # ---- What is VLE ----------------------------------------------------
     cells.append(md(
         "## About this environment\n"

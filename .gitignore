@@ -4,9 +4,10 @@
 .LSOverride
 
 # Rust
-/target/
-/engine/target/
-/units/target/
+# Match any `target/` directory anywhere in the tree — covers the workspace
+# root (`/target/`), per-crate (`/engine/target/`, `/units/target/`), and
+# anything maturin creates under `python/target/` during a wheel build.
+**/target/
 **/*.dSYM/
 **/*.rs.bk
 Cargo.lock
