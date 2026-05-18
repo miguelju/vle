@@ -65,13 +65,13 @@ impl DimensionVector {
 /// registry's [`UnitRegistry::dimensions`] table by name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Dimension {
-    Temperature,      // (0,0,0,0,1,0,0) — absolute
-    TemperatureDiff,  // (0,0,0,0,1,0,0) — interval (separate type)
-    Pressure,         // (-1,1,-2,0,0,0,0)
-    MolarEnergy,      // (2,1,-2,0,0,-1,0)
-    MolarEntropy,     // (2,1,-2,0,-1,-1,0)
-    MolarVolume,      // (3,0,0,0,0,-1,0)
-    Amount,           // (0,0,0,0,0,1,0)
+    Temperature,          // (0,0,0,0,1,0,0) — absolute
+    TemperatureDiff,      // (0,0,0,0,1,0,0) — interval (separate type)
+    Pressure,             // (-1,1,-2,0,0,0,0)
+    MolarEnergy,          // (2,1,-2,0,0,-1,0)
+    MolarEntropy,         // (2,1,-2,0,-1,-1,0)
+    MolarVolume,          // (3,0,0,0,0,-1,0)
+    Amount,               // (0,0,0,0,0,1,0)
     Custom(&'static str), // not used by built-ins; future hook
 }
 
@@ -351,7 +351,9 @@ impl UnitRegistry {
     /// # Arguments
     /// * `p_atm_kpa` — Local atmospheric pressure in **kPa** (must be > 0)
     pub fn set_atmospheric_pressure(&mut self, p_atm_kpa: f64) -> Result<(), RegistryError> {
-        if !(p_atm_kpa > 0.0) {
+        // Use `is_finite() && > 0.0` so NaN and ±inf are also rejected. (The
+        // legacy `!(x > 0.0)` form trips clippy::neg_cmp_op_on_partial_ord.)
+        if !(p_atm_kpa.is_finite() && p_atm_kpa > 0.0) {
             return Err(RegistryError::BadAtmosphericPressure(p_atm_kpa));
         }
         self.p_atm_kpa = p_atm_kpa;
@@ -487,7 +489,11 @@ impl UnitRegistry {
 
     /// Inverse of [`to_canonical`](Self::to_canonical): convert a canonical
     /// value into `unit_name`'s scale.
-    pub fn from_canonical(&self, value_canonical: f64, unit_name: &str) -> Result<f64, RegistryError> {
+    pub fn from_canonical(
+        &self,
+        value_canonical: f64,
+        unit_name: &str,
+    ) -> Result<f64, RegistryError> {
         let u = self.get(unit_name)?;
         Ok((value_canonical - self.offset_value(u)) / u.scale)
     }

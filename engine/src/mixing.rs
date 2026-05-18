@@ -30,6 +30,7 @@
 /// additional c parameter needed by Schmidt-Wenzel and Patel-Teja EOS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(i32)]
+#[cfg_attr(feature = "python", pyo3::pyclass(eq, eq_int))]
 pub enum MixingRule {
     // --- From VB6 TADiPMR enum (a, b mixing for 2-param EOS) ---
     /// Wong-Sandler (1992). GE-based rule that satisfies the second virial

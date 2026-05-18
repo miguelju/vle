@@ -80,11 +80,20 @@
 // 2. `pub` makes the module public, so code outside this crate (e.g., the
 //    Python bindings or other Rust crates) can access it. Without `pub`,
 //    the module would only be usable within this crate.
-pub mod eos;
 pub mod activity;
+pub mod eos;
 pub mod mixing;
 pub mod saturation;
 pub mod types;
+
+// Python bindings live in their own module, gated behind the `python` feature.
+// Maturin enables this feature when building the wheel; `cargo add vle-thermo`
+// (pure-Rust consumer) does not, so PyO3 stays out of the dependency closure.
+// The module's `#[pymodule] fn _engine` is the entry point CPython dlopen's;
+// see engine/src/py_bindings.rs for the binding surface and the rule that
+// every milestone from M5 forward must wire up its new functions here.
+#[cfg(feature = "python")]
+mod py_bindings;
 
 // `pub use` re-exports an item from a sub-module, making it available
 // directly at this crate's top level. Without these lines, users would
@@ -92,8 +101,8 @@ pub mod types;
 // they can write the shorter `vle_thermo::CubicEos` instead. It's purely
 // a convenience — the types still live in their original modules, but
 // `pub use` creates a public shortcut at the crate root.
-pub use eos::CubicEos;
 pub use activity::ActivityModel;
+pub use eos::CubicEos;
 pub use mixing::MixingRule;
 pub use saturation::SatPressureModel;
 

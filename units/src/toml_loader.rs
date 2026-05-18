@@ -74,7 +74,10 @@ impl UnitRegistry {
     }
 
     /// Convenience: read TOML from `path` and apply.
-    pub fn load_from_toml(&mut self, path: impl AsRef<std::path::Path>) -> Result<(), RegistryError> {
+    pub fn load_from_toml(
+        &mut self,
+        path: impl AsRef<std::path::Path>,
+    ) -> Result<(), RegistryError> {
         let text = std::fs::read_to_string(path)
             .map_err(|e| RegistryError::ParseError(format!("read: {e}")))?;
         self.load_from_toml_str(&text)

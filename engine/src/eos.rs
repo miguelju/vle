@@ -38,6 +38,12 @@
 // integer variant codes used by the legacy VB6 code (0..21). This also
 // makes it safe to pass across the FFI boundary to C/Python.
 #[repr(i32)]
+// When built with the `python` feature (Maturin/PyO3 wheel build), expose this
+// enum as a Python class. `eq` derives Python __eq__/__ne__ from Rust's
+// PartialEq; `eq_int` lets Python compare variants against their integer
+// codes. The cfg_attr means this annotation is invisible when the crate is
+// used purely from Rust via `cargo add vle-thermo`.
+#[cfg_attr(feature = "python", pyo3::pyclass(eq, eq_int))]
 pub enum CubicEos {
     // --- Two-parameter cubic EOS (from VB6 TADiPEDC) ---
     /// Peng-Robinson (1976). The most widely used cubic EOS for hydrocarbon systems.

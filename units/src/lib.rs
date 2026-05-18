@@ -13,10 +13,10 @@
 //!
 //! See [`docs/en/units/dimensional-analysis.md`] for the full design rationale.
 
-pub mod vle_units;
-pub mod registry;
 pub mod parser;
+pub mod registry;
 pub mod toml_loader;
+pub mod vle_units;
 
 pub use registry::{Dimension, DimensionVector, RegistryError, UnitDef, UnitRegistry};
 pub use vle_units::{

@@ -21,6 +21,7 @@
 /// departure calculations in adiabatic flash.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(i32)]
+#[cfg_attr(feature = "python", pyo3::pyclass(eq, eq_int))]
 pub enum ActivityModel {
     /// Ideal solution (γᵢ = 1 for all components at all compositions).
     /// No binary parameters needed. Used as a baseline or for nearly ideal mixtures.

@@ -23,7 +23,11 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 nalgebra = "0.33"
 ndarray = "0.16"
-pyo3 = { version = "0.22", features = ["extension-module"], optional = true }
+# `abi3-py310` builds against CPython's stable ABI starting at 3.10. One wheel
+# per (OS, arch) then loads cleanly on CPython 3.10, 3.11, 3.12, 3.13 and any
+# future 3.x — no rebuild per Python version. See docs/ci.md and
+# MODERNIZATION_PLAN.md M5 phase notes for the performance analysis.
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py310"], optional = true }
 
 [dev-dependencies]
 approx = "0.5"

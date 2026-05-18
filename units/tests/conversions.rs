@@ -23,7 +23,10 @@ fn temperature_round_trip() {
     for (unit, vals) in cases {
         for &v in *vals {
             let canonical = r.to_canonical(v, unit).unwrap();
-            assert!(canonical > 0.0, "{unit}={v} → K must be > 0 (got {canonical})");
+            assert!(
+                canonical > 0.0,
+                "{unit}={v} → K must be > 0 (got {canonical})"
+            );
             let back = r.from_canonical(canonical, unit).unwrap();
             assert_relative_eq!(back, v, epsilon = EPS);
         }
@@ -35,7 +38,11 @@ fn temperature_known_values() {
     let r = UnitRegistry::with_vle_defaults();
     assert_relative_eq!(r.to_canonical(25.0, "degC").unwrap(), 298.15, epsilon = EPS);
     assert_relative_eq!(r.to_canonical(32.0, "degF").unwrap(), 273.15, epsilon = EPS);
-    assert_relative_eq!(r.to_canonical(491.67, "degR").unwrap(), 273.15, epsilon = 1e-6);
+    assert_relative_eq!(
+        r.to_canonical(491.67, "degR").unwrap(),
+        273.15,
+        epsilon = 1e-6
+    );
     // -40 °C == -40 °F (the famous crossover)
     assert_relative_eq!(
         r.to_canonical(-40.0, "degC").unwrap(),
@@ -71,7 +78,11 @@ fn gauge_pressure_uses_registry_p_atm() {
     assert_relative_eq!(r.atmospheric_pressure_kpa(), 101.325, epsilon = EPS);
 
     // 2.5 barg @ standard atm = 351.325 kPa absolute
-    assert_relative_eq!(r.to_canonical(2.5, "barg").unwrap(), 351.325, epsilon = 1e-6);
+    assert_relative_eq!(
+        r.to_canonical(2.5, "barg").unwrap(),
+        351.325,
+        epsilon = 1e-6
+    );
 
     // Switch atmosphere (e.g. plant at altitude)
     r.set_atmospheric_pressure(84.5).unwrap();
@@ -92,7 +103,11 @@ fn gauge_rejects_non_positive_absolute() {
     let err = r.to_canonical(-110.0, "kPag").unwrap_err();
     assert!(matches!(err, RegistryError::NonPositivePressure(_)));
     // Mild vacuum is allowed: -50 kPag = +51.325 kPa abs
-    assert_relative_eq!(r.to_canonical(-50.0, "kPag").unwrap(), 51.325, epsilon = 1e-6);
+    assert_relative_eq!(
+        r.to_canonical(-50.0, "kPag").unwrap(),
+        51.325,
+        epsilon = 1e-6
+    );
 }
 
 #[test]
@@ -110,7 +125,15 @@ fn gauge_round_trip() {
 #[test]
 fn molar_energy_round_trip() {
     let r = UnitRegistry::with_vle_defaults();
-    for unit in ["kJ/kmol", "J/mol", "J/kmol", "kJ/mol", "cal/mol", "kcal/kmol", "BTU/lbmol"] {
+    for unit in [
+        "kJ/kmol",
+        "J/mol",
+        "J/kmol",
+        "kJ/mol",
+        "cal/mol",
+        "kcal/kmol",
+        "BTU/lbmol",
+    ] {
         for v in [1.0, 1000.0, -250.5] {
             let canonical = r.to_canonical(v, unit).unwrap();
             let back = r.from_canonical(canonical, unit).unwrap();
@@ -118,7 +141,11 @@ fn molar_energy_round_trip() {
         }
     }
     // 1 cal/mol = 4.184 J/mol = 4.184 kJ/kmol
-    assert_relative_eq!(r.to_canonical(1.0, "cal/mol").unwrap(), 4.184, epsilon = EPS);
+    assert_relative_eq!(
+        r.to_canonical(1.0, "cal/mol").unwrap(),
+        4.184,
+        epsilon = EPS
+    );
 }
 
 #[test]
@@ -146,7 +173,11 @@ fn molar_entropy_and_volume_and_amount() {
 fn temperature_diff_is_scale_only() {
     // Δ°C → ΔK is identity (both are 1 K per 1 Δ°C). Crucially: NO offset.
     let r = UnitRegistry::with_vle_defaults();
-    assert_relative_eq!(r.to_canonical(60.0, "delta_degC").unwrap(), 60.0, epsilon = EPS);
+    assert_relative_eq!(
+        r.to_canonical(60.0, "delta_degC").unwrap(),
+        60.0,
+        epsilon = EPS
+    );
     // Δ°F → ΔK is × 5/9 (no offset). 60 Δ°C = 108 Δ°F.
     assert_relative_eq!(
         r.to_canonical(108.0, "delta_degF").unwrap(),
@@ -176,7 +207,8 @@ fn parse_string_form() {
 fn custom_unit_within_existing_dimension() {
     // mmH2O within Pressure
     let mut r = UnitRegistry::with_vle_defaults();
-    r.define("mmH2O", Dimension::Pressure, 0.009_806_65, 0.0).unwrap();
+    r.define("mmH2O", Dimension::Pressure, 0.009_806_65, 0.0)
+        .unwrap();
 
     let canonical = r.to_canonical(1000.0, "mmH2O").unwrap();
     assert_relative_eq!(canonical, 9.806_65, epsilon = 1e-9);
@@ -210,8 +242,13 @@ fn custom_dimension_round_trip() {
 
     r.define_with_dimension("W_per_m2K", "heat_transfer_coefficient", 1.0, 0.0)
         .unwrap();
-    r.define_with_dimension("BTU_per_hr_ft2_R", "heat_transfer_coefficient", 5.678_263, 0.0)
-        .unwrap();
+    r.define_with_dimension(
+        "BTU_per_hr_ft2_R",
+        "heat_transfer_coefficient",
+        5.678_263,
+        0.0,
+    )
+    .unwrap();
 
     let v = r.to_canonical(26.4, "BTU_per_hr_ft2_R").unwrap();
     assert_relative_eq!(v, 26.4 * 5.678_263, epsilon = 1e-9);
@@ -273,7 +310,11 @@ fn toml_loader() {
     );
     // 1 atg = 101.325 + 101.325 = 202.65 kPa absolute
     assert_relative_eq!(r.to_canonical(1.0, "atg").unwrap(), 202.65, epsilon = 1e-9);
-    assert_relative_eq!(r.to_canonical(50.0, "W_per_m2K").unwrap(), 50.0, epsilon = EPS);
+    assert_relative_eq!(
+        r.to_canonical(50.0, "W_per_m2K").unwrap(),
+        50.0,
+        epsilon = EPS
+    );
 }
 
 #[test]
