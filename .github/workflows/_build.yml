@@ -1,0 +1,137 @@
+# Reusable workflow: builds the wheel matrix + sdist and uploads them as
+# `wheels-${{ inputs.artifact-suffix }}` artifacts. Called by ci.yml
+# (artifact-only smoke build) and release.yml (the actual release matrix).
+#
+# Runners used:
+#   Linux x86_64 -> self-hosted ephemeral Docker runner (Proxmox LXC;
+#                   see docs/runners/linux-setup.md)
+#   Linux arm64  -> GitHub-hosted ubuntu-24.04-arm (free for public repos)
+#   macOS arm64  -> self-hosted persistent Mac mini M1
+#                   (docs/runners/macos-setup.md)
+#   Windows      -> GitHub-hosted windows-latest
+#
+# Self-hosted matrix entries live in a separate `build-self-hosted` job
+# guarded by a fork-PR `if:` so PRs opened from fork repos never land on
+# lab hardware. Hosted-runner entries live in `build-hosted` and run
+# unconditionally. The job-level `if:` cannot reference matrix context,
+# which is why these are split rather than one job with per-row guards.
+
+name: _build
+
+on:
+  workflow_call:
+    inputs:
+      artifact-suffix:
+        description: "Suffix appended to each uploaded artifact name"
+        type: string
+        required: false
+        default: "ci"
+
+permissions:
+  contents: read
+
+jobs:
+  # ----- Self-hosted Linux x64 + macOS arm64 -----
+  # Blocked from running on PRs from forks.
+  build-self-hosted:
+    name: build (${{ matrix.os }}-${{ matrix.arch }} self-hosted)
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: x86_64
+            runs-on: [self-hosted, linux, x64]
+          - os: macos
+            arch: arm64
+            runs-on: [self-hosted, macos, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache cargo registry + git
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            cargo-${{ matrix.os }}-${{ matrix.arch }}-
+      - name: Build wheel via cibuildwheel
+        uses: pypa/cibuildwheel@v2.21.3
+        with:
+          package-dir: python
+        env:
+          CIBW_BUILD_VERBOSITY: 1
+      - name: Upload wheels artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.arch }}-${{ inputs.artifact-suffix }}
+          path: ./wheelhouse/*.whl
+          if-no-files-found: error
+          retention-days: 14
+
+  # ----- GitHub-hosted Linux arm64 + Windows -----
+  # Runs on every push/PR including fork PRs (no lab exposure).
+  build-hosted:
+    name: build (${{ matrix.os }}-${{ matrix.arch }} hosted)
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: aarch64
+            runs-on: ubuntu-24.04-arm
+          - os: windows
+            arch: AMD64
+            runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache cargo registry + git
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            cargo-${{ matrix.os }}-${{ matrix.arch }}-
+      - name: Build wheel via cibuildwheel
+        uses: pypa/cibuildwheel@v2.21.3
+        with:
+          package-dir: python
+        env:
+          CIBW_BUILD_VERBOSITY: 1
+      - name: Upload wheels artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.arch }}-${{ inputs.artifact-suffix }}
+          path: ./wheelhouse/*.whl
+          if-no-files-found: error
+          retention-days: 14
+
+  # ----- Source distribution -----
+  sdist:
+    name: build sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install maturin
+        run: pip install "maturin>=1.5,<2"
+      - name: Build sdist
+        working-directory: python
+        run: maturin sdist --out dist
+      - name: Upload sdist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdist-${{ inputs.artifact-suffix }}
+          path: python/dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14

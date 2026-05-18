@@ -72,3 +72,36 @@ module-name = "vle._engine"
 include = [
     { path = "src/vle/db/sql/*.sql", format = ["sdist", "wheel"] },
 ]
+
+[tool.cibuildwheel]
+# abi3 wheels: PyO3's abi3-py310 feature (set in engine/Cargo.toml) makes
+# one wheel per (os, arch) cover CPython 3.10, 3.11, 3.12, 3.13 and future
+# versions. The `cp310-` selector below is the lowest Python that abi3
+# targets; the resulting wheel filenames are tagged `cp310-abi3-*` and
+# pip installs them on any CPython >= 3.10. Result: ~4x faster wheel
+# matrix than per-CPython wheels with negligible runtime cost for this
+# workload (see the Performance analysis in MODERNIZATION_PLAN.md).
+build = "cp310-*"
+skip = ["pp*", "*-musllinux_*"]
+# manylinux_2_28 ~ AlmaLinux 8 — needed for Rust edition 2024 / MSRV 1.85.
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+test-requires = ["pytest"]
+# {project} expands to the directory containing pyproject.toml (= python/),
+# so this resolves to python/tests/, the existing pytest suite.
+test-command = "pytest {project}/tests"
+build-verbosity = 1
+
+[tool.cibuildwheel.macos]
+# arm64 only — no Intel macOS cross-build. See MODERNIZATION_PLAN.md M5
+# notes for the rationale (negligible Intel macOS install base; easy to
+# add later if a user reports needing it).
+archs = ["arm64"]
+
+[tool.cibuildwheel.linux]
+# `auto` resolves to the runner's native arch (x86_64 on the self-hosted
+# Linux runner; aarch64 on ubuntu-24.04-arm). No QEMU emulation.
+archs = ["auto"]
+
+[tool.cibuildwheel.windows]
+archs = ["AMD64"]

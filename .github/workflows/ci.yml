@@ -1,0 +1,76 @@
+# CI workflow: every push to main, every PR (except fork-PRs against
+# self-hosted runners, which are gated by the if: in _build.yml), and any
+# manual workflow_dispatch.
+#
+# Jobs:
+#   lint-rust  : cargo fmt + clippy on ubuntu-latest (cheap, public)
+#   test-rust  : cargo test on the self-hosted Linux runner (clean ephemeral
+#                container per run)
+#   build      : invokes _build.yml to produce the wheel matrix as
+#                artifact `wheels-*-ci` (no publish on this workflow)
+#
+# Release / publishing lives in release.yml (tag v* only). See PUBLISHING.md
+# and docs/ci.md for the end-to-end picture.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint-rust:
+    name: lint (fmt + clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable Rust + components
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+      - name: cargo clippy
+        # `-D warnings` turns every clippy warning into an error so style
+        # regressions can't sneak in. Adjust per-crate via lint attributes
+        # if a specific warning needs to be tolerated.
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test-rust:
+    name: test (cargo test)
+    runs-on: [self-hosted, linux, x64]
+    # Fork-PR guard: keep PRs from forks off the lab runner.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-test-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+      - name: cargo test
+        run: cargo test --workspace --all-targets
+
+  build:
+    name: build wheels
+    needs: [lint-rust]
+    uses: ./.github/workflows/_build.yml
+    with:
+      artifact-suffix: ci
