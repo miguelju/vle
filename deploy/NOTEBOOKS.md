@@ -60,22 +60,22 @@ filing an issue.
 ## Notebook catalogue
 
 The notebooks grow with the project. Each milestone adds one notebook
-covering the feature it built; Milestone 10 finishes with a full walkthrough
+covering the feature it built; Milestone 11 finishes with a full walkthrough
 of the research paper's Chapter IV validation cases.
 
 | File                                                | Milestone | Topic                                           |
 |-----------------------------------------------------|-----------|-------------------------------------------------|
 | `00_component_database.ipynb`                       | 4         | Browse & query the SQLite component DB          |
-| `01_introduction.ipynb`                             | 9         | Installation walk-through, basic API            |
-| `02_pure_component.ipynb`                           | 6         | PVT behaviour, compare cubic EOS variants       |
-| `03_activity_models.ipynb`                          | 7         | Activity coefficient models, excess Gibbs plots |
-| `04_bubble_dew_point.ipynb`                         | 8         | Reproduce Tables 4.6–4.9                        |
-| `05_flash_calculations.ipynb`                       | 8         | Reproduce Tables 4.3–4.4, 4.10                  |
-| `06_critical_points.ipynb`                          | 8         | Reproduce Tables 4.1–4.2                        |
-| `07_kij_regression.ipynb`                           | 8         | Reproduce Tables 4.11–4.12                      |
-| `08_aij_regression.ipynb`                           | 8         | Activity model Aij fitting (Pascal-origin)      |
-| `09_chapter4_validation_walkthrough.ipynb`          | 10        | End-to-end walkthrough of Chapter IV            |
-| `m05_numerics.ipynb`                                | 5         | Demo of Brent / Illinois / Broyden / Halley     |
+| `m06_numerics.ipynb`                                | 6         | Demo of Brent / Illinois / Broyden / Halley     |
+| `01_introduction.ipynb`                             | 10        | Installation walk-through, basic API            |
+| `02_pure_component.ipynb`                           | 7         | PVT behaviour, compare cubic EOS variants       |
+| `03_activity_models.ipynb`                          | 8         | Activity coefficient models, excess Gibbs plots |
+| `04_bubble_dew_point.ipynb`                         | 9         | Reproduce Tables 4.6–4.9                        |
+| `05_flash_calculations.ipynb`                       | 9         | Reproduce Tables 4.3–4.4, 4.10                  |
+| `06_critical_points.ipynb`                          | 9         | Reproduce Tables 4.1–4.2                        |
+| `07_kij_regression.ipynb`                           | 9         | Reproduce Tables 4.11–4.12                      |
+| `08_aij_regression.ipynb`                           | 9         | Activity model Aij fitting (Pascal-origin)      |
+| `09_chapter4_validation_walkthrough.ipynb`          | 11        | End-to-end walkthrough of Chapter IV            |
 
 Notebooks appear in the table as they are authored; a missing file means the
 corresponding milestone has not shipped its notebook yet.

@@ -100,23 +100,13 @@ cargo add vle-units
 
 API docs: <https://docs.rs/vle-thermo>. See [engine/README.md](engine/README.md).
 
-### Docker (GHCR)
-
-Zero-setup JupyterLab with the notebooks pre-loaded:
-
-```sh
-docker run --rm -p 8888:8888 ghcr.io/miguelju/vle-thermo:latest
-# → open http://localhost:8888
-```
-
-Multi-arch (linux/amd64 + linux/arm64). See [deploy/docker/Dockerfile.standalone](deploy/docker/Dockerfile.standalone).
-
 ---
 
-The self-hosted **JupyterHub** deployment in [`deploy/`](deploy/) is a
-different thing — it provisions a multi-user hub behind an auth proxy for a
-team, not a single-user desktop experience. Most users want one of the three
-paths above.
+**Want to try VLE in your browser without installing anything?** See the
+[sandbox JupyterHub deployment](deploy/) — a multi-user hub with the
+notebooks pre-loaded, intended for instructors and students. The Docker
+image powering it is a *deployment vehicle*, not a way to install
+vle-thermo into your own programs; use PyPI or crates.io for that.
 
 Release process and registry maintenance: [PUBLISHING.md](PUBLISHING.md).
 
@@ -198,7 +188,7 @@ Each milestone records which AI model was used (e.g., `Claude Opus 4.6 (1M conte
 
 ## Getting Started
 
-> **Status**: Milestones 0–4 complete (documentation, translation, dev environment & scaffolding, units library, component database with hub-deployed notebook). Milestones 5–10 (numerics, models, flash, bindings, notebooks) not yet started.
+> **Status**: Milestones 0–4 complete (documentation, translation, dev environment & scaffolding, units library, component database with hub-deployed notebook). Milestones 5–11 (CI/CD + auto-deploy, numerics, models, flash, Python bindings, notebooks) not yet started.
 
 ### Prerequisites
 - Python 3.10+ (for the component database and future Python wrapper)

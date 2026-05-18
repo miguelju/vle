@@ -202,7 +202,7 @@ The project maintains **two parallel deployment tracks**. Both evolve together a
   - `deploy/local/deploy-notes/milestone-NN.md` — one per active milestone; captures the exact commands + outcomes
   - `deploy/.env` — populated env file
 
-Each non-completed milestone (4–10) ends with four parallel steps after validation tests pass: (1) create a milestone notebook following CLAUDE.md *Notebook Conventions*, (2) update the public deploy docs with any generic delta, (3) update the private deploy notes with operator-specific steps, (4) rebuild the notebook image and redeploy. Milestone 10 performs a final full redeployment that includes a Chapter IV walkthrough notebook.
+Each non-completed milestone (4–11) ends with four parallel steps after validation tests pass: (1) create a milestone notebook following CLAUDE.md *Notebook Conventions*, (2) update the public deploy docs with any generic delta, (3) update the private deploy notes with operator-specific steps, (4) tag a release — CI auto-publishes to PyPI + crates.io and auto-deploys to the sandbox hosts. Milestone 11 performs a final full redeployment that includes a Chapter IV walkthrough notebook.
 
 ---
 
@@ -394,13 +394,25 @@ vle/
 - All values in canonical units: K, kPa (absolute), cm3/mol, kJ/(kmol·K), g/mol
 - See `python/src/vle/db/sql/schema.sql` (bundled with the wheel) for full schema and `docs/en/parameters/parameter_reference.md` for parameter catalog
 
-### Phase 5: Numerics *(Milestone 5)*
+### Phase 5: CI/CD + Auto-Deploy *(Milestone 5)*
+- **Three-workflow GitHub Actions architecture**:
+  - `.github/workflows/_build.yml` (reusable) — cibuildwheel matrix over Linux x64 (self-hosted ephemeral), Linux arm64 (`ubuntu-24.04-arm` hosted), macOS arm64 (self-hosted Mac mini M1), Windows (hosted); CPython 3.10+ abi3 wheels; manylinux_2_28 baseline; `pytest {project}/tests` against each built wheel
+  - `.github/workflows/ci.yml` — push/PR/dispatch: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`, plus the wheel matrix as artifact-only; fork-PR guard (`if: github.event_name != 'pull_request' || …head.repo.full_name == github.repository`) on every self-hosted job
+  - `.github/workflows/release.yml` — `v*` tag: PyPI Trusted Publishing (OIDC, no token), crates.io publish (`vle-units` then `vle-thermo`, token loaded from 1Password), GitHub Release with wheels + sdist, automatic sandbox redeploy on rocky (plain SSH) and Oracle (Tailscale SSH)
+- **First PyO3 module**: `engine/src/py_bindings.rs` exposes `version()` and the four enum types (`CubicEos`, `ActivityModel`, `MixingRule`, `SatPressureModel`) as `#[pyclass(eq, eq_int)]`. From this phase forward the **PyO3 Bindings Rule** (CLAUDE.md) is in force: every later milestone that adds Rust functionality also exposes it via PyO3 in the same commit series.
+- **abi3 wheels**: PyO3 `abi3-py310` feature in `engine/Cargo.toml`; one wheel per (OS, arch) covers CPython 3.10+ including unreleased versions. Boundary-crossing overhead is negligible for VLE's workload (Python calls the engine once per `flash(...)`; the heavy work stays in Rust).
+- **Secrets via 1Password Service Accounts**: a single GitHub secret (`OP_SERVICE_ACCOUNT_TOKEN`) loads every other credential (SSH keys, Tailscale OAuth, crates.io token, host names) at workflow runtime via `1password/load-secrets-action@v2`. Workflow files commit `op://vault/item/field` paths (locators, not values).
+- **Asymmetric auto-deploy**: rocky reachable via plain SSH on a public port (host name from 1Password); Oracle reachable only via the Tailscale GitHub Action joining the tailnet ephemerally. Each host runs `/usr/local/bin/vle-deploy` locked into `authorized_keys` with `command="…"`, regex-validating the tag before checkout. No `git pull` on hosts in steady state — the wrapper checks out a specific tag.
+- **Public docs**: `docs/ci.md` (developer overview, ephemerality table, fork-PR guard), `docs/runners/linux-setup.md` (Proxmox LXC + Docker + `myoung34/github-runner` ephemeral), `docs/runners/macos-setup.md` (Mac mini M1 launchd service + toolchain bootstrap).
+- **Private installer**: `deploy/local/auto-deploy/{vle-deploy, install-rocky.sh, install-oracle.sh}` — gitignored, one-shot install per host that drops the wrapper, configures authorized_keys, sets up fail2ban on rocky.
+
+### Phase 6: Numerics *(Milestone 6)*
 - Cardano cubic solver (from `McommonFunctions.bas:324`) (12),(13) — see also §H for robustness improvements
 - Gaussian elimination with partial pivoting (from `McommonFunctions.bas:24`) — replaced by nalgebra LU
 - Brent's method and Illinois algorithm root finders — replace legacy Regula Falsi (from `clsSatPressureSolver.cls`) — see §C
 - Utility functions: `SumFrac`, `Norm`, convergence checks
 
-### Phase 6: Pure Component EOS *(Milestone 6)*
+### Phase 7: Pure Component EOS *(Milestone 7)*
 - `GeneralConstantsEOS` parameter lookup for 3 EOS families (from `McommonFunctions.bas:273`) (5)
 - All 19 VB6 `alpha(Tr)` functions (from `clsQbicsPure.cls:1719`)
 - **Pascal-origin EOS** (4) (from `legacy/pascal/TERMOII.PAS`):
@@ -412,7 +424,7 @@ vle/
 - Maxwell equal-area test for saturation
 - **Key source files:** `legacy/vb6/clsQbicsPure.cls`, `legacy/pascal/TERMOII.PAS`
 
-### Phase 7: Saturation Pressure *(Milestone 6)*
+### Phase 8: Saturation Pressure *(Milestone 7)*
 - **Antoine** correlation (4): ln(P/Pc) = a1 - a2/(a3+T) (from `legacy/pascal/TERMOI.PAS`)
   - Includes `PseudoAntoine` procedure for converting other models to local Antoine equivalents
 - Riedel, Muller, RPM correlations (shared by both programs; VB6: `clsSatPressureSolver.cls:146`, Pascal: `TERMOI.PAS:154`)
@@ -422,12 +434,12 @@ vle/
 - Poynting correction factor (identical in both: `exp((P-Psat)*Vl/R/T/10)`)
 - **Key source files:** `legacy/vb6/clsSatPressureSolver.cls`, `legacy/pascal/TERMOI.PAS`
 
-### Phase 8: Virial Equation *(Milestone 6)*
+### Phase 9: Virial Equation *(Milestone 7)*
 - Pitzer correlation: B0 = 0.083 - 0.422/Tr^1.6, B1 = 0.139 - 0.172/Tr^4.2
 - Pure and multicomponent Z, fugacity, HR/SR
 - **Key source files:** `legacy/vb6/clsVirial.cls`, `legacy/vb6/clsVirialMulticomp.cls`
 
-### Phase 9: Activity Coefficient Models *(Milestone 7)*
+### Phase 10: Activity Coefficient Models *(Milestone 8)*
 - Ideal, Margules, van Laar, Wilson, Scatchard-Hildebrand (identical in both programs)
 - Excess Gibbs energy, excess enthalpy/entropy — implement analytical dGE/dT for ALL models (Pascal (4) has analytical for Wilson; extend to all) — see §E
 - Rackett and Thomson (18) liquid molar volume (VB6)
@@ -435,21 +447,21 @@ vle/
 - Wilson binary parameter calculation from infinite-dilution activity coefficients: `CalcParBinWilson` (4) (from Pascal `TERMOIII.PAS:342`, Newton-Raphson)
 - **Key source files:** `legacy/vb6/clsActivityMulticomp.cls`, `legacy/pascal/TERMOIII.PAS`
 
-### Phase 10: Mixing Rules *(Milestone 7)*
+### Phase 11: Mixing Rules *(Milestone 8)*
 - Classical (IVDW, IIVDW) with kij (IVDW identical in both programs)
 - Wong-Sandler, Huron-Vidal (original + simplified), MHV1, MHV2 (21) (VB6)
 - Schmidt-Wenzel C-parameter mixing (4): C = F/E weighted average using acentric factors (from Pascal `TERMOII.PAS:234`)
 - Patel-Teja C-parameter mixing (4): two variants -- linear (PatelT) and square-root-weighted (PatelTUSB) (from Pascal `TERMOII.PAS:243`)
 - **Key source files:** `legacy/vb6/clsQbicsMulticomp.cls:395`, `legacy/pascal/TERMOII.PAS:211`
 
-### Phase 11: Multicomponent EOS *(Milestone 7)*
+### Phase 12: Multicomponent EOS *(Milestone 8)*
 - Partial fugacity coefficients in solution for all mixing rules (9) (Müller et al. general expressions, Eqs 2.28–2.34)
 - Mixture Z-factor calculation
 - 3-parameter EOS fugacity coefficients (4): Schmidt-Wenzel and Patel-Teja partial fugacity with u,w,delta,g auxiliary variables (from Pascal `TERMOII.PAS:317`, significantly more complex than 2-parameter EOS)
 - Chao-Seader liquid fugacity for multicomponent mixtures (4) (from Pascal `TERMOII.PAS:386`)
 - **Key source files:** `legacy/vb6/clsQbicsMulticomp.cls`, `legacy/pascal/TERMOII.PAS`
 
-### Phase 12: Enthalpy & Entropy *(Milestone 7)*
+### Phase 13: Enthalpy & Entropy *(Milestone 8)*
 - Ideal gas Cp integration (polynomial, identical in both programs)
 - Departure functions for cubic EOS (9) and virial
 - Departure functions for 3-parameter EOS (4): Schmidt-Wenzel (note: marked as discontinuous in Pascal, returns NaN) and Patel-Teja (from Pascal `TERMOII.PAS:471`)
@@ -459,7 +471,7 @@ vle/
 - Reference state handling (LiqSat, VapSat, IdealGas)
 - **Key source files:** `legacy/pascal/TERMOII.PAS`, `legacy/pascal/TERMOIII.PAS`
 
-### Phase 13: Flash Calculations *(Milestone 8)*
+### Phase 14: Flash Calculations *(Milestone 9)*
 - Raoult's law initial estimates (4) (identical in both: Ki = Psat_i/P)
 - Newton-Raphson solver with Broyden quasi-Newton Jacobian (10) (2n+4 equation system) — replaces VB6's full numerical Jacobian — see §A
 - Bubble point (T and P), Dew point (T and P) (4),(14),(17),(20) — same algorithm in both programs (parabolic interpolation on ln(sum), low-pressure and high-pressure paths via Asselineau/Anderson-Prausnitz 2nd stage)
@@ -474,40 +486,40 @@ vle/
   - Correlation factor analysis for quality of initial estimates
 - **Key source files:** `legacy/vb6/clsLVE.cls`, `legacy/pascal/TERMOIV.PAS`, `legacy/pascal/TERMOV.PAS`, `legacy/pascal/TERMOVI.PAS`
 
-### Phase 14: PyO3 Bindings *(Milestone 9)*
+### Phase 15: PyO3 Bindings *(Milestone 10)*
 - Expose core types as `#[pyclass]`
 - Expose calculation functions as `#[pyfunction]`
 - Main `VleEngine` Python class with methods for each calculation type
 
-### Phase 15: Python Wrapper Library *(Milestone 9)*
+### Phase 16: Python Wrapper Library *(Milestone 10)*
 - High-level `System` class for configuring VLE problems
 - Result dataclasses (`FlashResult`, `BubbleResult`, `DewResult`)
 - Component database (JSON) with built-in common substances
 - Plotting helpers (Pxy, Txy diagrams via matplotlib)
 - Convenience API: `system.bubble_point_T()`, `system.flash_isothermal()`, etc.
 
-### Phase 16: Chapter IV Walkthrough & Final Deployment *(Milestone 10)*
+### Phase 17: Chapter IV Walkthrough & Final Deployment *(Milestone 11)*
 
-Notebooks 01–08 are produced by the milestone that builds the underlying feature (see table below), each following CLAUDE.md *Notebook Conventions*. Phase 16 is the capstone that adds the Chapter IV walkthrough notebook and performs a final clean-state redeployment:
+Notebooks 01–08 are produced by the milestone that builds the underlying feature (see table below), each following CLAUDE.md *Notebook Conventions*. Phase 17 is the capstone that adds the Chapter IV walkthrough notebook and performs a final clean-state redeployment:
 
 - **09_chapter4_validation_walkthrough**: Single end-to-end notebook that narrates every section of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md). For each of §4.1–§4.7 it quotes the research-paper text, runs the `vle` library against the referenced table (4.1–4.12), reports absolute and percent error against published values, and presents ≥2 user exercises (e.g. "repeat the kij regression for a different binary pair").
 - **Full redeploy**: `docker compose down` → rebuild both `Dockerfile.jupyterhub` and `Dockerfile.notebook` from a clean state → bring the stack back up → verify every notebook listed in [`deploy/NOTEBOOKS.md`](../deploy/NOTEBOOKS.md) opens and Runs-All without error via `${DOMAIN}`.
 
 **Notebook-to-milestone map (produced incrementally through Milestones 4–9):**
 
-| Notebook                                    | Authored in | Covers                                       |
-|---------------------------------------------|-------------|----------------------------------------------|
-| `00_component_database.ipynb`               | Milestone 4 | SQLite DB browsing, Chapter IV compounds     |
-| `m05_numerics.ipynb`                        | Milestone 5 | Brent / Illinois / Broyden / Halley demos    |
-| `01_introduction.ipynb`                     | Milestone 9 | Install + `vle.System` API tour              |
-| `02_pure_component.ipynb`                   | Milestone 6 | PVT, EOS variant comparison, saturation      |
-| `03_activity_models.ipynb`                  | Milestone 7 | Gamma plots, excess Gibbs, mixing rules      |
-| `04_bubble_dew_point.ipynb`                 | Milestone 8 | Tables 4.6–4.9                               |
-| `05_flash_calculations.ipynb`               | Milestone 8 | Tables 4.3–4.4, 4.10                         |
-| `06_critical_points.ipynb`                  | Milestone 8 | Tables 4.1–4.2                               |
-| `07_kij_regression.ipynb`                   | Milestone 8 | Tables 4.11–4.12                             |
-| `08_aij_regression.ipynb`                   | Milestone 8 | Aij fitting (Pascal-origin)                  |
-| `09_chapter4_validation_walkthrough.ipynb`  | Milestone 10| End-to-end Chapter IV walkthrough            |
+| Notebook                                    | Authored in  | Covers                                       |
+|---------------------------------------------|--------------|----------------------------------------------|
+| `00_component_database.ipynb`               | Milestone 4  | SQLite DB browsing, Chapter IV compounds     |
+| `m06_numerics.ipynb`                        | Milestone 6  | Brent / Illinois / Broyden / Halley demos    |
+| `01_introduction.ipynb`                     | Milestone 10 | Install + `vle.System` API tour              |
+| `02_pure_component.ipynb`                   | Milestone 7  | PVT, EOS variant comparison, saturation      |
+| `03_activity_models.ipynb`                  | Milestone 8  | Gamma plots, excess Gibbs, mixing rules      |
+| `04_bubble_dew_point.ipynb`                 | Milestone 9  | Tables 4.6–4.9                               |
+| `05_flash_calculations.ipynb`               | Milestone 9  | Tables 4.3–4.4, 4.10                         |
+| `06_critical_points.ipynb`                  | Milestone 9  | Tables 4.1–4.2                               |
+| `07_kij_regression.ipynb`                   | Milestone 9  | Tables 4.11–4.12                             |
+| `08_aij_regression.ipynb`                   | Milestone 9  | Aij fitting (Pascal-origin)                  |
+| `09_chapter4_validation_walkthrough.ipynb`  | Milestone 11 | End-to-end Chapter IV walkthrough            |
 
 ---
 

@@ -10,7 +10,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Analyze legacy VB6 codebase (~15,000 lines)
 - [x] Analyze legacy Pascal codebase (~2,500 lines)
 - [x] Create Pascal vs VB6 comparison document
-- [x] Create modernization plan with 16 implementation phases
+- [x] Create modernization plan with 17 implementation phases
 - [x] Map algorithms to 22 academic references (ACS format)
 - [x] Propose 8 algorithm performance improvements (A–H)
 - [x] Initialize git repository
@@ -83,9 +83,28 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Update private deploy notes (`deploy/local/deploy-notes/milestone-04.md`)
 - [x] Deploy notebook to JupyterHub — deployed to both rocky (primary) and Oracle (standby) via hot-standby architecture; notebook verified end-to-end (Components=15, kij=0.1357, A12=0.5853, A21=0.3458, P-x-y plot renders)
 
-## Milestone 5: Numerics
-**Goal**: Core numerical utilities tested and benchmarked.
+## Milestone 5: CI/CD + Auto-Deploy
+**Goal**: Hybrid CI/CD pipeline (build/test wheels on every push, publish to PyPI + crates.io on tag), first PyO3 bindings shipping in the wheel, and automatic sandbox redeploy on release.
 *Phase 5 of MODERNIZATION_PLAN.md*
+
+- [ ] Insert M5 in ROADMAP / TODO / MODERNIZATION_PLAN; renumber M5–M10 → M6–M11 (this milestone's first commit)
+- [ ] `.github/workflows/_build.yml` — reusable cibuildwheel matrix (Linux x64 self-hosted ephemeral, Linux arm64 hosted, macOS arm64 self-hosted, Windows hosted), CPython 3.10+ abi3 wheels
+- [ ] `.github/workflows/ci.yml` — push/PR/dispatch: cargo fmt + clippy + cargo test + wheel matrix as artifact
+- [ ] `.github/workflows/release.yml` — `v*` tag: PyPI Trusted Publishing, crates.io publish (1Password-loaded token), GitHub Release, auto-deploy to sandbox hosts via SSH (asymmetric: rocky plain, Oracle via Tailscale)
+- [ ] `[tool.cibuildwheel]` block in `python/pyproject.toml` (abi3, manylinux_2_28, pytest against the wheel)
+- [ ] First `#[pymodule]` in `engine/` — `vle._engine` exposes `version()` + the four enum types (`CubicEos`, `ActivityModel`, `MixingRule`, `SatPressureModel`); `python/tests/test_engine.py` exercises the boundary
+- [ ] `docs/ci.md` — developer overview, ephemerality table, fork-PR guard, retry flow
+- [ ] `docs/runners/linux-setup.md` — Proxmox LXC + Docker + `myoung34/github-runner` ephemeral
+- [ ] `docs/runners/macos-setup.md` — Mac mini M1 persistent runner via launchd, toolchain bootstrap
+- [ ] Private installer (`deploy/local/auto-deploy/{vle-deploy,install-rocky.sh,install-oracle.sh}`) — restricted `command=`-locked SSH wrapper for tag-pinned deploys
+- [ ] Drop `git pull` from `deploy/scripts/deploy.sh` (the deploy wrapper handles tag checkout)
+- [ ] Rewrite the CI-driven release section in `PUBLISHING.md`; add "Cutting a release" subsection
+- [ ] Add PyO3 Bindings Rule to `CLAUDE.md` (mandatory bindings from M5+)
+- [ ] Verify end-to-end: `git tag v0.1.1 && git push origin v0.1.1` → PyPI + crates.io + GitHub Release + sandbox redeploy on both hosts
+
+## Milestone 6: Numerics
+**Goal**: Core numerical utilities tested and benchmarked, with PyO3 bindings exposed in the wheel.
+*Phase 6 of MODERNIZATION_PLAN.md*
 
 - [ ] Cardano cubic solver with (12) Poling & Prausnitz robustness
 - [ ] Brent's method root finder (default bracketed solver)
@@ -93,15 +112,16 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [ ] Broyden quasi-Newton solver with periodic Jacobian refresh
 - [ ] Halley's method for scalar equations
 - [ ] Utility functions: SumFrac, Norm, convergence checks
+- [ ] PyO3 bindings for every new public function/type added in this milestone (per CLAUDE.md PyO3 Bindings Rule)
 - [ ] Unit tests for all numerical methods — validation test passes
-- [ ] Create milestone notebook (`notebooks/m05_numerics.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: research-paper snippets (§A–§H algorithm choices), worked convergence comparisons, ≥2 user exercises
+- [ ] Create milestone notebook (`notebooks/m06_numerics.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: research-paper snippets (§A–§H algorithm choices), worked convergence comparisons, ≥2 user exercises
 - [ ] Update public deploy docs (`deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`) — generic install deltas only
-- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-05.md`)
-- [ ] Deploy notebook to JupyterHub — rebuild notebook image, restart hub, verify via `${DOMAIN}`
+- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-06.md`)
+- [ ] Tag a release (`v0.2.0`) — CI publishes to PyPI + crates.io and auto-deploys to the sandbox
 
-## Milestone 6: Pure Component Models
+## Milestone 7: Pure Component Models
 **Goal**: All pure component EOS, saturation pressure, and virial working.
-*Phases 6–8 of MODERNIZATION_PLAN.md*
+*Phases 7–9 of MODERNIZATION_PLAN.md*
 
 - [ ] EOS family constants — k1, k2, k3 parameterization (5)
 - [ ] All 22+ alpha(Tr) functions with analytical dα/dTr (§D)
@@ -114,12 +134,12 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [ ] Unit tests for all pure component calculations — validation test passes
 - [ ] Create milestone notebook (`notebooks/02_pure_component.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: Chapter II §2.3 (cubic EOS) snippets, PVT diagrams comparing EOS variants, saturation curves, ≥2 user exercises
 - [ ] Update public deploy docs (`deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`) — generic install deltas only
-- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-06.md`)
+- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-07.md`)
 - [ ] Deploy notebook to JupyterHub — rebuild notebook image, restart hub, verify via `${DOMAIN}`
 
-## Milestone 7: Mixture Models
+## Milestone 8: Mixture Models
 **Goal**: Activity models, mixing rules, and multicomponent EOS working.
-*Phases 9–12 of MODERNIZATION_PLAN.md*
+*Phases 10–13 of MODERNIZATION_PLAN.md*
 
 - [ ] 5 activity coefficient models with analytical dGE/dT (§E)
 - [ ] Rackett and Thomson (18) liquid molar volume
@@ -130,12 +150,12 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [ ] Unit tests for all mixture calculations — validation test passes
 - [ ] Create milestone notebook (`notebooks/03_activity_models.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: Chapter II §2.4–2.5 (activity / mixing rules) snippets, gamma-vs-composition plots, excess Gibbs energy, ≥2 user exercises
 - [ ] Update public deploy docs (`deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`) — generic install deltas only
-- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-07.md`)
+- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-08.md`)
 - [ ] Deploy notebook to JupyterHub — rebuild notebook image, restart hub, verify via `${DOMAIN}`
 
-## Milestone 8: Flash & Regression
+## Milestone 9: Flash & Regression
 **Goal**: All flash calculations pass Chapter IV validation.
-*Phase 13 of MODERNIZATION_PLAN.md*
+*Phase 14 of MODERNIZATION_PLAN.md*
 
 - [ ] Bubble point (T and P) with Broyden NR (§A)
 - [ ] Dew point (T and P)
@@ -152,12 +172,17 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
   - `notebooks/07_kij_regression.ipynb` — Tables 4.11–4.12
   - `notebooks/08_aij_regression.ipynb` — Aij fitting (Pascal-origin)
 - [ ] Update public deploy docs (`deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`) — generic install deltas only
-- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-08.md`)
+- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-09.md`)
 - [ ] Deploy notebooks to JupyterHub — rebuild notebook image, restart hub, verify each new notebook opens via `${DOMAIN}`
 
-## Milestone 9: Python Bindings & Wrapper
+## Milestone 10: Python Bindings & Wrapper
 **Goal**: Python package installable, high-level API usable.
-*Phases 14–15 of MODERNIZATION_PLAN.md*
+*Phases 15–16 of MODERNIZATION_PLAN.md*
+
+> Note: The first `#[pymodule]` shipped in M5. This milestone is the
+> end-user `vle.System` high-level API, plotting helpers, and the
+> introduction notebook — i.e., the *ergonomics* layer over bindings
+> that have been accumulating since M5 under the PyO3 Bindings Rule.
 
 - [ ] PyO3 bindings for core types and calculation functions
 - [ ] Python `System` class (high-level API)
@@ -168,19 +193,19 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [ ] Write end-user installation guide
 - [ ] Create milestone notebook (`notebooks/01_introduction.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: Chapter I + Appendix B (User Manual) snippets, installation walk-through, `vle.System` basic API tour, ≥2 user exercises
 - [ ] Update public deploy docs (`deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`) — generic install deltas only
-- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-09.md`)
+- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-10.md`)
 - [ ] Deploy notebook to JupyterHub — rebuild notebook image, restart hub, verify via `${DOMAIN}`
 
-## Milestone 10: Chapter IV Walkthrough & Final Deployment
+## Milestone 11: Chapter IV Walkthrough & Final Deployment
 **Goal**: One cohesive walkthrough of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md) and a final full-stack redeploy of every milestone notebook.
-*Phase 16 of MODERNIZATION_PLAN.md*
+*Phase 17 of MODERNIZATION_PLAN.md*
 
-> Notebooks 01–08 ship incrementally through Milestones 4–9 (each milestone produces the notebook for the feature it built). This milestone is the capstone: it adds the Chapter IV walkthrough and verifies every notebook is still reachable after a fresh deploy.
+> Notebooks 01–08 ship incrementally through Milestones 4–10 (each milestone produces the notebook for the feature it built). This milestone is the capstone: it adds the Chapter IV walkthrough and verifies every notebook is still reachable after a fresh deploy.
 
 - [ ] Re-run every existing milestone notebook top-to-bottom in a fresh kernel — validation pass
 - [ ] Create `notebooks/09_chapter4_validation_walkthrough.ipynb` — professional structure per CLAUDE.md *Notebook Conventions*; walks a reader through all seven Chapter IV cases (Tables 4.1–4.12), pulls quoted snippets from [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md), runs the `vle` library against each table, reports % error vs. published values, and ends with ≥2 user exercises (e.g. "repeat the kij regression for a different binary").
 - [ ] Update public deploy docs (`deploy/README.md`, `deploy/NOTEBOOKS.md`) — mark the full notebook catalogue as published
-- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-10.md`) — final redeploy steps, smoke test checklist
+- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-11.md`) — final redeploy steps, smoke test checklist
 - [ ] Full redeploy — rebuild both hub and notebook images from a clean state, restart the stack, verify every notebook in `deploy/NOTEBOOKS.md`'s catalogue opens and Runs-All cleanly through `${DOMAIN}`
 
 ---

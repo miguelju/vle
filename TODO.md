@@ -66,7 +66,27 @@ SQLite-based property database with CLI, Jupyter notebook, and first deploy to t
 - [x] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-04.md` with Miguel's host-specific rebuild/restart steps
 - [x] **Deploy notebook to JupyterHub** (~1h) — image rebuilt and deployed to both rocky (primary) and Oracle (standby); notebook `00_component_database.ipynb` runs top-to-bottom against the bundled `components.db`, all five pinned assertions match Chapter IV (`Components = 15`, `kij = 0.1357`, `A12 = 0.5853`, `A21 = 0.3458`, P-x-y plot renders for CO₂/n-butane)
 
-## Milestone 5: Numerics
+## Milestone 5: CI/CD + Auto-Deploy
+
+Hybrid CI/CD pipeline, first PyO3 bindings, and automatic sandbox redeploy on tag pushes (~16–22h total).
+
+- [ ] **Doc renumber + README/PUBLISHING refactor** (~1h) — insert new M5 in ROADMAP/TODO/MODERNIZATION_PLAN; shift M5–M10 → M6–M11; update Phase pointers; drop README's Docker subsection; rewrite PUBLISHING.md; add the PyO3 Bindings Rule to CLAUDE.md
+- [ ] **`.github/workflows/_build.yml`** (~2h) — reusable cibuildwheel matrix: Linux x64 self-hosted ephemeral, Linux arm64 hosted (`ubuntu-24.04-arm`), macOS arm64 self-hosted, Windows hosted, CPython 3.10+ abi3
+- [ ] **`.github/workflows/ci.yml`** (~1h) — push/PR/dispatch: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`, call `_build.yml` (artifact-only); fork-PR guard on every self-hosted job
+- [ ] **`[tool.cibuildwheel]` block in `python/pyproject.toml`** (~0.5h) — abi3, manylinux_2_28, `pytest {project}/tests`, skip pp + musllinux
+- [ ] **First `#[pymodule]` in engine/** (~3–4h) — add `pyo3` `abi3-py310` feature to `engine/Cargo.toml`; gate enums in `engine/src/types.rs` with `#[cfg_attr(feature = "python", pyo3::pyclass(eq, eq_int))]`; create `engine/src/py_bindings.rs` with `#[pymodule] fn _engine(...)` exposing `version()` + the four enums; add `python/tests/test_engine.py`
+- [ ] **`docs/ci.md`** (~1h) — developer overview, ephemerality table, fork-PR guard, retry flow, badges
+- [ ] **`docs/runners/linux-setup.md`** (~1.5h) — Proxmox LXC + Docker + `myoung34/github-runner:latest` ephemeral container; PAT setup; verification; scaling
+- [ ] **`docs/runners/macos-setup.md`** (~1.5h) — Mac mini M1 launchd service; toolchain bootstrap (Xcode CLT, rustup, four Pythons via python.org or `uv`, maturin); periodic-cleanup checklist
+- [ ] **`.github/workflows/release.yml`** (~3h) — `v*` tag: call `_build.yml`, then `publish-pypi` (Trusted Publishing OIDC), `publish-crates` (1Password-loaded token; `vle-units` then `vle-thermo`), `gh-release` (wheels + sdist attached), `deploy-sandbox` (1Password loads SSH credentials, plain SSH to rocky, Tailscale SSH to Oracle)
+- [ ] **Drop `git pull` from `deploy/scripts/deploy.sh`** (~0.3h) — tag-checkout happens in the deploy wrapper; deploy.sh becomes pure docker build + up
+- [ ] **Private auto-deploy installer** (`deploy/local/auto-deploy/{vle-deploy, install-rocky.sh, install-oracle.sh, README.md}`) (~2h) — `/usr/local/bin/vle-deploy` wrapper with tag-regex validation; one-shot installers add the `command="..."` restriction to `~/.ssh/authorized_keys`; fail2ban on rocky
+- [ ] **PUBLISHING.md rewrite** (~0.5h) — drop GHCR section; add "Cutting a release" subsection with the tag-push flow
+- [ ] **`deploy/FAILOVER.md`** (~0.3h) — replace `deploy.sh` references that assumed git-pull
+- [ ] **End-to-end smoke test** (~1h) — push `v0.1.1`; confirm PyPI + crates.io + GitHub Release land; confirm sandbox redeploys on rocky + Oracle; confirm `import vle._engine; vle._engine.version() == "0.1.1"` on each platform
+- [ ] **Manual config outside the repo** (~2h, one-time) — 1Password vault + Service Account; PyPI Trusted Publisher; Tailscale OAuth client; rocky SSH hardening; runners registered on both hosts; per-host deploy bootstrap
+
+## Milestone 6: Numerics
 
 - [ ] **Implement Cardano cubic solver** (~2–3h) — from `McommonFunctions.bas:324`, add (12) robustness for near-degenerate discriminant, (13) volume root selection
 - [ ] **Implement Brent's method** (~2h) — default bracketed root finder, from VB6 `clsLVE.cls` (Numerical Recipes reference)
@@ -74,13 +94,14 @@ SQLite-based property database with CLI, Jupyter notebook, and first deploy to t
 - [ ] **Implement Broyden quasi-Newton** (~3–4h) — rank-1 Jacobian update, periodic full refresh every K=5 steps, stall detection fallback
 - [ ] **Implement Halley's method** (~1h) — for scalar equations (used in Rachford-Rice)
 - [ ] **Implement utility functions** (~1h) — SumFrac, Norm, convergence checks, parabolic interpolation
+- [ ] **PyO3 bindings for every new public function/type** (~1–2h) — per the PyO3 Bindings Rule (M5+); exposed via `#[pyfunction]` in `engine/src/py_bindings.rs`; tested from Python under cibuildwheel
 - [ ] **Write numerical method tests** (~2–3h) — test against known roots, convergence rates, edge cases — validation tests pass
-- [ ] **Create milestone notebook** (~2–3h) — `notebooks/m05_numerics.ipynb` per CLAUDE.md *Notebook Conventions*: MODERNIZATION_PLAN §A–§H snippets, convergence plots comparing Brent / Illinois / Broyden / Halley vs. legacy Regula Falsi, ≥2 user exercises (e.g. "solve a custom cubic with Cardano")
+- [ ] **Create milestone notebook** (~2–3h) — `notebooks/m06_numerics.ipynb` per CLAUDE.md *Notebook Conventions*: MODERNIZATION_PLAN §A–§H snippets, convergence plots comparing Brent / Illinois / Broyden / Halley vs. legacy Regula Falsi, ≥2 user exercises (e.g. "solve a custom cubic with Cardano")
 - [ ] **Update public deploy docs** (~0.5h) — `deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`
-- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-05.md`
-- [ ] **Deploy notebook to JupyterHub** (~1h) — rebuild, restart, verify via `${DOMAIN}`
+- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-06.md`
+- [ ] **Tag a release** (~0.3h) — `v0.2.0`: CI auto-publishes to PyPI + crates.io and auto-deploys to rocky + Oracle
 
-## Milestone 6: Pure Component Models
+## Milestone 7: Pure Component Models
 
 - [ ] **Implement EOS family constants** (~1–2h) — k1, k2, k3, OmA, OmB lookup table per (5)
 - [ ] **Implement 22+ alpha functions** (~4–6h) — all VB6 + Pascal variants, each with `alpha(tr)` and `d_alpha_d_tr(tr)`
@@ -95,10 +116,10 @@ SQLite-based property database with CLI, Jupyter notebook, and first deploy to t
 - [ ] **Write pure component tests** (~3–4h) — compare against known values, cross-validate EOS variants — validation tests pass
 - [ ] **Create milestone notebook** (~3–4h) — `notebooks/02_pure_component.ipynb` per CLAUDE.md *Notebook Conventions*: Chapter II §2.3 snippets (cubic EOS forms), PVT isotherms, EOS variant comparison, saturation curves, ≥2 user exercises
 - [ ] **Update public deploy docs** (~0.5h) — `deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`
-- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-06.md`
+- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-07.md`
 - [ ] **Deploy notebook to JupyterHub** (~1h) — rebuild, restart, verify via `${DOMAIN}`
 
-## Milestone 7: Mixture Models
+## Milestone 8: Mixture Models
 
 - [ ] **Implement 5 activity models** (~4–6h) — Ideal, Margules, van Laar, Wilson, Scatchard-Hildebrand, each with analytical excess enthalpy
 - [ ] **Implement liquid volume models** (~1–2h) — Rackett, Thomson/COSTALD (18)
@@ -108,10 +129,10 @@ SQLite-based property database with CLI, Jupyter notebook, and first deploy to t
 - [ ] **Write mixture model tests** (~3–4h) — compare against VB6/Pascal outputs — validation tests pass
 - [ ] **Create milestone notebook** (~2–3h) — `notebooks/03_activity_models.ipynb` per CLAUDE.md *Notebook Conventions*: Chapter II §2.4–2.5 snippets, gamma vs. composition plots, excess Gibbs energy, mixing-rule comparison, ≥2 user exercises
 - [ ] **Update public deploy docs** (~0.5h) — `deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`
-- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-07.md`
+- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-08.md`
 - [ ] **Deploy notebook to JupyterHub** (~1h) — rebuild, restart, verify via `${DOMAIN}`
 
-## Milestone 8: Flash & Regression
+## Milestone 9: Flash & Regression
 
 - [ ] **Implement bubble point (T and P)** (~4–6h) — parabolic interpolation (4), Asselineau high-pressure path (14), Anderson-Prausnitz 2nd stage (20)
 - [ ] **Implement dew point (T and P)** (~3–4h) — same algorithm structure as bubble point
@@ -128,10 +149,10 @@ SQLite-based property database with CLI, Jupyter notebook, and first deploy to t
   - `notebooks/07_kij_regression.ipynb` (~2h) — Tables 4.11–4.12
   - `notebooks/08_aij_regression.ipynb` (~2–3h) — Aij fitting (Pascal-origin)
 - [ ] **Update public deploy docs** (~0.5h) — `deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`
-- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-08.md`
+- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-09.md`
 - [ ] **Deploy notebooks to JupyterHub** (~1h) — rebuild, restart, verify each new notebook via `${DOMAIN}`
 
-## Milestone 9: Python Bindings & Wrapper
+## Milestone 10: Python Bindings & Wrapper
 
 - [ ] **Create PyO3 bindings** (~4–6h) — expose core types as `#[pyclass]`, calculation functions as `#[pyfunction]`, `VleEngine` class
 - [ ] **Build Python `System` class** (~3–4h) — high-level API: `system.bubble_point_T()`, `system.flash_isothermal()`, etc.
@@ -142,17 +163,17 @@ SQLite-based property database with CLI, Jupyter notebook, and first deploy to t
 - [ ] **Write installation guide** (~1h) — end-user: `pip install`, basic usage example
 - [ ] **Create milestone notebook** (~2–3h) — `notebooks/01_introduction.ipynb` per CLAUDE.md *Notebook Conventions*: Chapter I + Appendix B snippets, `vle.System` API tour, first flash calculation end-to-end, ≥2 user exercises
 - [ ] **Update public deploy docs** (~0.5h) — `deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`
-- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-09.md`
+- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-10.md`
 - [ ] **Deploy notebook to JupyterHub** (~1h) — rebuild, restart, verify via `${DOMAIN}`
 
-## Milestone 10: Chapter IV Walkthrough & Final Deployment
+## Milestone 11: Chapter IV Walkthrough & Final Deployment
 
-Notebooks 01–08 ship incrementally through Milestones 4–9. This milestone is the capstone: one new walkthrough notebook covering all Chapter IV results, plus a final clean-state redeployment of every notebook.
+Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone is the capstone: one new walkthrough notebook covering all Chapter IV results, plus a final clean-state redeployment of every notebook.
 
 - [ ] **Re-run all prior milestone notebooks** (~1–2h) — fresh kernel, Run All, verify no cell errors — validation pass
 - [ ] **Create `notebooks/09_chapter4_validation_walkthrough.ipynb`** (~4–6h) — per CLAUDE.md *Notebook Conventions*: narrated end-to-end walkthrough of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md) §4.1–§4.7, running the library against every Table 4.1–4.12 and reporting % error vs. published values, ≥2 user exercises
 - [ ] **Update public deploy docs** (~0.5h) — `deploy/README.md`, `deploy/NOTEBOOKS.md` catalogue marked complete
-- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-10.md` with final redeploy steps + smoke test checklist
+- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-11.md` with final redeploy steps + smoke test checklist
 - [ ] **Full clean-state redeploy** (~1–2h) — `docker compose down`, rebuild both hub and notebook images from scratch, bring stack back up, verify every notebook in the catalogue opens and Run-All succeeds via `${DOMAIN}`
 
 ---
@@ -166,12 +187,13 @@ Notebooks 01–08 ship incrementally through Milestones 4–9. This milestone is
 | 2. Dev Environment & Scaffolding | ~9–12h | **Done** |
 | 3. Units Library | ~19–26h | **Done** |
 | 4. Component Database | ~12–15h | **Done** |
-| 5. Numerics | ~16–20h | Not started |
-| 6. Pure Component Models | ~28–37h | Not started |
-| 7. Mixture Models | ~25–35h | Not started |
-| 8. Flash & Regression | ~38–52h | Not started |
-| 9. Python Bindings & Wrapper | ~19–27h | Not started |
-| 10. Ch. IV Walkthrough & Final Deploy | ~7–11h | Not started |
-| **Total** | **~193–263h** | |
+| 5. CI/CD + Auto-Deploy | ~16–22h | Not started |
+| 6. Numerics | ~16–20h | Not started |
+| 7. Pure Component Models | ~28–37h | Not started |
+| 8. Mixture Models | ~25–35h | Not started |
+| 9. Flash & Regression | ~38–52h | Not started |
+| 10. Python Bindings & Wrapper | ~19–27h | Not started |
+| 11. Ch. IV Walkthrough & Final Deploy | ~7–11h | Not started |
+| **Total** | **~209–285h** | |
 
 Each active milestone's total now includes: milestone notebook (~2–4h) + public deploy docs (~0.5h) + private deploy notes (~0.5h) + deploy to hub (~1h).

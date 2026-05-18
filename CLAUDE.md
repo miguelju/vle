@@ -162,6 +162,18 @@ The modernized code improves on several legacy numerical methods. When implement
 
 See `MODERNIZATION_PLAN.md` "Algorithm Performance Improvements" for full justifications.
 
+## PyO3 Bindings Rule (M5+)
+
+**From Milestone 5 forward, every milestone that adds Rust functionality must expose the new public functions or types as PyO3 bindings in the same commit series.** Pure-Rust-without-Python is not acceptable.
+
+- New `#[pyfunction]`s go in `engine/src/py_bindings.rs` (or a co-located `#[pymodule]` block).
+- New public types (structs / enums) get `#[cfg_attr(feature = "python", pyo3::pyclass(...))]` so they are exposed to Python alongside the Rust API.
+- Add at least one test in `python/tests/test_engine.py` (or a new sibling file) per new binding, exercising it through the wheel.
+- CI runs every test against the built wheel via cibuildwheel, so a missing binding is a hard failure — not a doc-day oversight.
+- **Why this rule**: Python is a first-class consumer for this project. New Rust functionality that can't be called from Python is incomplete from the user's perspective. Wiring up bindings as the Rust code is written is dramatically cheaper than retrofitting them later.
+
+The minimal scaffolding (`vle._engine` exposing `version()` plus the four enum types) shipped in M5 alongside the CI/CD setup, so the binding layer is load-bearing from the very first numerical algorithm in M6.
+
 ## Domain Context
 
 - This is a thermodynamics/chemical engineering codebase. Variables like Tc, Pc, w (acentric factor), Zc, Ki, kij, Aij, alpha(Tr), Z-factor, phi (fugacity coefficient), gamma (activity coefficient) are standard notation.
@@ -228,7 +240,7 @@ order after validation tests pass:
    Record the outcome at the bottom of `deploy/local/deploy-notes/milestone-NN.md`.
 
 Steps 2 and 3 happen **in the same commit series** so the two tracks never
-diverge. After all milestones complete, Milestone 10 performs one final
+diverge. After all milestones complete, Milestone 11 performs one final
 redeployment that includes the Chapter IV walkthrough notebook.
 
 ## Notebook Conventions
