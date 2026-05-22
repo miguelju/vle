@@ -87,20 +87,20 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 **Goal**: Hybrid CI/CD pipeline (build/test wheels on every push, publish to PyPI + crates.io on tag), first PyO3 bindings shipping in the wheel, and automatic sandbox redeploy on release.
 *Phase 5 of MODERNIZATION_PLAN.md*
 
-- [ ] Insert M5 in ROADMAP / TODO / MODERNIZATION_PLAN; renumber M5–M10 → M6–M11 (this milestone's first commit)
-- [ ] `.github/workflows/_build.yml` — reusable cibuildwheel matrix (Linux x64 self-hosted ephemeral, Linux arm64 hosted, macOS arm64 self-hosted, Windows hosted), CPython 3.10+ abi3 wheels
-- [ ] `.github/workflows/ci.yml` — push/PR/dispatch: cargo fmt + clippy + cargo test + wheel matrix as artifact
-- [ ] `.github/workflows/release.yml` — `v*` tag: PyPI Trusted Publishing, crates.io publish (1Password-loaded token), GitHub Release, auto-deploy to sandbox hosts via SSH (asymmetric: rocky plain, Oracle via Tailscale)
-- [ ] `[tool.cibuildwheel]` block in `python/pyproject.toml` (abi3, manylinux_2_28, pytest against the wheel)
-- [ ] First `#[pymodule]` in `engine/` — `vle._engine` exposes `version()` + the four enum types (`CubicEos`, `ActivityModel`, `MixingRule`, `SatPressureModel`); `python/tests/test_engine.py` exercises the boundary
-- [ ] `docs/ci.md` — developer overview, ephemerality table, fork-PR guard, retry flow
-- [ ] `docs/runners/linux-setup.md` — Proxmox LXC + Docker + `myoung34/github-runner` ephemeral
-- [ ] `docs/runners/macos-setup.md` — Mac mini M1 persistent runner via launchd, toolchain bootstrap
-- [ ] Private installer (`deploy/local/auto-deploy/{vle-deploy,install-rocky.sh,install-oracle.sh}`) — restricted `command=`-locked SSH wrapper for tag-pinned deploys
-- [ ] Drop `git pull` from `deploy/scripts/deploy.sh` (the deploy wrapper handles tag checkout)
-- [ ] Rewrite the CI-driven release section in `PUBLISHING.md`; add "Cutting a release" subsection
-- [ ] Add PyO3 Bindings Rule to `CLAUDE.md` (mandatory bindings from M5+)
-- [ ] Verify end-to-end: `git tag v0.1.1 && git push origin v0.1.1` → PyPI + crates.io + GitHub Release + sandbox redeploy on both hosts
+- [x] Insert M5 in ROADMAP / TODO / MODERNIZATION_PLAN; renumber M5–M10 → M6–M11 (this milestone's first commit)
+- [x] `.github/workflows/_build.yml` — reusable cibuildwheel matrix (Linux x64 self-hosted ephemeral, Linux arm64 hosted, macOS arm64 self-hosted, Windows hosted), CPython 3.10+ abi3 wheels
+- [x] `.github/workflows/ci.yml` — push/PR/dispatch: cargo fmt + clippy + cargo test + wheel matrix as artifact
+- [x] `.github/workflows/release.yml` — `v*` tag: PyPI Trusted Publishing, crates.io publish (1Password-loaded token), GitHub Release, auto-deploy to sandbox hosts via SSH (asymmetric: rocky plain, Oracle via Tailscale)
+- [x] `[tool.cibuildwheel]` block in `python/pyproject.toml` (abi3, manylinux_2_28, pytest against the wheel)
+- [x] First `#[pymodule]` in `engine/` — `vle._engine` exposes `version()` + the four enum types (`CubicEos`, `ActivityModel`, `MixingRule`, `SatPressureModel`); `python/tests/test_engine.py` exercises the boundary
+- [x] `docs/ci.md` — developer overview, ephemerality table, fork-PR guard, retry flow
+- [x] `docs/runners/linux-setup.md` — Proxmox LXC + Docker + `myoung34/github-runner` ephemeral
+- [x] `docs/runners/macos-setup.md` — Mac mini M1 persistent runner via launchd, toolchain bootstrap
+- [x] Private installer (`deploy/local/auto-deploy/{vle-deploy,install-rocky.sh,install-oracle.sh}`) — restricted `command=`-locked SSH wrapper for tag-pinned deploys
+- [x] Drop `git pull` from `deploy/scripts/deploy.sh` (the deploy wrapper handles tag checkout)
+- [x] Rewrite the CI-driven release section in `PUBLISHING.md`; add "Cutting a release" subsection
+- [x] Add PyO3 Bindings Rule to `CLAUDE.md` (mandatory bindings from M5+)
+- [ ] Verify end-to-end: `git tag v0.1.0 && git push origin v0.1.0` → PyPI + crates.io + GitHub Release + sandbox redeploy on both hosts
 
 ## Milestone 6: Numerics
 **Goal**: Core numerical utilities tested and benchmarked, with PyO3 bindings exposed in the wheel.

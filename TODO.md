@@ -70,21 +70,21 @@ SQLite-based property database with CLI, Jupyter notebook, and first deploy to t
 
 Hybrid CI/CD pipeline, first PyO3 bindings, and automatic sandbox redeploy on tag pushes (~16–22h total).
 
-- [ ] **Doc renumber + README/PUBLISHING refactor** (~1h) — insert new M5 in ROADMAP/TODO/MODERNIZATION_PLAN; shift M5–M10 → M6–M11; update Phase pointers; drop README's Docker subsection; rewrite PUBLISHING.md; add the PyO3 Bindings Rule to CLAUDE.md
-- [ ] **`.github/workflows/_build.yml`** (~2h) — reusable cibuildwheel matrix: Linux x64 self-hosted ephemeral, Linux arm64 hosted (`ubuntu-24.04-arm`), macOS arm64 self-hosted, Windows hosted, CPython 3.10+ abi3
-- [ ] **`.github/workflows/ci.yml`** (~1h) — push/PR/dispatch: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`, call `_build.yml` (artifact-only); fork-PR guard on every self-hosted job
-- [ ] **`[tool.cibuildwheel]` block in `python/pyproject.toml`** (~0.5h) — abi3, manylinux_2_28, `pytest {project}/tests`, skip pp + musllinux
-- [ ] **First `#[pymodule]` in engine/** (~3–4h) — add `pyo3` `abi3-py310` feature to `engine/Cargo.toml`; gate enums in `engine/src/types.rs` with `#[cfg_attr(feature = "python", pyo3::pyclass(eq, eq_int))]`; create `engine/src/py_bindings.rs` with `#[pymodule] fn _engine(...)` exposing `version()` + the four enums; add `python/tests/test_engine.py`
-- [ ] **`docs/ci.md`** (~1h) — developer overview, ephemerality table, fork-PR guard, retry flow, badges
-- [ ] **`docs/runners/linux-setup.md`** (~1.5h) — Proxmox LXC + Docker + `myoung34/github-runner:latest` ephemeral container; PAT setup; verification; scaling
-- [ ] **`docs/runners/macos-setup.md`** (~1.5h) — Mac mini M1 launchd service; toolchain bootstrap (Xcode CLT, rustup, four Pythons via python.org or `uv`, maturin); periodic-cleanup checklist
-- [ ] **`.github/workflows/release.yml`** (~3h) — `v*` tag: call `_build.yml`, then `publish-pypi` (Trusted Publishing OIDC), `publish-crates` (1Password-loaded token; `vle-units` then `vle-thermo`), `gh-release` (wheels + sdist attached), `deploy-sandbox` (1Password loads SSH credentials, plain SSH to rocky, Tailscale SSH to Oracle)
-- [ ] **Drop `git pull` from `deploy/scripts/deploy.sh`** (~0.3h) — tag-checkout happens in the deploy wrapper; deploy.sh becomes pure docker build + up
-- [ ] **Private auto-deploy installer** (`deploy/local/auto-deploy/{vle-deploy, install-rocky.sh, install-oracle.sh, README.md}`) (~2h) — `/usr/local/bin/vle-deploy` wrapper with tag-regex validation; one-shot installers add the `command="..."` restriction to `~/.ssh/authorized_keys`; fail2ban on rocky
-- [ ] **PUBLISHING.md rewrite** (~0.5h) — drop GHCR section; add "Cutting a release" subsection with the tag-push flow
-- [ ] **`deploy/FAILOVER.md`** (~0.3h) — replace `deploy.sh` references that assumed git-pull
-- [ ] **End-to-end smoke test** (~1h) — push `v0.1.1`; confirm PyPI + crates.io + GitHub Release land; confirm sandbox redeploys on rocky + Oracle; confirm `import vle._engine; vle._engine.version() == "0.1.1"` on each platform
-- [ ] **Manual config outside the repo** (~2h, one-time) — 1Password vault + Service Account; PyPI Trusted Publisher; Tailscale OAuth client; rocky SSH hardening; runners registered on both hosts; per-host deploy bootstrap
+- [x] **Doc renumber + README/PUBLISHING refactor** (~1h) — insert new M5 in ROADMAP/TODO/MODERNIZATION_PLAN; shift M5–M10 → M6–M11; update Phase pointers; drop README's Docker subsection; rewrite PUBLISHING.md; add the PyO3 Bindings Rule to CLAUDE.md
+- [x] **`.github/workflows/_build.yml`** (~2h) — reusable cibuildwheel matrix: Linux x64 self-hosted ephemeral, Linux arm64 hosted (`ubuntu-24.04-arm`), macOS arm64 self-hosted, Windows hosted, CPython 3.10+ abi3
+- [x] **`.github/workflows/ci.yml`** (~1h) — push/PR/dispatch: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`, call `_build.yml` (artifact-only); fork-PR guard on every self-hosted job
+- [x] **`[tool.cibuildwheel]` block in `python/pyproject.toml`** (~0.5h) — abi3, manylinux_2_28, `pytest {package}/tests`, skip pp + musllinux
+- [x] **First `#[pymodule]` in engine/** (~3–4h) — add `pyo3` `abi3-py310` feature to `engine/Cargo.toml`; gate enums in `engine/src/types.rs` with `#[cfg_attr(feature = "python", pyo3::pyclass(eq, eq_int))]`; create `engine/src/py_bindings.rs` with `#[pymodule] fn _engine(...)` exposing `version()` + the four enums; add `python/tests/test_engine.py`
+- [x] **`docs/ci.md`** (~1h) — developer overview, ephemerality table, fork-PR guard, retry flow, badges
+- [x] **`docs/runners/linux-setup.md`** (~1.5h) — Proxmox LXC + Docker + `myoung34/github-runner:latest` ephemeral container; PAT setup; verification; scaling
+- [x] **`docs/runners/macos-setup.md`** (~1.5h) — Mac mini M1 launchd service; toolchain bootstrap (Xcode CLT, rustup, four Pythons via python.org or `uv`, maturin); periodic-cleanup checklist
+- [x] **`.github/workflows/release.yml`** (~3h) — `v*` tag: call `_build.yml`, then `publish-pypi` (Trusted Publishing OIDC), `publish-crates` (1Password-loaded token; `vle-units` then `vle-thermo`), `gh-release` (wheels + sdist attached), `deploy-sandbox` (1Password loads SSH credentials, plain SSH to rocky, Tailscale SSH to Oracle)
+- [x] **Drop `git pull` from `deploy/scripts/deploy.sh`** (~0.3h) — tag-checkout happens in the deploy wrapper; deploy.sh becomes pure docker build + up
+- [x] **Private auto-deploy installer** (`deploy/local/auto-deploy/{vle-deploy, install-rocky.sh, install-oracle.sh, README.md}`) (~2h) — `/usr/local/bin/vle-deploy` wrapper with tag-regex validation; one-shot installers add the `command="..."` restriction to `~/.ssh/authorized_keys`; fail2ban on rocky
+- [x] **PUBLISHING.md rewrite** (~0.5h) — drop GHCR section; add "Cutting a release" subsection with the tag-push flow
+- [x] **`deploy/FAILOVER.md`** (~0.3h) — replace `deploy.sh` references that assumed git-pull
+- [ ] **End-to-end smoke test** (~1h) — push `v0.1.0`; confirm PyPI + crates.io + GitHub Release land; confirm sandbox redeploys on rocky + Oracle; confirm `import vle._engine; vle._engine.version() == "0.1.0"` on each platform
+- [x] **Manual config outside the repo** (~2h, one-time) — 1Password vault + Service Account; PyPI Trusted Publisher; rocky + Oracle SSH installers; runners (`vle-runner-01` Linux LXC + `vle-mac-01` Mac mini) registered and online
 
 ## Milestone 6: Numerics
 
