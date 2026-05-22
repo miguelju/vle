@@ -60,12 +60,34 @@ jobs:
           key: cargo-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
           restore-keys: |
             cargo-${{ matrix.os }}-${{ matrix.arch }}-
-      - name: Build wheel via cibuildwheel
+      # Linux self-hosted runs inside the myoung34/github-runner Docker
+      # container, which has python+pip baked into the image. The action's
+      # internal setup-python call works fine there.
+      - name: Build wheel via cibuildwheel (Linux self-hosted)
+        if: matrix.os == 'linux'
         uses: pypa/cibuildwheel@v2.21.3
         with:
           package-dir: python
         env:
           CIBW_BUILD_VERBOSITY: 1
+      # macOS self-hosted bypasses pypa/cibuildwheel's bundled
+      # actions/setup-python call. setup-python's macOS install path shells
+      # out to `sudo installer -pkg ...` to drop Python.framework into
+      # /Library/, which requires NOPASSWD sudo on the runner host. By
+      # invoking cibuildwheel directly against /usr/bin/python3 (Xcode CLT,
+      # Python 3.9+ on every supported macOS), we drop the sudo dependency
+      # entirely — the runner can have sudo locked down or even removed.
+      # cibuildwheel itself still downloads target Pythons under
+      # ~/.cibuildwheel and builds against those, identical to the action's
+      # behavior; only the *outer* Python used to run cibuildwheel changes.
+      - name: Build wheel via cibuildwheel (macOS, no setup-python)
+        if: matrix.os == 'macos'
+        shell: bash
+        env:
+          CIBW_BUILD_VERBOSITY: 1
+        run: |
+          /usr/bin/python3 -m pip install --user 'cibuildwheel==2.21.3'
+          /usr/bin/python3 -m cibuildwheel --output-dir wheelhouse python
       - name: Upload wheels artifact
         uses: actions/upload-artifact@v4
         with:
