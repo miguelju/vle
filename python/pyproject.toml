@@ -87,9 +87,12 @@ skip = ["pp*", "*-musllinux_*"]
 manylinux-x86_64-image = "manylinux_2_28"
 manylinux-aarch64-image = "manylinux_2_28"
 test-requires = ["pytest"]
-# {project} expands to the directory containing pyproject.toml (= python/),
-# so this resolves to python/tests/, the existing pytest suite.
-test-command = "pytest {project}/tests"
+# {package} expands to the cibuildwheel `package-dir` (= python/ here),
+# so this resolves to python/tests/, the existing pytest suite. Don't use
+# {project} — that's the *whole repo root* that cibuildwheel copies into
+# the container, not the package dir, and `pytest {project}/tests` would
+# look at /project/tests which does not exist.
+test-command = "pytest {package}/tests"
 build-verbosity = 1
 
 [tool.cibuildwheel.macos]
