@@ -41,6 +41,11 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=1.24",
+    # pint backs vle.units (Python wrapper for unit parsing / dimensional
+    # analysis). Imported at module load by `from pint import UnitRegistry`
+    # in python/src/vle/units.py, so this is a hard runtime dependency —
+    # not just a test dependency.
+    "pint>=0.22",
 ]
 
 [project.optional-dependencies]
