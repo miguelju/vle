@@ -22,6 +22,16 @@ on:
   push:
     tags:
       - "v*"
+  # Manual lever — exercise the build chain on both runners without burning
+  # PyPI/crates.io versions. When dry_run=true, publish-* and deploy-sandbox
+  # all skip; only the build job runs. Tag-push retains full-release behavior.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Skip publish-* and deploy-sandbox (build-only smoke test)"
+        type: boolean
+        required: true
+        default: true
 
 permissions:
   contents: read
@@ -41,6 +51,7 @@ jobs:
   publish-pypi:
     name: publish to PyPI
     needs: [build]
+    if: ${{ inputs.dry_run != true }}
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -73,6 +84,7 @@ jobs:
   publish-crates:
     name: publish to crates.io
     needs: [build]
+    if: ${{ inputs.dry_run != true }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -96,6 +108,7 @@ jobs:
   gh-release:
     name: create GitHub Release
     needs: [build]
+    if: ${{ inputs.dry_run != true }}
     runs-on: ubuntu-latest
     permissions:
       contents: write   # for softprops/action-gh-release to create the release
@@ -122,6 +135,11 @@ jobs:
   deploy-sandbox:
     name: deploy sandbox (rocky + Oracle)
     needs: [publish-pypi, publish-crates, gh-release]
+    # Skip in dry-run: deploy-sandbox needs a real git tag on origin to check
+    # out, and workflow_dispatch from main has no such tag. SSH/force-command
+    # plumbing was already validated by the install-{rocky,oracle}.sh smoke
+    # tests on 2026-05-21, so dry-run safely omits this job.
+    if: ${{ inputs.dry_run != true }}
     # Self-hosted runner that lives permanently on the tailnet (CT 105,
     # tag:vle-runner). Has direct LAN access to rocky and tailnet access to
     # Oracle, so no per-job Tailscale join is needed.
