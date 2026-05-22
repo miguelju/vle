@@ -107,9 +107,14 @@ build-verbosity = 1
 archs = ["arm64"]
 
 [tool.cibuildwheel.linux]
-# `auto` resolves to the runner's native arch (x86_64 on the self-hosted
-# Linux runner; aarch64 on ubuntu-24.04-arm). No QEMU emulation.
-archs = ["auto"]
+# `auto64` is "the runner's native 64-bit arch" — x86_64 on the self-hosted
+# Linux runner; aarch64 on ubuntu-24.04-arm. We deliberately skip 32-bit
+# Linux (`auto` would include i686, which `auto64` excludes): the rustup
+# i686-unknown-linux-gnu target isn't supported in the manylinux_2_28
+# images we build in, and 32-bit Linux x86 has effectively no real-world
+# Python install base for a numerical / scientific package. No QEMU
+# emulation either way.
+archs = ["auto64"]
 
 [tool.cibuildwheel.windows]
 archs = ["AMD64"]
