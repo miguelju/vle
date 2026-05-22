@@ -122,7 +122,10 @@ jobs:
   deploy-sandbox:
     name: deploy sandbox (rocky + Oracle)
     needs: [publish-pypi, publish-crates, gh-release]
-    runs-on: ubuntu-latest
+    # Self-hosted runner that lives permanently on the tailnet (CT 105,
+    # tag:vle-runner). Has direct LAN access to rocky and tailnet access to
+    # Oracle, so no per-job Tailscale join is needed.
+    runs-on: [self-hosted, linux, x64]
     steps:
       - name: Load deploy secrets from 1Password
         uses: 1password/load-secrets-action@v2
@@ -137,8 +140,6 @@ jobs:
           ORACLE_HOST:                     op://vle-thermo-ci/oracle-deploy/tailnet_hostname
           ORACLE_USER:                     op://vle-thermo-ci/oracle-deploy/username
           ORACLE_SSH_KEY:                  op://vle-thermo-ci/oracle-deploy/private_key
-          TS_OAUTH_CLIENT_ID:              op://vle-thermo-ci/tailscale-ci/client_id
-          TS_OAUTH_SECRET:                 op://vle-thermo-ci/tailscale-ci/client_secret
       - name: Set up SSH agent with both deploy keys
         uses: webfactory/ssh-agent@v0.9.0
         with:
@@ -175,15 +176,10 @@ jobs:
               -o BatchMode=yes \
               "$ROCKY_USER@$ROCKY_HOST" \
               "${GITHUB_REF_NAME}"
-      - name: Join Tailscale tailnet
-        uses: tailscale/github-action@v2
-        with:
-          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ env.TS_OAUTH_SECRET }}
-          tags: tag:ci
       - name: Deploy to Oracle (SSH over Tailscale)
-        # ORACLE_HOST resolves only because the runner just joined the tailnet.
-        # No StrictHostKeyChecking pin needed -- Tailscale's authentication
+        # ORACLE_HOST resolves via MagicDNS because the self-hosted runner
+        # (CT 105, tag:vle-runner) is a permanent tailnet member. No
+        # StrictHostKeyChecking pin needed — Tailscale's authentication
         # already establishes endpoint identity.
         run: |
           ssh -o BatchMode=yes \
