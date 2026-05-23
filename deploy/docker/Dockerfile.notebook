@@ -2,18 +2,20 @@
 #
 # Single-user notebook image for the VLE deployment.
 #
-# - Target platform: linux/arm64.
+# - Target platform: arch-agnostic. The base image is a multi-arch manifest,
+#   so Docker picks the host's native architecture. Validated on both arm64
+#   (Oracle Cloud Ampere) and x86_64 (rocky / Proxmox host).
 # - Based on jupyter/scipy-notebook, which already ships numpy, scipy, matplotlib,
 #   pandas and JupyterLab. We layer on: a Rust toolchain, and the locally-built
 #   vle wheel (produced by maturin from engine/ + python/).
 # - This is the image JupyterHub's DockerSpawner launches one of per user.
 #
 # Build context is the repository root. Manually:
-#     docker build --platform=linux/arm64 \
+#     docker build \
 #         -f deploy/docker/Dockerfile.notebook \
 #         -t vle-notebook:latest .
 
-FROM --platform=linux/arm64 quay.io/jupyter/scipy-notebook:latest
+FROM quay.io/jupyter/scipy-notebook:latest
 
 ARG NB_USER=jovyan
 ARG NB_UID=1000
@@ -43,6 +45,13 @@ ENV PATH="/home/${NB_USER}/.cargo/bin:${PATH}"
 RUN pip install "maturin>=1.5,<2"
 
 # Build and install the vle wheel from the local source.
+# The workspace root Cargo.toml + every workspace member (engine, units) must
+# be present so that `version.workspace = true` and `edition.workspace = true`
+# in engine/Cargo.toml can resolve. Pre-v0.1.1 the Dockerfile only copied
+# engine/ and python/, which made maturin fail with "failed to find a
+# workspace root" once the workspace inheritance was wired in M5.
+COPY --chown=${NB_UID}:${NB_GID} Cargo.toml /tmp/build/
+COPY --chown=${NB_UID}:${NB_GID} units/ /tmp/build/units/
 COPY --chown=${NB_UID}:${NB_GID} engine/ /tmp/build/engine/
 COPY --chown=${NB_UID}:${NB_GID} python/ /tmp/build/python/
 

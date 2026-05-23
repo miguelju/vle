@@ -2,7 +2,9 @@
 #
 # JupyterHub image for the VLE deployment.
 #
-# - Target platform: linux/arm64 (e.g. Oracle Cloud Ampere, Raspberry Pi, AWS Graviton).
+# - Target platform: arch-agnostic. The base image is a multi-arch manifest,
+#   so Docker picks the host's native architecture. Validated on both arm64
+#   (Oracle Cloud Ampere) and x86_64 (rocky / Proxmox host).
 # - Builds the local Rust/PyO3 `vle` library via maturin and installs the resulting
 #   wheel into the hub's Python environment. This lets hub-side services (idle
 #   culler, admin utilities, health checks) import `vle` if needed.
@@ -12,11 +14,11 @@
 #
 # Build context is the repository root. Build from deploy/compose via
 # docker compose, or manually:
-#     docker build --platform=linux/arm64 \
+#     docker build \
 #         -f deploy/docker/Dockerfile.jupyterhub \
 #         -t vle-jupyterhub:latest .
 
-FROM --platform=linux/arm64 jupyterhub/jupyterhub:5
+FROM jupyterhub/jupyterhub:5
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
@@ -46,7 +48,12 @@ RUN pip install \
         "maturin>=1.5,<2"
 
 # Build and install the local vle wheel.
+# Workspace root Cargo.toml + units/ must be copied alongside engine/ so that
+# `version.workspace = true` and `edition.workspace = true` in engine/Cargo.toml
+# resolve. See Dockerfile.notebook for the parallel explanation.
 WORKDIR /build
+COPY Cargo.toml ./
+COPY units/ ./units/
 COPY engine/ ./engine/
 COPY python/ ./python/
 RUN cd python \
