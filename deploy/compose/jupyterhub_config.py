@@ -50,6 +50,13 @@ c = get_config()  # noqa: F821 — provided by JupyterHub at load time
 AUTH_MODE = os.environ.get("AUTH_MODE", "cloudflare").lower()
 NOTEBOOK_IMAGE = os.environ.get("NOTEBOOK_IMAGE", "vle-notebook:latest")
 DOCKER_NETWORK = os.environ.get("DOCKER_NETWORK_NAME", "web")
+# Optional live-notebooks bind-mount. When set to a host path containing the
+# repo's `notebooks/` directory, per-user containers mount it read-only at
+# /opt/vle/notebooks so new spawns see whatever was last rsynced there — no
+# image rebuild needed. Leave empty to use only the image-bundled notebooks.
+# Paired with deploy/scripts/deploy-notebooks.sh and CI's
+# `deploy-sandbox-notebooks` job. See deploy/README.md for the full flow.
+NOTEBOOK_HOST_PATH = os.environ.get("NOTEBOOK_HOST_PATH", "").strip()
 
 
 # DockerSpawner.mem_limit is an `Int` trait: it will not accept "512m" style
@@ -119,7 +126,17 @@ c.DockerSpawner.mem_limit = MEM_LIMIT
 c.DockerSpawner.cpu_limit = CPU_LIMIT
 c.DockerSpawner.remove = False
 c.DockerSpawner.notebook_dir = "/home/jovyan/work"
-c.DockerSpawner.volumes = {"vle-user-{username}": "/home/jovyan/work"}
+_spawner_volumes: dict = {"vle-user-{username}": "/home/jovyan/work"}
+if NOTEBOOK_HOST_PATH:
+    # Read-only bind-mount so per-user containers see the *current* notebook
+    # content from the host without an image rebuild. seed-user-home.sh
+    # re-seeds ~/work/notebooks/ when /opt/vle/notebooks/.notebook-version
+    # changes (see SUBSHELL-WRAPPER-v1 / NOTEBOOK-VERSION-RESEED-v1).
+    _spawner_volumes[NOTEBOOK_HOST_PATH] = {
+        "bind": "/opt/vle/notebooks",
+        "mode": "ro",
+    }
+c.DockerSpawner.volumes = _spawner_volumes
 c.DockerSpawner.default_url = "/lab/tree/notebooks/index.ipynb"
 # DockerSpawner starts the container on the same network as the hub and
 # reaches back to the hub by container name.

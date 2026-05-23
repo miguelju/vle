@@ -6,9 +6,28 @@
 #   publish-crates  - cargo publish vle-units then vle-thermo (token loaded
 #                     from 1Password at runtime)
 #   gh-release      - creates the GitHub Release and attaches all wheels + sdist
-#   deploy-sandbox  - SSHes to rocky (plain SSH) and Oracle (Tailscale SSH),
-#                     each runs `/usr/local/bin/vle-deploy <tag>` via the
-#                     authorized_keys `command=` restriction
+#   deploy-sandbox  - SSHes to rocky + Oracle and runs vle-deploy in ONE OF
+#                     two modes (see "Deploy modes" below). The wrapper at
+#                     /usr/local/bin/vle-deploy on each host is pinned by
+#                     ~/.ssh/authorized_keys `command=`.
+#
+# Deploy modes (selected by the `full_deploy` workflow_dispatch input):
+#
+#   notebooks  - DEFAULT for every `v*` tag push. SSH command is
+#                "notebooks:<tag>" → vle-deploy invokes deploy-notebooks.sh:
+#                regenerates index.ipynb + stamps notebooks/.notebook-version.
+#                No docker build, no stack restart. Per-user spawns pick up
+#                the new content via NOTEBOOK_HOST_PATH bind-mount; existing
+#                user volumes re-seed on next login via the version marker.
+#                Cost: ~10-15 seconds.
+#   full       - workflow_dispatch + full_deploy=true. SSH command is plain
+#                "<tag>" → vle-deploy invokes deploy.sh: full image rebuild
+#                (notebook + hub) and stack restart. Use this for engine
+#                bumps, Dockerfile changes, base-image bumps. Cost: minutes.
+#
+# Rationale: the hub is an educational sandbox (see deploy/README.md). Most
+# `v*` tags only need to update notebook content; the expensive rebuild path
+# is reserved for engine/infra changes and gated behind a manual click.
 #
 # Secrets:
 #   GitHub secret OP_SERVICE_ACCOUNT_TOKEN is the *only* GitHub-side secret;
@@ -22,9 +41,12 @@ on:
   push:
     tags:
       - "v*"
-  # Manual lever — exercise the build chain on both runners without burning
-  # PyPI/crates.io versions. When dry_run=true, publish-* and deploy-sandbox
-  # all skip; only the build job runs. Tag-push retains full-release behavior.
+  # Manual lever — two independent toggles:
+  #   dry_run=true      build only, skip publish-* and deploy-sandbox
+  #   full_deploy=true  use the full image-rebuild path instead of the
+  #                     default notebooks-only fast path (only meaningful
+  #                     when dispatched against a `v*` tag ref; against
+  #                     `main` the deploy will fail the vle-deploy regex)
   workflow_dispatch:
     inputs:
       dry_run:
@@ -32,6 +54,11 @@ on:
         type: boolean
         required: true
         default: true
+      full_deploy:
+        description: "Full image rebuild + stack restart (engine bumps). Default = notebooks-only."
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -188,16 +215,34 @@ jobs:
           fi
           cat /tmp/rocky_known >> ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
+      - name: Pick deploy mode (notebooks vs. full)
+        id: mode
+        # On tag-push, inputs.full_deploy is empty (input only exists in
+        # workflow_dispatch context), so the string compare picks notebooks.
+        # On workflow_dispatch + full_deploy=true, picks full. Either way we
+        # compose a single SSH command string consumed by vle-deploy on the
+        # other side via the authorized_keys `command=` force-command.
+        run: |
+          if [[ "${{ inputs.full_deploy }}" == "true" ]]; then
+            echo "ssh_command=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "mode=full" >> "$GITHUB_OUTPUT"
+            echo "==> Mode: full image rebuild (engine bump)"
+          else
+            echo "ssh_command=notebooks:${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "mode=notebooks" >> "$GITHUB_OUTPUT"
+            echo "==> Mode: notebooks-only fast path"
+          fi
       - name: Deploy to rocky (plain SSH)
         # The host's authorized_keys binds this key to
         # `command="/usr/local/bin/vle-deploy"`. SSH_ORIGINAL_COMMAND on the
-        # other end will be the tag name; the wrapper regex-validates it
+        # other end will be the value computed above ("<tag>" for full mode
+        # or "notebooks:<tag>" for the fast path). The wrapper regex-validates
         # before doing anything destructive.
         run: |
           ssh -o StrictHostKeyChecking=yes \
               -o BatchMode=yes \
               "$ROCKY_USER@$ROCKY_HOST" \
-              "${GITHUB_REF_NAME}"
+              "${{ steps.mode.outputs.ssh_command }}"
       - name: Deploy to Oracle (SSH over Tailscale)
         # ORACLE_HOST resolves via MagicDNS because the self-hosted runner
         # (CT 105, tag:vle-runner) is a permanent tailnet member. No
@@ -207,4 +252,4 @@ jobs:
           ssh -o BatchMode=yes \
               -o StrictHostKeyChecking=accept-new \
               "$ORACLE_USER@$ORACLE_HOST" \
-              "${GITHUB_REF_NAME}"
+              "${{ steps.mode.outputs.ssh_command }}"

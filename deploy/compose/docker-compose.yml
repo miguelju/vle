@@ -52,6 +52,9 @@ services:
       IDLE_TIMEOUT_MINUTES: ${IDLE_TIMEOUT_MINUTES}
       JUPYTERHUB_ADMIN_EMAIL: ${JUPYTERHUB_ADMIN_EMAIL}
       NOTEBOOK_IMAGE: ${NOTEBOOK_IMAGE:-vle-notebook:latest}
+      # Optional: enables the live-notebooks bind-mount on per-user spawns.
+      # See deploy/.env.example and deploy/compose/jupyterhub_config.py.
+      NOTEBOOK_HOST_PATH: ${NOTEBOOK_HOST_PATH:-}
       DOCKER_NETWORK_NAME: ${TRAEFIK_NETWORK}
       AUTH_MODE: ${AUTH_MODE:-cloudflare}
       # OIDC / Pocket ID — only consumed when AUTH_MODE=oidc. Endpoint URL
