@@ -67,6 +67,7 @@ SQLite-based property database with CLI, Jupyter notebook, and first deploy to t
 - [x] **Deploy notebook to JupyterHub** (~1h) — image rebuilt and deployed to both rocky (primary) and Oracle (standby); notebook `00_component_database.ipynb` runs top-to-bottom against the bundled `components.db`, all five pinned assertions match Chapter IV (`Components = 15`, `kij = 0.1357`, `A12 = 0.5853`, `A21 = 0.3458`, P-x-y plot renders for CO₂/n-butane)
 
 ## Milestone 5: CI/CD + Auto-Deploy
+*Executed by Claude Code using Claude Opus 4.7 (1M context)*
 
 Hybrid CI/CD pipeline, first PyO3 bindings, and automatic sandbox redeploy on tag pushes (~16–22h total).
 
@@ -83,7 +84,7 @@ Hybrid CI/CD pipeline, first PyO3 bindings, and automatic sandbox redeploy on ta
 - [x] **Private auto-deploy installer** (`deploy/local/auto-deploy/{vle-deploy, install-rocky.sh, install-oracle.sh, README.md}`) (~2h) — `/usr/local/bin/vle-deploy` wrapper with tag-regex validation; one-shot installers add the `command="..."` restriction to `~/.ssh/authorized_keys`; fail2ban on rocky
 - [x] **PUBLISHING.md rewrite** (~0.5h) — drop GHCR section; add "Cutting a release" subsection with the tag-push flow
 - [x] **`deploy/FAILOVER.md`** (~0.3h) — replace `deploy.sh` references that assumed git-pull
-- [ ] **End-to-end smoke test** (~1h) — push `v0.1.0`; confirm PyPI + crates.io + GitHub Release land; confirm sandbox redeploys on rocky + Oracle; confirm `import vle._engine; vle._engine.version() == "0.1.0"` on each platform
+- [x] **End-to-end smoke test** (~1h → actual ~4h across v0.1.0–v0.1.2) — pushed `v0.1.0` 2026-05-22; packages landed on all three registries; sandbox redeploy hit three latent Dockerfile bugs (arm64 hardcode, missing workspace root, wheel-glob mismatch) that required v0.1.1 + v0.1.2 patch tags to fully resolve. v0.1.2 ran fully green end-to-end: all 5 build jobs, publish-pypi (env approval), publish-crates, gh-release, deploy-sandbox (rocky + Oracle containers restarted). `pip install vle-thermo==0.1.2 && vle._engine.version() == "0.1.2"` verified.
 - [x] **Manual config outside the repo** (~2h, one-time) — 1Password vault + Service Account; PyPI Trusted Publisher; rocky + Oracle SSH installers; runners (`vle-runner-01` Linux LXC + `vle-mac-01` Mac mini) registered and online
 
 ## Milestone 6: Numerics

@@ -188,7 +188,7 @@ Each milestone records which AI model was used (e.g., `Claude Opus 4.6 (1M conte
 
 ## Getting Started
 
-> **Status**: Milestones 0–4 complete (documentation, translation, dev environment & scaffolding, units library, component database with hub-deployed notebook). Milestones 5–11 (CI/CD + auto-deploy, numerics, models, flash, Python bindings, notebooks) not yet started.
+> **Status**: Milestones 0–5 complete (documentation, translation, dev environment & scaffolding, units library, component database with hub-deployed notebook, CI/CD pipeline + auto-deploy with v0.1.2 on PyPI / crates.io / GitHub Releases). Milestones 6–11 (numerics, models, flash, Python bindings, notebooks) not yet started.
 
 ### Prerequisites
 - Python 3.10+ (for the component database and future Python wrapper)

@@ -83,9 +83,10 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Update private deploy notes (`deploy/local/deploy-notes/milestone-04.md`)
 - [x] Deploy notebook to JupyterHub — deployed to both rocky (primary) and Oracle (standby) via hot-standby architecture; notebook verified end-to-end (Components=15, kij=0.1357, A12=0.5853, A21=0.3458, P-x-y plot renders)
 
-## Milestone 5: CI/CD + Auto-Deploy
+## Milestone 5: CI/CD + Auto-Deploy ✓
 **Goal**: Hybrid CI/CD pipeline (build/test wheels on every push, publish to PyPI + crates.io on tag), first PyO3 bindings shipping in the wheel, and automatic sandbox redeploy on release.
 *Phase 5 of MODERNIZATION_PLAN.md*
+*Executed by Claude Code using Claude Opus 4.7 (1M context)*
 
 - [x] Insert M5 in ROADMAP / TODO / MODERNIZATION_PLAN; renumber M5–M10 → M6–M11 (this milestone's first commit)
 - [x] `.github/workflows/_build.yml` — reusable cibuildwheel matrix (Linux x64 self-hosted ephemeral, Linux arm64 hosted, macOS arm64 self-hosted, Windows hosted), CPython 3.10+ abi3 wheels
@@ -100,7 +101,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Drop `git pull` from `deploy/scripts/deploy.sh` (the deploy wrapper handles tag checkout)
 - [x] Rewrite the CI-driven release section in `PUBLISHING.md`; add "Cutting a release" subsection
 - [x] Add PyO3 Bindings Rule to `CLAUDE.md` (mandatory bindings from M5+)
-- [ ] Verify end-to-end: `git tag v0.1.0 && git push origin v0.1.0` → PyPI + crates.io + GitHub Release + sandbox redeploy on both hosts
+- [x] Verify end-to-end: `git tag v0.1.0 && git push origin v0.1.0` → PyPI + crates.io + GitHub Release + sandbox redeploy on both hosts (shipped via v0.1.0 → v0.1.1 → v0.1.2 progression; v0.1.0 published packages, v0.1.1 fixed Dockerfile arch + workspace-root, v0.1.2 fixed wheel-glob mismatch and finally landed a fully-green deploy)
 
 ## Milestone 6: Numerics
 **Goal**: Core numerical utilities tested and benchmarked, with PyO3 bindings exposed in the wheel.
