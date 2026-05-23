@@ -175,10 +175,21 @@ def build() -> nbf.NotebookNode:
     # container restarts or image rebuilds. The notice goes on the landing
     # page so first-time visitors see it before opening any notebook.
     cells.append(md(
-        "> 💾 **Heads up — this hub is a sandbox.** Edits you make to any "
-        "notebook here may not survive a container restart or a hub-image "
-        "rebuild. If you change a notebook and want to keep your work, use "
-        "**File → Download** to save a copy to your own storage."
+        "> 💾 **Hub sandbox notice — only applies if you're running this "
+        "hub on the hosted VLE JupyterLab.** If the VLE developers gave you "
+        "a URL to this shared JupyterLab environment, you're in an "
+        "*educational sandbox*: the bundled `vle-thermo` version may lag "
+        "PyPI, any `pip install` you run inside a notebook is ephemeral "
+        "(it vanishes when your session is culled), and **edits to any "
+        "bundled notebook get overwritten the next time the hub publishes "
+        "a new version of it** — use **File → Save As** to a different "
+        "filename if you want your changes to survive. (Files you create "
+        "with new names, and your own data files, are never touched.) For "
+        "real work, install `vle-thermo` in your own Jupyter environment "
+        "with `pip install vle-thermo` and open the notebooks there — see "
+        "the [project README](https://github.com/miguelju/vle/blob/main/README.md). "
+        "**If you're already running this in your own Jupyter, you can "
+        "ignore this notice.**"
     ))
 
     # ---- What is VLE ----------------------------------------------------
@@ -197,7 +208,12 @@ def build() -> nbf.NotebookNode:
         "  Chapter IV validation cases (plus ~70 k DIPPR compounds via the "
         "  optional `thermo` library).\n"
         "- **A dimensional `units` library** so every calculation is done in "
-        "  explicit physical units (K, kPa abs, cm³/mol, …).\n"
+        "  explicit physical units (K, kPa abs, cm³/mol, …). In Python and these "
+        "  notebooks this is powered by "
+        "  [pint](https://pint.readthedocs.io/en/stable/getting/index.html); "
+        "  on the Rust side it is [`vle-units`](https://github.com/miguelju/vle/blob/main/units/README.md). Both halves "
+        "  share the same unit catalog so a `barg` value parsed on one side "
+        "  converts identically on the other.\n"
         "\n"
         "Everything is documented in the research paper translation under "
         "`docs/en/research-paper/`."
