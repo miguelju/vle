@@ -57,7 +57,7 @@ COPY --chown=${NB_UID}:${NB_GID} python/ /tmp/build/python/
 
 RUN cd /tmp/build/python \
  && maturin build --release --out /tmp/wheels \
- && pip install /tmp/wheels/vle-*.whl \
+ && pip install /tmp/wheels/vle_thermo-*.whl \
  && rm -rf /tmp/build /tmp/wheels /home/${NB_USER}/.cargo/registry /home/${NB_USER}/.cargo/git
 
 # Extra Python deps. scipy-notebook already provides numpy/scipy/matplotlib/jupyterlab,

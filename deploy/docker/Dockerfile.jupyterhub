@@ -58,7 +58,7 @@ COPY engine/ ./engine/
 COPY python/ ./python/
 RUN cd python \
  && maturin build --release --out /build/wheels \
- && pip install /build/wheels/vle-*.whl \
+ && pip install /build/wheels/vle_thermo-*.whl \
  && rm -rf /build /root/.cargo/registry /root/.cargo/git
 
 # Hub configuration (can be overridden by mounting a different file at runtime).
