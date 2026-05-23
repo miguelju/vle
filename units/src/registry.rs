@@ -23,7 +23,7 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 
-use crate::vle_units::P_ATM_STANDARD_KPA;
+use crate::P_ATM_STANDARD_KPA;
 
 /// Errors returned by registry operations.
 #[derive(Debug, Error)]
@@ -183,150 +183,12 @@ impl UnitRegistry {
     }
 
     fn install_defaults(&mut self) {
-        // Temperature (absolute) — canonical K
-        self.put(UnitDef {
-            name: "K".into(),
-            dimension_name: "temperature".into(),
-            dimension_vector: Dimension::Temperature.vector(),
-            scale: 1.0,
-            offset: OffsetSource::Constant(0.0),
-        });
-        self.put(UnitDef {
-            name: "degC".into(),
-            dimension_name: "temperature".into(),
-            dimension_vector: Dimension::Temperature.vector(),
-            scale: 1.0,
-            offset: OffsetSource::Constant(273.15),
-        });
-        self.put(UnitDef {
-            name: "degF".into(),
-            dimension_name: "temperature".into(),
-            dimension_vector: Dimension::Temperature.vector(),
-            // K = (F - 32)*5/9 + 273.15  →  K = F*(5/9) + (273.15 - 32*5/9)
-            scale: 5.0 / 9.0,
-            offset: OffsetSource::Constant(273.15 - 32.0 * 5.0 / 9.0),
-        });
-        self.put(UnitDef {
-            name: "degR".into(),
-            dimension_name: "temperature".into(),
-            dimension_vector: Dimension::Temperature.vector(),
-            scale: 5.0 / 9.0,
-            offset: OffsetSource::Constant(0.0),
-        });
-
-        // Temperature difference — canonical K (no offsets)
-        for (n, s) in [
-            ("delta_K", 1.0),
-            ("delta_degC", 1.0),
-            ("delta_degF", 5.0 / 9.0),
-            ("delta_degR", 5.0 / 9.0),
-        ] {
-            self.put(UnitDef {
-                name: n.into(),
-                dimension_name: "temperature_diff".into(),
-                dimension_vector: Dimension::TemperatureDiff.vector(),
-                scale: s,
-                offset: OffsetSource::Constant(0.0),
-            });
-        }
-
-        // Pressure (absolute) — canonical kPa
-        for (n, s) in [
-            ("Pa", 0.001),
-            ("kPa", 1.0),
-            ("MPa", 1000.0),
-            ("bar", 100.0),
-            ("atm", 101.325),
-            ("psi", 6.894_757_293_168_36),
-            ("mmHg", 0.133_322_387_415),
-            ("torr", 0.133_322_368_421_05),
-        ] {
-            self.put(UnitDef {
-                name: n.into(),
-                dimension_name: "pressure".into(),
-                dimension_vector: Dimension::Pressure.vector(),
-                scale: s,
-                offset: OffsetSource::Constant(0.0),
-            });
-        }
-
-        // Pressure (gauge) — offset resolved from registry P_atm at conversion time
-        for (n, s) in [
-            ("kPag", 1.0),
-            ("barg", 100.0),
-            ("psig", 6.894_757_293_168_36),
-        ] {
-            self.put(UnitDef {
-                name: n.into(),
-                dimension_name: "pressure".into(),
-                dimension_vector: Dimension::Pressure.vector(),
-                scale: s,
-                offset: OffsetSource::GaugePAtm,
-            });
-        }
-
-        // Molar energy — canonical kJ/kmol (numerically equal to J/mol)
-        for (n, s) in [
-            ("kJ/kmol", 1.0),
-            ("J/mol", 1.0),
-            ("J/kmol", 1e-3),
-            ("kJ/mol", 1000.0),
-            ("cal/mol", 4.184),
-            ("kcal/kmol", 4.184),
-            ("BTU/lbmol", 2.326),
-        ] {
-            self.put(UnitDef {
-                name: n.into(),
-                dimension_name: "molar_energy".into(),
-                dimension_vector: Dimension::MolarEnergy.vector(),
-                scale: s,
-                offset: OffsetSource::Constant(0.0),
-            });
-        }
-
-        // Molar entropy / heat capacity — canonical kJ/(kmol·K)
-        for (n, s) in [
-            ("kJ/(kmol*K)", 1.0),
-            ("J/(mol*K)", 1.0),
-            ("cal/(mol*K)", 4.184),
-            ("BTU/(lbmol*degR)", 4.184), // 1 BTU/(lbmol·°R) = 4.184 J/(mol·K)
-        ] {
-            self.put(UnitDef {
-                name: n.into(),
-                dimension_name: "molar_entropy".into(),
-                dimension_vector: Dimension::MolarEntropy.vector(),
-                scale: s,
-                offset: OffsetSource::Constant(0.0),
-            });
-        }
-
-        // Molar volume — canonical cm³/mol
-        for (n, s) in [
-            ("cm^3/mol", 1.0),
-            ("m^3/kmol", 1.0),
-            ("L/mol", 1000.0),
-            ("m^3/mol", 1e6),
-            ("ft^3/lbmol", 62.427_960_576_145),
-        ] {
-            self.put(UnitDef {
-                name: n.into(),
-                dimension_name: "molar_volume".into(),
-                dimension_vector: Dimension::MolarVolume.vector(),
-                scale: s,
-                offset: OffsetSource::Constant(0.0),
-            });
-        }
-
-        // Amount — canonical kmol
-        for (n, s) in [("kmol", 1.0), ("mol", 1e-3), ("lbmol", 0.453_592_37)] {
-            self.put(UnitDef {
-                name: n.into(),
-                dimension_name: "amount".into(),
-                dimension_vector: Dimension::Amount.vector(),
-                scale: s,
-                offset: OffsetSource::Constant(0.0),
-            });
-        }
+        // The default unit catalog lives in `data/defaults.toml` and is baked
+        // into the binary via `include_str!` — no runtime file I/O, no missing-
+        // file failure mode. To add or tweak a built-in unit, edit that file.
+        const DEFAULTS_TOML: &str = include_str!("data/defaults.toml");
+        self.load_from_toml_str(DEFAULTS_TOML)
+            .expect("built-in defaults.toml must parse and apply cleanly");
     }
 
     fn put(&mut self, u: UnitDef) {

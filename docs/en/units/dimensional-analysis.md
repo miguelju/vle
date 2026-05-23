@@ -508,123 +508,37 @@ We'll use the `uom` (Units of Measurement) crate rather than writing this from s
 - Compile-time dimension checking via typenum
 - Zero runtime cost — quantities compile to plain `f64`
 
-**Example use in `units/src/vle_units.rs`:**
+**Direct `uom` usage in engine code:**
+
+`vle-units` does **not** wrap `uom`'s quantity types in `Vle*` aliases —
+callers import `uom::si::f64::*` directly. The canonical units below
+(K, kPa, kJ/kmol, K for ΔT) match `uom`'s defaults.
 
 ```rust
-use uom::si::f64::*;                    // Quantity types over f64
-use uom::si::thermodynamic_temperature::{kelvin, degree_celsius};
-use uom::si::temperature_interval::{kelvin as delta_kelvin, degree_celsius as delta_celsius};
-use uom::si::pressure::{kilopascal, bar, atmosphere, psi};
-use uom::si::molar_energy::kilojoule_per_kilomole;
+use uom::si::f64::{
+    AmountOfSubstance, MolarEnergy, MolarHeatCapacity, MolarVolume,
+    Pressure, TemperatureInterval, ThermodynamicTemperature,
+};
+use uom::si::thermodynamic_temperature::{degree_celsius, kelvin};
+use uom::si::pressure::kilopascal;
 
-/// Absolute temperature quantity (canonical unit: K).
-/// Use for state variables: reactor T, bubble point, dew point, etc.
-/// Conversion from °C/°F includes an offset.
-pub type VleTemperature = ThermodynamicTemperature;
+// Absolute temperature (canonical: K). Affine — °C ↔ K includes an offset.
+// T + T is rejected at compile time; T - T yields TemperatureInterval.
+let t_reactor = ThermodynamicTemperature::new::<degree_celsius>(85.0);
+let t_kelvin: f64 = t_reactor.get::<kelvin>();   // 358.15
 
-/// Temperature difference / gradient quantity (canonical unit: K = ΔK).
-/// Use for ΔT, dT/dx, Cp denominators, heat-transfer driving forces.
-/// Conversion from Δ°C/Δ°F is scale-only (no offset).
-pub type VleTemperatureDiff = TemperatureInterval;
-
-/// Pressure quantity (canonical unit: kPa)
-pub type VlePressure = Pressure;
-
-/// Molar energy quantity (canonical unit: kJ/kmol)
-pub type VleMolarEnergy = MolarEnergy;
-
-/// Standard atmospheric pressure in **kPa** — provided as a convenience constant.
-/// This is NOT used as a hidden default anywhere. All gauge conversion functions
-/// require the caller to pass `p_atm_kpa` explicitly.
-/// For the registry-based API (recommended), use `registry.set_atmospheric_pressure()`.
-pub const P_ATM_STANDARD_KPA: f64 = 101.325;
-
-/// Construct temperature from Celsius.
-///
-/// # Arguments
-/// * `c` — temperature in **°C** (absolute, not a difference)
-///
-/// # Returns
-/// A typed `VleTemperature` (stored internally in **K**)
-pub fn from_celsius(c: f64) -> VleTemperature {
-    VleTemperature::new::<degree_celsius>(c)
-}
-
-/// Extract temperature in Kelvin.
-///
-/// # Returns
-/// Temperature value in **K** (absolute)
-pub fn to_kelvin(t: VleTemperature) -> f64 {
-    t.get::<kelvin>()
-}
-
-/// Convert gauge pressure to absolute pressure.
-///
-/// Gauge pressure is measured relative to atmospheric pressure.
-/// All VLE calculations require **absolute** pressure.
-/// **P_atm is an explicit parameter — it is never hardcoded.**
-///
-/// Prefer the registry-based API (`registry.parse("2.5 barg")`) which reads
-/// P_atm from `registry.atmospheric_pressure_kpa` (configurable via
-/// `registry.set_atmospheric_pressure()`). Use these free functions only when
-/// you need direct control over the atmospheric pressure value per-call.
-///
-/// # Arguments
-/// * `p_gauge` — Pressure reading in **barg** (bar gauge)
-/// * `p_atm_kpa` — Local atmospheric pressure in **kPa** (caller must provide;
-///   use `P_ATM_STANDARD_KPA` for standard conditions)
-///
-/// # Returns
-/// Absolute pressure in **kPa**
-///
-/// # Panics
-/// Panics if the resulting absolute pressure is ≤ 0 (non-physical).
-pub fn from_barg(p_gauge: f64, p_atm_kpa: f64) -> VlePressure {
-    let p_abs_kpa = p_gauge * 100.0 + p_atm_kpa;
-    assert!(p_abs_kpa > 0.0, "Absolute pressure must be > 0; got {p_abs_kpa} kPa");
-    VlePressure::new::<kilopascal>(p_abs_kpa)
-}
-
-/// Convert gauge pressure (psig) to absolute pressure.
-///
-/// # Arguments
-/// * `p_gauge` — Pressure reading in **psig** (psi gauge)
-/// * `p_atm_kpa` — Local atmospheric pressure in **kPa** (caller must provide)
-///
-/// # Returns
-/// Absolute pressure in **kPa**
-pub fn from_psig(p_gauge: f64, p_atm_kpa: f64) -> VlePressure {
-    let p_abs_kpa = p_gauge * 6.89476 + p_atm_kpa;
-    assert!(p_abs_kpa > 0.0, "Absolute pressure must be > 0; got {p_abs_kpa} kPa");
-    VlePressure::new::<kilopascal>(p_abs_kpa)
-}
-
-/// Convert gauge pressure (kPag) to absolute pressure.
-///
-/// # Arguments
-/// * `p_gauge` — Pressure reading in **kPag** (kPa gauge)
-/// * `p_atm_kpa` — Local atmospheric pressure in **kPa** (caller must provide)
-///
-/// # Returns
-/// Absolute pressure in **kPa**
-pub fn from_kpag(p_gauge: f64, p_atm_kpa: f64) -> VlePressure {
-    let p_abs_kpa = p_gauge + p_atm_kpa;
-    assert!(p_abs_kpa > 0.0, "Absolute pressure must be > 0; got {p_abs_kpa} kPa");
-    VlePressure::new::<kilopascal>(p_abs_kpa)
-}
-
-/// Convert absolute pressure to gauge pressure.
-///
-/// # Arguments
-/// * `p` — Absolute pressure (typed `VlePressure`, internally in **kPa**)
-/// * `p_atm_kpa` — Local atmospheric pressure in **kPa** (caller must provide)
-///
-/// # Returns
-/// Gauge pressure in **barg** (bar gauge). Can be negative (vacuum).
-pub fn to_barg(p: VlePressure, p_atm_kpa: f64) -> f64 {
-    (p.get::<kilopascal>() - p_atm_kpa) / 100.0
-}
+// Absolute pressure (canonical: kPa).
+let p_abs = Pressure::new::<kilopascal>(101.325);
 ```
+
+Gauge ↔ absolute pressure conversion is **not** a typed-quantity operation —
+the runtime offset depends on the operator-configurable atmospheric pressure.
+It lives on the runtime [`UnitRegistry`] (§7), which carries
+`atmospheric_pressure_kpa()` and exposes
+[`set_atmospheric_pressure`](#34-pressure-absolute-vs-gauge) for runtime
+overrides. The convenience constant `vle_units::P_ATM_STANDARD_KPA` (101.325)
+is provided for explicit standard-condition callers but is **never** used as
+a hidden default anywhere in the stack.
 
 ### 4.4 Safety Guarantees
 

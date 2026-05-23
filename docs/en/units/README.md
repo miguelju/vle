@@ -36,19 +36,20 @@ registry.define("mmH2O", Dimension::Pressure, 0.009_806_65, 0.0)?;
 let p3 = registry.parse("1000 mmH2O")?;        // → 9.80665 kPa
 ```
 
-Compile-time dimension safety (zero runtime cost) is provided by `uom`:
+Compile-time dimension safety (zero runtime cost) is provided by `uom`
+directly — `vle-units` does not wrap its types:
 
 ```rust
-use vle_units::{VlePressure, VleTemperature};
+use uom::si::f64::{Pressure, ThermodynamicTemperature};
 use uom::si::{thermodynamic_temperature::kelvin, pressure::kilopascal};
 
-let t = VleTemperature::new::<kelvin>(300.0);
-let p = VlePressure::new::<kilopascal>(101.325);
+let t = ThermodynamicTemperature::new::<kelvin>(300.0);
+let p = Pressure::new::<kilopascal>(101.325);
 // let bad = t + p;  // compile error — dimension mismatch
 ```
 
 `T + T` is also rejected at compile time (an absolute temperature plus an
-absolute temperature is meaningless). `T - T` produces a `VleTemperatureDiff`,
+absolute temperature is meaningless). `T - T` produces a `TemperatureInterval`,
 which is the type used for ΔT, Cp denominators, and heat-transfer coefficients.
 
 ### TOML bulk import
@@ -133,8 +134,8 @@ Default atmospheric pressure for gauge conversions: **101.325 kPa**
 
 ## Tests
 
-- Rust: `cd units && cargo test` — 18 integration + 3 unit + 2 compile-fail
-  doctests
+- Rust: `cd units && cargo test` — 18 integration + 3 unit tests
+  (compile-time dimensional safety is provided by `uom` upstream)
 - Python: `PYTHONPATH=python/src python -m pytest python/tests/test_units.py
   python/tests/test_units_parity.py` — 54 tests including a golden-value
   parity table against the Rust crate

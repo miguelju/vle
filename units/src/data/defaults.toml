@@ -1,0 +1,226 @@
+# VLE default unit catalog — loaded by `UnitRegistry::with_vle_defaults()`
+# via `include_str!`, so this file ships baked into the binary; there is no
+# runtime file I/O.
+#
+# Schema: see `units/src/toml_loader.rs` and
+# `docs/en/units/dimensional-analysis.md` §7.2.
+#
+# Canonical units per dimension (must stay aligned with `vle_units` aliases
+# and the legacy VB6/Pascal codebases):
+#   temperature       → K       (absolute)
+#   temperature_diff  → K       (interval; separate type, no offset)
+#   pressure          → kPa     (absolute)
+#   molar_energy      → kJ/kmol (numerically equal to J/mol)
+#   molar_entropy     → kJ/(kmol·K)
+#   molar_volume      → cm^3/mol
+#   amount            → kmol
+#
+# `scale` is canonical-units per 1 of the listed unit.
+# `offset` defaults to 0.0 when omitted.
+# `gauge = true` means "resolve offset from the registry's atmospheric pressure
+# at conversion time" — only valid for pressure.
+
+# ── Temperature (absolute) ───────────────────────────────────────────────
+[[unit]]
+name = "K"
+dimension = "temperature"
+scale = 1.0
+
+[[unit]]
+name = "degC"
+dimension = "temperature"
+scale = 1.0
+offset = 273.15
+
+[[unit]]
+name = "degF"
+dimension = "temperature"
+# K = (F - 32)·5/9 + 273.15  →  K = F·(5/9) + (273.15 - 32·5/9)
+scale = 0.5555555555555556
+offset = 255.3722222222222
+
+[[unit]]
+name = "degR"
+dimension = "temperature"
+scale = 0.5555555555555556
+
+# ── Temperature difference (interval) ────────────────────────────────────
+[[unit]]
+name = "delta_K"
+dimension = "temperature_diff"
+scale = 1.0
+
+[[unit]]
+name = "delta_degC"
+dimension = "temperature_diff"
+scale = 1.0
+
+[[unit]]
+name = "delta_degF"
+dimension = "temperature_diff"
+scale = 0.5555555555555556
+
+[[unit]]
+name = "delta_degR"
+dimension = "temperature_diff"
+scale = 0.5555555555555556
+
+# ── Pressure (absolute) — canonical kPa ──────────────────────────────────
+[[unit]]
+name = "Pa"
+dimension = "pressure"
+scale = 0.001
+
+[[unit]]
+name = "kPa"
+dimension = "pressure"
+scale = 1.0
+
+[[unit]]
+name = "MPa"
+dimension = "pressure"
+scale = 1000.0
+
+[[unit]]
+name = "bar"
+dimension = "pressure"
+scale = 100.0
+
+[[unit]]
+name = "atm"
+dimension = "pressure"
+scale = 101.325
+
+[[unit]]
+name = "psi"
+dimension = "pressure"
+scale = 6.89475729316836
+
+[[unit]]
+name = "mmHg"
+dimension = "pressure"
+scale = 0.133322387415
+
+[[unit]]
+name = "torr"
+dimension = "pressure"
+scale = 0.13332236842105
+
+# ── Pressure (gauge) — offset resolved from registry P_atm at conversion ─
+[[unit]]
+name = "kPag"
+dimension = "pressure"
+scale = 1.0
+gauge = true
+
+[[unit]]
+name = "barg"
+dimension = "pressure"
+scale = 100.0
+gauge = true
+
+[[unit]]
+name = "psig"
+dimension = "pressure"
+scale = 6.89475729316836
+gauge = true
+
+# ── Molar energy — canonical kJ/kmol (= J/mol numerically) ───────────────
+[[unit]]
+name = "kJ/kmol"
+dimension = "molar_energy"
+scale = 1.0
+
+[[unit]]
+name = "J/mol"
+dimension = "molar_energy"
+scale = 1.0
+
+[[unit]]
+name = "J/kmol"
+dimension = "molar_energy"
+scale = 0.001
+
+[[unit]]
+name = "kJ/mol"
+dimension = "molar_energy"
+scale = 1000.0
+
+[[unit]]
+name = "cal/mol"
+dimension = "molar_energy"
+scale = 4.184
+
+[[unit]]
+name = "kcal/kmol"
+dimension = "molar_energy"
+scale = 4.184
+
+[[unit]]
+name = "BTU/lbmol"
+dimension = "molar_energy"
+scale = 2.326
+
+# ── Molar entropy / heat capacity — canonical kJ/(kmol·K) ────────────────
+[[unit]]
+name = "kJ/(kmol*K)"
+dimension = "molar_entropy"
+scale = 1.0
+
+[[unit]]
+name = "J/(mol*K)"
+dimension = "molar_entropy"
+scale = 1.0
+
+[[unit]]
+name = "cal/(mol*K)"
+dimension = "molar_entropy"
+scale = 4.184
+
+[[unit]]
+name = "BTU/(lbmol*degR)"
+dimension = "molar_entropy"
+scale = 4.184  # 1 BTU/(lbmol·°R) = 4.184 J/(mol·K)
+
+# ── Molar volume — canonical cm^3/mol ────────────────────────────────────
+[[unit]]
+name = "cm^3/mol"
+dimension = "molar_volume"
+scale = 1.0
+
+[[unit]]
+name = "m^3/kmol"
+dimension = "molar_volume"
+# 1 m³/kmol = (10⁶ cm³) / (10³ mol) = 1000 cm³/mol — same value as 1 L/mol.
+scale = 1000.0
+
+[[unit]]
+name = "L/mol"
+dimension = "molar_volume"
+scale = 1000.0
+
+[[unit]]
+name = "m^3/mol"
+dimension = "molar_volume"
+scale = 1000000.0
+
+[[unit]]
+name = "ft^3/lbmol"
+dimension = "molar_volume"
+scale = 62.427960576145
+
+# ── Amount — canonical kmol ──────────────────────────────────────────────
+[[unit]]
+name = "kmol"
+dimension = "amount"
+scale = 1.0
+
+[[unit]]
+name = "mol"
+dimension = "amount"
+scale = 0.001
+
+[[unit]]
+name = "lbmol"
+dimension = "amount"
+scale = 0.45359237
