@@ -165,21 +165,25 @@ jobs:
             ${{ env.ROCKY_SSH_KEY }}
             ${{ env.ORACLE_SSH_KEY }}
       - name: Pin rocky's host key
-        # Pull the host key fresh and verify its SHA-256 fingerprint against
-        # the value stored in 1Password. If the fingerprint shifts (host
-        # reinstall, MITM), the step fails and the deploy aborts.
+        # Pull the host keys fresh and verify the stored SHA-256 fingerprint
+        # matches *any* of them. rocky advertises three host keys (RSA,
+        # ECDSA, ED25519) and ssh-keyscan returns them in non-deterministic
+        # order, so we can't pick "the first" — we match against the full
+        # set. If none match (host reinstall, MITM), the step fails and the
+        # deploy aborts.
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           ssh-keyscan -H "$ROCKY_HOST" > /tmp/rocky_known
-          actual=$(ssh-keygen -lf /tmp/rocky_known | awk '/ED25519|RSA|ECDSA/ {print $2; exit}')
           if [[ -z "$ROCKY_HOST_KEY_FINGERPRINT" ]]; then
             echo "ROCKY_HOST_KEY_FINGERPRINT not set in 1Password" >&2
             exit 1
           fi
-          if ! echo "$actual" | grep -qF "$ROCKY_HOST_KEY_FINGERPRINT"; then
+          actual_set=$(ssh-keygen -lf /tmp/rocky_known | awk '{print $2}')
+          if ! echo "$actual_set" | grep -qF "$ROCKY_HOST_KEY_FINGERPRINT"; then
             echo "rocky host-key fingerprint mismatch" >&2
-            echo "  expected: $ROCKY_HOST_KEY_FINGERPRINT" >&2
-            echo "  actual:   $actual" >&2
+            echo "  expected (any of these):" >&2
+            echo "$actual_set" | sed 's/^/    /' >&2
+            echo "  stored: $ROCKY_HOST_KEY_FINGERPRINT" >&2
             exit 1
           fi
           cat /tmp/rocky_known >> ~/.ssh/known_hosts
