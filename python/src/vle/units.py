@@ -24,6 +24,7 @@ amount              **kmol**
 
 from __future__ import annotations
 
+import tomllib
 from typing import Final
 
 from pint import UnitRegistry
@@ -43,11 +44,31 @@ CANONICAL: Final[dict[str, str]] = {
     "amount": "kmol",
 }
 
+# ── Canonical unit catalog — single source of truth ─────────────────────────
+#
+# The TOML text comes from the Rust ``vle-units`` crate via the PyO3 binding
+# ``vle._engine.default_units_toml()``. Both the Rust ``UnitRegistry`` and the
+# Python pint registry below seed their scale/offset constants from the same
+# bytes, so a change to ``units/src/data/defaults.toml`` propagates to both
+# halves of the stack on the next ``maturin develop`` build.
+from vle._engine import default_units_toml as _default_units_toml  # noqa: E402
+
+_UNIT_CATALOG: Final = tomllib.loads(_default_units_toml())
+
+
+def _unit_scale(name: str) -> float:
+    """Look up ``scale`` for ``name`` in the TOML catalog (canonical-units-per-unit)."""
+    for entry in _UNIT_CATALOG.get("unit", []):
+        if entry["name"] == name:
+            return float(entry["scale"])
+    raise KeyError(f"unit {name!r} not found in default catalog")
+
+
 # ── Atmospheric pressure (configurable, never hardcoded) ────────────────────
 #
 # Default is 1 standard atmosphere (101.325 kPa). Override via
 # ``set_atmospheric_pressure`` for non-standard sites (e.g. plant at altitude).
-_P_ATM_DEFAULT_KPA: Final = 101.325
+_P_ATM_DEFAULT_KPA: Final = _unit_scale("atm")  # 101.325
 _p_atm_kpa: float = _P_ATM_DEFAULT_KPA
 
 
@@ -55,19 +76,15 @@ def _install_gauge_units(p_atm_kpa: float) -> None:
     """(Re)register barg/psig/kPag with the given atmospheric offset.
 
     Pint stores affine-unit definitions immutably, so changing P_atm requires
-    redefining the unit symbols. We use private aliases to allow rebinding.
+    redefining the unit symbols. Scales come from the TOML catalog (kPa per
+    unit) and are converted to Pa per unit for pint's internal reference.
     """
-    # Use ``force_ndarray=False`` is N/A; instead we redefine via ureg.define.
-    # Pint accepts ``offset`` in absolute reference-unit terms; for pressure
-    # the reference is pascal, so we convert kPa → Pa for the offset literal.
     p_atm_pa = p_atm_kpa * 1000.0
-    # Redefine if already present (pint raises on duplicate; catch and re-add)
-    for name, scale_pa_per_unit in (
-        ("kPag", 1000.0),
-        ("barg", 100_000.0),
-        ("psig", 6894.757_293_168_36),
-    ):
-        # Pint's affine syntax: ``name = scale * pascal; offset: P_atm_pa``
+    for entry in _UNIT_CATALOG.get("unit", []):
+        if not entry.get("gauge"):
+            continue
+        name = entry["name"]
+        scale_pa_per_unit = float(entry["scale"]) * 1000.0
         defn = f"{name} = {scale_pa_per_unit} * pascal; offset: {p_atm_pa}"
         try:
             ureg.define(defn)
@@ -82,8 +99,8 @@ _install_gauge_units(_p_atm_kpa)
 
 
 # Engineering units missing from pint's default definitions but present in
-# the Rust ``vle_units`` registry. Add them so unit strings round-trip across
-# both sides.
+# the Rust ``vle_units`` registry. Scales come from the TOML so the two
+# stacks can't drift.
 def _define_if_missing(definition: str) -> None:
     name = definition.split("=", 1)[0].strip()
     if name in ureg:
@@ -91,8 +108,15 @@ def _define_if_missing(definition: str) -> None:
     ureg.define(definition)
 
 
-_define_if_missing("lbmol = 0.45359237 * kmol = pound_mole")
-_define_if_missing("BTU_per_lbmol = 2.326 * (kJ / kmol)")
+_define_if_missing(f"lbmol = {_unit_scale('lbmol')} * kmol = pound_mole")
+_define_if_missing(f"BTU_per_lbmol = {_unit_scale('BTU/lbmol')} * (kJ / kmol)")
+# Pint's native ``BTU/(lbmol*rankine)`` uses IT BTU (~4.1868 kJ/(kmol·K)); the
+# legacy Rust catalog and downstream engine code use the thermochemical-cal
+# value (4.184). Expose the legacy value under a stable alias so callers and
+# the parity test reach the same number on both sides.
+_define_if_missing(
+    f"BTU_per_lbmol_per_degR = {_unit_scale('BTU/(lbmol*degR)')} * (kJ / (kmol * kelvin))"
+)
 
 
 def get_atmospheric_pressure() -> float:

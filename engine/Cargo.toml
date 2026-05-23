@@ -23,6 +23,10 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 nalgebra = "0.33"
 ndarray = "0.16"
+# Sibling crate in the workspace. We pull it in to re-export the canonical
+# unit catalog (`vle_units::default_units_toml`) through PyO3, so the Python
+# wrapper drives `pint` from the same TOML the Rust registry uses.
+vle-units = { path = "../units" }
 # `abi3-py310` builds against CPython's stable ABI starting at 3.10. One wheel
 # per (OS, arch) then loads cleanly on CPython 3.10, 3.11, 3.12, 3.13 and any
 # future 3.x — no rebuild per Python version. See docs/ci.md and

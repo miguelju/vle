@@ -50,6 +50,17 @@ fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+/// Return the raw TOML text of the canonical unit catalog.
+///
+/// Same bytes that seed `UnitRegistry::with_vle_defaults()` on the Rust
+/// side. The Python `vle.units` module parses this to register gauge units
+/// (barg/psig/kPag), `lbmol`, and `BTU/lbmol` with `pint`, so the two
+/// halves of the stack share a single source of truth for unit constants.
+#[pyfunction]
+fn default_units_toml() -> &'static str {
+    vle_units::default_units_toml()
+}
+
 /// PyO3 module entry point.
 ///
 /// Maturin builds this into `vle/_engine.<platform>.<ext>` and Python
@@ -58,6 +69,7 @@ fn version() -> &'static str {
 #[pymodule]
 fn _engine(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(version, m)?)?;
+    m.add_function(wrap_pyfunction!(default_units_toml, m)?)?;
 
     // The four model-selection enums. Each is `#[pyclass(eq, eq_int)]`
     // at its definition site; here we just register the class with the
