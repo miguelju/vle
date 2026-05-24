@@ -116,11 +116,7 @@ pub fn converged_scalar(new: f64, old: f64, atol: f64, rtol: f64) -> bool {
 ///
 /// # Returns
 /// `Some(x_vertex)` of the fitted parabola, or `None` if degenerate.
-pub fn parabolic_vertex(
-    p0: (f64, f64),
-    p1: (f64, f64),
-    p2: (f64, f64),
-) -> Option<f64> {
+pub fn parabolic_vertex(p0: (f64, f64), p1: (f64, f64), p2: (f64, f64)) -> Option<f64> {
     let (x0, y0) = p0;
     let (x1, y1) = p1;
     let (x2, y2) = p2;
@@ -181,12 +177,8 @@ mod tests {
     fn parabolic_vertex_finds_known_minimum() {
         // y = (x - 2)^2 + 1 — vertex at x = 2.
         let f = |x: f64| (x - 2.0).powi(2) + 1.0;
-        let v = parabolic_vertex(
-            (0.0, f(0.0)),
-            (1.5, f(1.5)),
-            (5.0, f(5.0)),
-        )
-        .expect("non-degenerate parabola");
+        let v = parabolic_vertex((0.0, f(0.0)), (1.5, f(1.5)), (5.0, f(5.0)))
+            .expect("non-degenerate parabola");
         assert!((v - 2.0).abs() < 1e-12, "vertex = {v}, expected 2.0");
     }
 

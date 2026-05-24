@@ -159,7 +159,11 @@ fn molar_entropy_and_volume_and_amount() {
     );
     // Volume: 1 L/mol = 1000 cm³/mol; 1 m³/kmol = 1000 cm³/mol (same as L/mol).
     assert_relative_eq!(r.to_canonical(1.0, "L/mol").unwrap(), 1000.0, epsilon = EPS);
-    assert_relative_eq!(r.to_canonical(1.0, "m^3/kmol").unwrap(), 1000.0, epsilon = EPS);
+    assert_relative_eq!(
+        r.to_canonical(1.0, "m^3/kmol").unwrap(),
+        1000.0,
+        epsilon = EPS
+    );
     // Amount: 1 mol = 1e-3 kmol; 1 lbmol = 0.45359237 kmol
     assert_relative_eq!(r.to_canonical(1.0, "mol").unwrap(), 1e-3, epsilon = EPS);
     assert_relative_eq!(

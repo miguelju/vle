@@ -90,8 +90,7 @@ fn default_units_toml() -> &'static str {
 /// is near zero (not actually a cubic) or any coefficient is non-finite.
 #[pyfunction]
 fn solve_cubic(a: f64, b: f64, c: f64, d: f64) -> PyResult<Vec<f64>> {
-    crate::numerics::cubic::solve_real(a, b, c, d)
-        .map_err(|e| PyValueError::new_err(e.to_string()))
+    crate::numerics::cubic::solve_real(a, b, c, d).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 /// Brent's method scalar root finder on a bracketed interval.
@@ -102,14 +101,7 @@ fn solve_cubic(a: f64, b: f64, c: f64, d: f64) -> PyResult<Vec<f64>> {
 /// inside `f` is re-raised through the Rust solver.
 #[pyfunction]
 #[pyo3(signature = (f, a, b, xtol = 1e-9, max_iter = 100))]
-fn brent(
-    py: Python<'_>,
-    f: PyObject,
-    a: f64,
-    b: f64,
-    xtol: f64,
-    max_iter: usize,
-) -> PyResult<f64> {
+fn brent(py: Python<'_>, f: PyObject, a: f64, b: f64, xtol: f64, max_iter: usize) -> PyResult<f64> {
     let err_cache: RefCell<Option<PyErr>> = RefCell::new(None);
     let result = crate::numerics::root_finding::brent(
         |x| call_scalar_callback(py, &f, x, &err_cache),

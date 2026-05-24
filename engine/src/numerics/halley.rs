@@ -64,7 +64,12 @@ pub enum HalleyError {
 ///
 /// # Returns
 /// The converged root.
-pub fn halley<F>(mut f_and_derivs: F, x0: f64, xtol: f64, max_iter: usize) -> Result<f64, HalleyError>
+pub fn halley<F>(
+    mut f_and_derivs: F,
+    x0: f64,
+    xtol: f64,
+    max_iter: usize,
+) -> Result<f64, HalleyError>
 where
     F: FnMut(f64) -> (f64, f64, f64),
 {
@@ -178,13 +183,7 @@ mod tests {
 
     #[test]
     fn reports_non_finite_evaluation() {
-        let err = halley(
-            |_x: f64| (f64::NAN, 1.0, 1.0),
-            0.0,
-            1e-12,
-            50,
-        )
-        .unwrap_err();
+        let err = halley(|_x: f64| (f64::NAN, 1.0, 1.0), 0.0, 1e-12, 50).unwrap_err();
         assert!(matches!(err, HalleyError::NonFiniteEvaluation { .. }));
     }
 }
