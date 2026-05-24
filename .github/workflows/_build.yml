@@ -73,15 +73,24 @@ jobs:
           restore-keys: |
             cargo-${{ matrix.os }}-${{ matrix.arch }}-
       # Linux self-hosted runs inside the myoung34/github-runner Docker
-      # container, which has python+pip baked into the image. The action's
-      # internal setup-python call works fine there.
-      - name: Build wheel via cibuildwheel (Linux self-hosted)
+      # container, which has python+pip baked into the image. We invoke
+      # cibuildwheel directly (`python3 -m cibuildwheel ...`) instead of
+      # via the `pypa/cibuildwheel` composite action: that action
+      # internally references `actions/setup-python@v5` *by tag* (see
+      # cibuildwheel/action.yml), which the repo-level
+      # `sha_pinning_required: true` policy refuses. Direct invocation
+      # avoids the transitive dep entirely; cibuildwheel itself still
+      # downloads target Pythons under ~/.cibuildwheel and builds
+      # against those, so only the outer Python used to *run*
+      # cibuildwheel changes.
+      - name: Build wheel via cibuildwheel (Linux self-hosted, no composite action)
         if: matrix.os == 'linux'
-        uses: pypa/cibuildwheel@7940a4c0e76eb2030e473a5f864f291f63ee879b  # v2.21.3
-        with:
-          package-dir: python
+        shell: bash
         env:
           CIBW_BUILD_VERBOSITY: 1
+        run: |
+          python3 -m pip install --user 'cibuildwheel==2.21.3'
+          python3 -m cibuildwheel --output-dir wheelhouse python
       # macOS self-hosted bypasses pypa/cibuildwheel's bundled
       # actions/setup-python call. setup-python's macOS install path shells
       # out to `sudo installer -pkg ...` to drop Python.framework into
@@ -92,7 +101,7 @@ jobs:
       # cibuildwheel itself still downloads target Pythons under
       # ~/.cibuildwheel and builds against those, identical to the action's
       # behavior; only the *outer* Python used to run cibuildwheel changes.
-      - name: Build wheel via cibuildwheel (macOS, no setup-python)
+      - name: Build wheel via cibuildwheel (macOS, no composite action)
         if: matrix.os == 'macos'
         shell: bash
         env:
@@ -134,12 +143,24 @@ jobs:
           key: cargo-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
           restore-keys: |
             cargo-${{ matrix.os }}-${{ matrix.arch }}-
-      - name: Build wheel via cibuildwheel
-        uses: pypa/cibuildwheel@7940a4c0e76eb2030e473a5f864f291f63ee879b  # v2.21.3
+      # Hosted runners ship Python on PATH (Ubuntu's `python3`, Windows'
+      # `python`). We pin to actions/setup-python@v6 at a SHA so the
+      # outer cibuildwheel runner is reproducible and visible to the
+      # SHA-pinning policy, then invoke cibuildwheel directly — same
+      # reason as the self-hosted branch above (avoid cibuildwheel's
+      # internal `setup-python@v5` tag reference).
+      - name: Install Python (for the cibuildwheel driver)
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
         with:
-          package-dir: python
+          python-version: "3.12"
+      - name: Build wheel via cibuildwheel (no composite action)
+        shell: bash
         env:
           CIBW_BUILD_VERBOSITY: 1
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'cibuildwheel==2.21.3'
+          python -m cibuildwheel --output-dir wheelhouse python
       - name: Upload wheels artifact
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6
         with:
