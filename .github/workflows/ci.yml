@@ -15,10 +15,33 @@
 name: CI
 
 on:
+  # paths-ignore lists directories whose changes can't affect a Rust
+  # compile, the Python wheel contents, or the test suite — pure
+  # documentation, JupyterLab notebook content, deployment scripts,
+  # and legacy reference sources (VB6 / Pascal — never compiled).
+  # A commit that touches *only* these paths skips CI entirely
+  # (lint + test + wheel-matrix). A commit that touches *any other*
+  # file — including .rs, .py, .toml, Cargo.lock, .github/**, or
+  # scripts/* — still runs the full pipeline. Note: paths-ignore
+  # matches when *every* changed file matches the patterns, so a
+  # mixed-bag commit (e.g. "fix engine bug + update README") still
+  # runs CI.
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'notebooks/**'
+      - 'deploy/**'
+      - 'legacy/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'notebooks/**'
+      - 'deploy/**'
+      - 'legacy/**'
   workflow_dispatch:
 
 permissions:
