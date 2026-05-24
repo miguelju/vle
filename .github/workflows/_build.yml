@@ -50,9 +50,9 @@ jobs:
             arch: arm64
             runs-on: [self-hosted, macos, arm64]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: Cache cargo registry + git
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5
         with:
           path: |
             ~/.cargo/registry
@@ -65,7 +65,7 @@ jobs:
       # internal setup-python call works fine there.
       - name: Build wheel via cibuildwheel (Linux self-hosted)
         if: matrix.os == 'linux'
-        uses: pypa/cibuildwheel@v2.21.3
+        uses: pypa/cibuildwheel@7940a4c0e76eb2030e473a5f864f291f63ee879b  # v2.21.3
         with:
           package-dir: python
         env:
@@ -89,7 +89,7 @@ jobs:
           /usr/bin/python3 -m pip install --user 'cibuildwheel==2.21.3'
           /usr/bin/python3 -m cibuildwheel --output-dir wheelhouse python
       - name: Upload wheels artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6
         with:
           name: wheels-${{ matrix.os }}-${{ matrix.arch }}-${{ inputs.artifact-suffix }}
           path: ./wheelhouse/*.whl
@@ -112,9 +112,9 @@ jobs:
             arch: AMD64
             runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: Cache cargo registry + git
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5
         with:
           path: |
             ~/.cargo/registry
@@ -123,13 +123,13 @@ jobs:
           restore-keys: |
             cargo-${{ matrix.os }}-${{ matrix.arch }}-
       - name: Build wheel via cibuildwheel
-        uses: pypa/cibuildwheel@v2.21.3
+        uses: pypa/cibuildwheel@7940a4c0e76eb2030e473a5f864f291f63ee879b  # v2.21.3
         with:
           package-dir: python
         env:
           CIBW_BUILD_VERBOSITY: 1
       - name: Upload wheels artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6
         with:
           name: wheels-${{ matrix.os }}-${{ matrix.arch }}-${{ inputs.artifact-suffix }}
           path: ./wheelhouse/*.whl
@@ -141,8 +141,8 @@ jobs:
     name: build sdist
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
         with:
           python-version: "3.12"
       - name: Install maturin
@@ -151,7 +151,7 @@ jobs:
         working-directory: python
         run: maturin sdist --out dist
       - name: Upload sdist artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6
         with:
           name: sdist-${{ inputs.artifact-suffix }}
           path: python/dist/*.tar.gz
