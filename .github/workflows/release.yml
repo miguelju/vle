@@ -82,10 +82,72 @@ jobs:
     with:
       artifact-suffix: release
 
-  publish-pypi:
-    name: publish to PyPI
+  # check-already-published runs once after the build job and probes each
+  # downstream registry (PyPI, crates.io for vle-units + vle-thermo, GitHub
+  # Releases) to see whether the current tag is already there. The three
+  # publish jobs and gh-release each read these flags via their `if:` to
+  # skip themselves on re-runs (e.g., when an auto tag-push deploy has
+  # already published and a subsequent `workflow_dispatch full_deploy=true`
+  # is just trying to redo the deploy-sandbox step). Without this the
+  # second run hits 422 "version already exists" on PyPI / "crate already
+  # uploaded" on crates.io, which cascades into deploy-sandbox being
+  # skipped because its `needs:` job failed.
+  #
+  # All probes are read-only HEAD-equivalent requests; no auth needed.
+  # See deploy/local/deploy-notes/milestone-07.md "v0.3.1 deploy
+  # post-mortem" for the original incident.
+  check-already-published:
+    name: check what's already published
     needs: [build]
     if: ${{ inputs.dry_run != true }}
+    runs-on: ubuntu-latest
+    outputs:
+      pypi_published:          ${{ steps.check.outputs.pypi_published }}
+      crates_units_published:  ${{ steps.check.outputs.crates_units_published }}
+      crates_thermo_published: ${{ steps.check.outputs.crates_thermo_published }}
+      release_exists:          ${{ steps.check.outputs.release_exists }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          TAG="${GITHUB_REF_NAME}"
+          echo "Probing for tag=${TAG} version=${VERSION}"
+
+          if curl -sf -o /dev/null "https://pypi.org/pypi/vle-thermo/${VERSION}/json"; then
+            echo "  ✓ vle-thermo ${VERSION} already on PyPI"
+            echo "pypi_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pypi_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if curl -sf -o /dev/null "https://crates.io/api/v1/crates/vle-units/${VERSION}"; then
+            echo "  ✓ vle-units ${VERSION} already on crates.io"
+            echo "crates_units_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "crates_units_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if curl -sf -o /dev/null "https://crates.io/api/v1/crates/vle-thermo/${VERSION}"; then
+            echo "  ✓ vle-thermo ${VERSION} already on crates.io"
+            echo "crates_thermo_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "crates_thermo_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "  ✓ GitHub Release ${TAG} already exists"
+            echo "release_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish-pypi:
+    name: publish to PyPI
+    needs: [build, check-already-published]
+    if: ${{ inputs.dry_run != true && needs.check-already-published.outputs.pypi_published != 'true' }}
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -117,8 +179,14 @@ jobs:
 
   publish-crates:
     name: publish to crates.io
-    needs: [build]
-    if: ${{ inputs.dry_run != true }}
+    needs: [build, check-already-published]
+    # Run the job whenever at least one of the two crates still needs
+    # publishing; each `cargo publish` step is itself guarded so it's a
+    # no-op when that specific crate is already on the registry.
+    if: >-
+      ${{ inputs.dry_run != true
+          && (needs.check-already-published.outputs.crates_units_published != 'true'
+              || needs.check-already-published.outputs.crates_thermo_published != 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
@@ -135,14 +203,20 @@ jobs:
         # vle-units must publish first because vle-thermo depends on it.
         # --no-verify because we already built and tested the wheels in
         # the build job; re-verifying here just slows the release.
+        # Skipped when vle-units at this version is already on crates.io
+        # (the registry rejects duplicates with a non-zero exit, which
+        # would fail the workflow; the check-already-published probe
+        # detects this in advance).
+        if: ${{ needs.check-already-published.outputs.crates_units_published != 'true' }}
         run: cargo publish -p vle-units --no-verify
       - name: cargo publish vle-thermo
+        if: ${{ needs.check-already-published.outputs.crates_thermo_published != 'true' }}
         run: cargo publish -p vle-thermo --no-verify
 
   gh-release:
     name: create GitHub Release
-    needs: [build]
-    if: ${{ inputs.dry_run != true }}
+    needs: [build, check-already-published]
+    if: ${{ inputs.dry_run != true && needs.check-already-published.outputs.release_exists != 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write   # for softprops/action-gh-release to create the release
@@ -169,11 +243,22 @@ jobs:
   deploy-sandbox:
     name: deploy sandbox (rocky + Oracle)
     needs: [publish-pypi, publish-crates, gh-release]
-    # Skip in dry-run: deploy-sandbox needs a real git tag on origin to check
-    # out, and workflow_dispatch from main has no such tag. SSH/force-command
-    # plumbing was already validated by the install-{rocky,oracle}.sh smoke
-    # tests on 2026-05-21, so dry-run safely omits this job.
-    if: ${{ inputs.dry_run != true }}
+    # Run deploy-sandbox whenever a real release is happening (`dry_run !=
+    # true`) AND no upstream job actually failed. We deliberately use
+    # `!failure() && !cancelled()` instead of the implicit `success()` so a
+    # *skipped* publish job (e.g. version was already on PyPI / crates.io,
+    # see check-already-published) doesn't drag deploy-sandbox down with it.
+    # That's what enables `gh workflow run release.yml -f full_deploy=true
+    # --ref vX.Y.Z` to redo just the deploy half against an already-published
+    # tag — which is the canonical recovery path documented in
+    # deploy/local/deploy-notes/milestone-07.md.
+    #
+    # Also skipped in dry-run: deploy-sandbox needs a real git tag on origin
+    # to check out, and workflow_dispatch from `main` has no such tag.
+    # SSH/force-command plumbing was already validated by the
+    # install-{rocky,oracle}.sh smoke tests on 2026-05-21, so dry-run safely
+    # omits this job.
+    if: ${{ inputs.dry_run != true && !failure() && !cancelled() }}
     # Self-hosted runner that lives permanently on the tailnet (CT 105,
     # tag:vle-runner). Has direct LAN access to rocky and tailnet access to
     # Oracle, so no per-job Tailscale join is needed.
