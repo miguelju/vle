@@ -188,6 +188,15 @@ jobs:
           && (needs.check-already-published.outputs.crates_units_published != 'true'
               || needs.check-already-published.outputs.crates_thermo_published != 'true') }}
     runs-on: ubuntu-latest
+    # The `crates-io` GitHub Environment is configured with Miguel as a
+    # required reviewer (Settings → Environments → crates-io). Every
+    # crate publish therefore pauses for a human click in the Actions UI
+    # before running `cargo publish`. crates.io versions are *immutable*
+    # — once uploaded, a typoed version number is permanent — so this
+    # gate is the last chance to catch a wrong version.
+    environment:
+      name: crates-io
+      url: https://crates.io/crates/vle-thermo
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: Install stable Rust
