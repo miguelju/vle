@@ -101,9 +101,9 @@ Sliced into three execution batches: **M6.1** (scalar solvers + utils + bindings
 - [x] **PyO3 bindings for the M6.1 surface** (~1–2h) — `solve_cubic`, `brent`, `illinois`, `halley`, `sum_frac_residual`, `norm_l1/l2/linf` exposed in `vle._engine`; Python-callback exceptions re-raised through the Rust solvers via a `RefCell<Option<PyErr>>` cache pattern
 - [x] **Write numerical method tests** (~2–3h) — 28 Rust unit tests under `engine/src/numerics/` + 20 Python binding tests under `python/tests/test_numerics.py`
 
-### M6.2 — Broyden quasi-Newton (pending)
+### M6.2 — Broyden quasi-Newton (done)
 
-- [ ] **Implement Broyden quasi-Newton** (~3–4h) — rank-1 Jacobian update, periodic full refresh every K=5 steps, stall detection fallback; lands in `engine/src/numerics/broyden.rs`. Includes PyO3 binding + tests per the M5+ rule.
+- [x] **Implement Broyden quasi-Newton** (~3–4h) — rank-1 Jacobian update, periodic full refresh every K=5 steps via finite differences, stall detection (emergency refresh on near-zero `Δx·Δx`); `engine/src/numerics/broyden.rs`. Uses `nalgebra::DMatrix` for J and LU re-factorization per step. Includes `BroydenConfig` for tunable tolerances/cadence/FD step. PyO3 binding (`vle._engine.broyden`) preserves Python tracebacks across the FFI boundary via the same `RefCell<Option<PyErr>>` cache pattern as M6.1's brent/illinois/halley. 8 Rust unit tests + 7 Python binding tests.
 
 ### M6.3 — Notebook + deploy + tag (pending)
 

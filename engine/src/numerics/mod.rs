@@ -23,6 +23,9 @@
 //! - [`halley`] — Halley's method (cubic convergence) for scalar equations
 //!   where you have analytical first and second derivatives. Used in
 //!   Rachford-Rice (M9).
+//! - [`broyden`] — Broyden's "good" quasi-Newton method for multi-variable
+//!   systems `F(x) = 0`. Rank-1 Jacobian update + periodic finite-difference
+//!   refresh. Used by the flash and bubble/dew-point iterations in M9.
 //!
 //! ## Conventions
 //!
@@ -39,6 +42,7 @@
 //!   the call site, where the caller knows the physical scale of the
 //!   variable being solved for.
 
+pub mod broyden;
 pub mod cubic;
 pub mod halley;
 pub mod root_finding;

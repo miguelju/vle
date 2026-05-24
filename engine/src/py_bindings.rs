@@ -184,6 +184,72 @@ fn halley(
     result.map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }
 
+/// Broyden's "good" quasi-Newton method for `F(x) = 0` with `F: ℝⁿ → ℝⁿ`.
+///
+/// `f(x)` must accept a sequence of `n` floats and return a sequence of
+/// `n` floats. `x0` sets the problem size. Tolerances and refresh
+/// cadence default to engineering values (xtol=ftol=1e-8, max_iter=100,
+/// refresh_every=5, fd_step=1e-7); tighten via the keyword args when
+/// you need it.
+///
+/// Raises `ValueError` for input-shape problems and `RuntimeError` for
+/// convergence/singular-Jacobian failures. Python exceptions raised
+/// inside `f` re-raise verbatim through the Rust solver.
+#[pyfunction]
+#[pyo3(signature = (f, x0, xtol = 1e-8, ftol = 1e-8, max_iter = 100, refresh_every = 5, fd_step = 1e-7))]
+#[allow(clippy::too_many_arguments)]
+fn broyden(
+    py: Python<'_>,
+    f: PyObject,
+    x0: Vec<f64>,
+    xtol: f64,
+    ftol: f64,
+    max_iter: usize,
+    refresh_every: usize,
+    fd_step: f64,
+) -> PyResult<Vec<f64>> {
+    let cfg = crate::numerics::broyden::BroydenConfig {
+        xtol,
+        ftol,
+        max_iter,
+        refresh_every,
+        fd_step,
+    };
+    // Cache the first Python exception so the Rust solver can keep
+    // running on a "NaN cycle" of empty residuals, then we re-raise
+    // the original traceback after the solver returns. Matches the
+    // pattern used by brent / illinois / halley above.
+    let err_cache: RefCell<Option<PyErr>> = RefCell::new(None);
+    let result = crate::numerics::broyden::broyden(
+        |x| match f
+            .call1(py, (x.to_vec(),))
+            .and_then(|r| r.extract::<Vec<f64>>(py))
+        {
+            Ok(v) => v,
+            Err(e) => {
+                if err_cache.borrow().is_none() {
+                    *err_cache.borrow_mut() = Some(e);
+                }
+                // Return a NaN vector of the right length so the Rust
+                // solver hits NonFiniteEvaluation on the very next
+                // check and exits cleanly.
+                vec![f64::NAN; x.len()]
+            }
+        },
+        &x0,
+        cfg,
+    );
+    if let Some(e) = err_cache.into_inner() {
+        return Err(e);
+    }
+    result.map_err(|e| match e {
+        crate::numerics::broyden::BroydenError::DimensionMismatch { .. } => {
+            PyValueError::new_err(e.to_string())
+        }
+        _ => PyRuntimeError::new_err(e.to_string()),
+    })
+}
+
 /// Helper for the scalar-callback solvers: call into Python, extract
 /// f64, cache the first error and return NaN so the Rust solver fails
 /// fast with `NanEvaluation`.
@@ -249,6 +315,7 @@ fn _engine(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(brent, m)?)?;
     m.add_function(wrap_pyfunction!(illinois, m)?)?;
     m.add_function(wrap_pyfunction!(halley, m)?)?;
+    m.add_function(wrap_pyfunction!(broyden, m)?)?;
     m.add_function(wrap_pyfunction!(sum_frac_residual, m)?)?;
     m.add_function(wrap_pyfunction!(norm_l1, m)?)?;
     m.add_function(wrap_pyfunction!(norm_l2, m)?)?;

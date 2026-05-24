@@ -1,4 +1,4 @@
-"""Tests for the M6.1 numerics bindings exposed via ``vle._engine``.
+"""Tests for the M6 numerics bindings exposed via ``vle._engine``.
 
 Each algorithm has its own Rust unit tests in engine/src/numerics/; the
 tests below confirm the *binding layer* is wired correctly — the wheel
@@ -14,6 +14,7 @@ import pytest
 
 from vle._engine import (
     brent,
+    broyden,
     halley,
     illinois,
     norm_l1,
@@ -132,6 +133,97 @@ def test_halley_propagates_python_callback_exception():
 
     with pytest.raises(CallbackBoom, match="derivs failed"):
         halley(bad, 1.0, 1e-12, 50)
+
+
+# ─────────────────────────── Broyden (M6.2) ─────────────────────────────
+
+
+def test_broyden_solves_2x2_polynomial():
+    """x² + y² = 2, x·y = 1 → root (1, 1)."""
+
+    def f(v):
+        x, y = v
+        return [x * x + y * y - 2.0, x * y - 1.0]
+
+    root = broyden(f, [0.5, 1.5], xtol=1e-14, ftol=1e-14)
+    assert root[0] == pytest.approx(1.0, abs=1e-6)
+    assert root[1] == pytest.approx(1.0, abs=1e-6)
+
+
+def test_broyden_solves_linear_system():
+    """Linear system → Broyden's rank-1 update converges in ~1 step."""
+
+    # A·x = b → F(x) = A·x − b. A = [[2,1,0],[1,3,1],[0,1,2]], b = [3,5,3]
+    # Solution: x = [1, 1, 1].
+    def f(v):
+        return [
+            2.0 * v[0] + v[1] - 3.0,
+            v[0] + 3.0 * v[1] + v[2] - 5.0,
+            v[1] + 2.0 * v[2] - 3.0,
+        ]
+
+    root = broyden(f, [0.0, 0.0, 0.0])
+    for r in root:
+        assert r == pytest.approx(1.0, abs=1e-7)
+
+
+def test_broyden_uses_default_tolerances():
+    """Defaults (xtol=ftol=1e-8, max_iter=100, refresh_every=5) work for
+    the 2x2 polynomial system without any explicit kwargs."""
+
+    def f(v):
+        x, y = v
+        return [x * x + y * y - 2.0, x * y - 1.0]
+
+    root = broyden(f, [0.5, 1.5])
+    # Looser tol because default ftol=1e-8 admits ~5e-5 offset on x near (1,1)
+    assert root[0] == pytest.approx(1.0, abs=1e-3)
+    assert root[1] == pytest.approx(1.0, abs=1e-3)
+
+
+def test_broyden_detects_dimension_mismatch():
+    """F returning the wrong length → ValueError, not silent corruption."""
+
+    def f(_v):
+        return [1.0, 2.0, 3.0]  # length 3 from a 2-element x0
+
+    with pytest.raises(ValueError, match="length 3, expected 2"):
+        broyden(f, [0.0, 0.0])
+
+
+def test_broyden_detects_singular_jacobian():
+    """Initial Jacobian rank-deficient → RuntimeError mentioning singular."""
+
+    def f(v):
+        s = v[0] + v[1]
+        return [s - 1.0, 2.0 * s - 2.0]  # second eq is 2× the first
+
+    with pytest.raises(RuntimeError, match="singular"):
+        broyden(f, [0.0, 0.0])
+
+
+def test_broyden_reports_non_convergence():
+    """Tight iteration cap on a non-trivial problem → RuntimeError."""
+
+    def f(v):
+        x, y = v
+        return [math.exp(x) + y - 2.0, x + math.exp(y) - 2.0]
+
+    with pytest.raises(RuntimeError, match="did not converge"):
+        broyden(f, [2.0, 2.0], max_iter=3)
+
+
+def test_broyden_propagates_python_callback_exception():
+    """Exception raised inside the residual function re-raises verbatim."""
+
+    class CallbackBoom(Exception):
+        pass
+
+    def bad(_v):
+        raise CallbackBoom("residual evaluation failed")
+
+    with pytest.raises(CallbackBoom, match="residual evaluation failed"):
+        broyden(bad, [0.5, 0.5])
 
 
 # ─────────────────────────── utility helpers ────────────────────────────
