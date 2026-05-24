@@ -230,8 +230,12 @@ pub fn ln_phi_mix_virial(
     let bmix = b_mix(components, mole_fractions, t)?;
     let factor = p / (1000.0 * R_GAS * t);
     let mut out = Vec::with_capacity(n);
-    for i in 0..n {
-        let sum_j: f64 = (0..n).map(|j| mole_fractions[j] * mat[i][j]).sum();
+    for row in &mat {
+        let sum_j: f64 = row
+            .iter()
+            .zip(mole_fractions.iter())
+            .map(|(b_ij, x_j)| b_ij * x_j)
+            .sum();
         out.push(factor * (2.0 * sum_j - bmix));
     }
     Ok(out)

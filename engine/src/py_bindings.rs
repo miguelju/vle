@@ -45,14 +45,14 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
 use crate::eos::{
-    alpha as eos_alpha_rs, d_alpha_d_tr as eos_d_alpha_rs, family_constants, h_departure_rt,
-    ln_phi_pure, s_departure_r, z_factor, CubicEos, EosError, PhaseId,
+    CubicEos, EosError, PhaseId, alpha as eos_alpha_rs, d_alpha_d_tr as eos_d_alpha_rs,
+    family_constants, h_departure_rt, ln_phi_pure, s_departure_r, z_factor,
 };
-use crate::saturation::{d_psat_dt_antoine, psat_antoine, SatError};
+use crate::saturation::{SatError, d_psat_dt_antoine, psat_antoine};
 use crate::types::Component;
 use crate::virial::{
-    b_mix as virial_b_mix, h_departure_rt_virial, ln_phi_mix_virial, ln_phi_pure_virial,
-    pitzer_b, pitzer_b0, pitzer_b1, pitzer_d_b_d_t, s_departure_r_virial, z_factor_virial,
+    b_mix as virial_b_mix, h_departure_rt_virial, ln_phi_mix_virial, ln_phi_pure_virial, pitzer_b,
+    pitzer_b0, pitzer_b1, pitzer_d_b_d_t, s_departure_r_virial, z_factor_virial,
 };
 
 /// Return the engine crate's version string (matches `Cargo.toml`).
@@ -552,7 +552,9 @@ fn virial_b_mix_py(
             "tcs, pcs, omegas, mole_fractions must all have the same length",
         ));
     }
-    let comps: Vec<Component> = (0..n).map(|i| comp_for_eos(tcs[i], pcs[i], omegas[i])).collect();
+    let comps: Vec<Component> = (0..n)
+        .map(|i| comp_for_eos(tcs[i], pcs[i], omegas[i]))
+        .collect();
     virial_b_mix(&comps, &mole_fractions, t).map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }
 
@@ -574,7 +576,9 @@ fn virial_ln_phi_mix(
             "tcs, pcs, omegas, mole_fractions must all have the same length",
         ));
     }
-    let comps: Vec<Component> = (0..n).map(|i| comp_for_eos(tcs[i], pcs[i], omegas[i])).collect();
+    let comps: Vec<Component> = (0..n)
+        .map(|i| comp_for_eos(tcs[i], pcs[i], omegas[i]))
+        .collect();
     ln_phi_mix_virial(&comps, &mole_fractions, t, p)
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }

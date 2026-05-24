@@ -178,7 +178,7 @@ pub enum PhaseId {
 // with a = OmA · R²·Tc²/Pc and b = OmB · R·Tc/Pc.
 // ===========================================================================
 
-use crate::numerics::cubic::{solve_real, CubicError};
+use crate::numerics::cubic::{CubicError, solve_real};
 use crate::types::Component;
 use thiserror::Error;
 
@@ -364,16 +364,10 @@ pub fn d_alpha_d_tr(eos: CubicEos, tr: f64, comp: &Component) -> f64 {
         Berth1899 | VdWAda1984 | RKSGD1978 | RKSL1997 | RP1978 | PRL1997 | VdWVald1989
         | RKSmn1980 | RKSATmn1995 | PRATmng1997 | PRMmn1989 | PRSV1986 | VdWOL1998 | RKOL1998
         | PROL1998 => {
-            unimplemented!(
-                "M7.2 deferred: d_alpha_d_tr({:?}) not yet ported",
-                eos
-            )
+            unimplemented!("M7.2 deferred: d_alpha_d_tr({:?}) not yet ported", eos)
         }
         SchmidtWenzel | PatelTeja | PatelTejaUSB => {
-            unimplemented!(
-                "M7.3 deferred: 3-param EOS {:?} not yet ported",
-                eos
-            )
+            unimplemented!("M7.3 deferred: 3-param EOS {:?} not yet ported", eos)
         }
     }
 }
@@ -610,7 +604,7 @@ mod tests {
         Component {
             name: "methane".into(),
             tc: 190.564,
-            pc: 4599.0,   // kPa
+            pc: 4599.0, // kPa
             omega: 0.0115,
             ..Component::default()
         }
@@ -720,7 +714,11 @@ mod tests {
         let z_v = z_factor(CubicEos::PR1976, 300.0, 5000.0, &c, PhaseId::Vapor).unwrap();
         // Z should be < 1 (attractive forces dominate at moderate pressure).
         // For methane at 300 K and 5 MPa, Z ≈ 0.91 with PR.
-        assert!(z_v > 0.8 && z_v < 1.05, "Z(vapor) = {} not in plausible range", z_v);
+        assert!(
+            z_v > 0.8 && z_v < 1.05,
+            "Z(vapor) = {} not in plausible range",
+            z_v
+        );
     }
 
     #[test]
@@ -731,12 +729,7 @@ mod tests {
         let c = n_pentane();
         let z_l = z_factor(CubicEos::PR1976, 400.0, 1500.0, &c, PhaseId::Liquid).unwrap();
         let z_v = z_factor(CubicEos::PR1976, 400.0, 1500.0, &c, PhaseId::Vapor).unwrap();
-        assert!(
-            z_l < z_v,
-            "expected Z_liquid={} < Z_vapor={}",
-            z_l,
-            z_v
-        );
+        assert!(z_l < z_v, "expected Z_liquid={} < Z_vapor={}", z_l, z_v);
         assert!(z_l < 0.1, "liquid Z should be small, got {}", z_l);
         assert!(z_v > 0.5, "vapor Z should be > 0.5, got {}", z_v);
     }
