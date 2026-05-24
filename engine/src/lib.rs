@@ -83,6 +83,7 @@
 pub mod activity;
 pub mod eos;
 pub mod mixing;
+pub mod numerics;
 pub mod saturation;
 pub mod types;
 

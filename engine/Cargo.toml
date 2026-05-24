@@ -23,6 +23,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 nalgebra = "0.33"
 ndarray = "0.16"
+thiserror = "1"
 # Sibling crate in the workspace. We pull it in to re-export the canonical
 # unit catalog (`vle_units::default_units_toml`) through PyO3, so the Python
 # wrapper drives `pint` from the same TOML the Rust registry uses.

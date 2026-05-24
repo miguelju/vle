@@ -39,6 +39,9 @@
 //! The CI matrix exercises every wheel via `pytest`, so a missing binding
 //! is a hard failure — not a code-review oversight.
 
+use std::cell::RefCell;
+
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
 /// Return the engine crate's version string (matches `Cargo.toml`).
@@ -61,6 +64,184 @@ fn default_units_toml() -> &'static str {
     vle_units::default_units_toml()
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// M6.1 — numerics bindings.
+//
+// All four solvers + the small utility surface are exposed under flat
+// names (no `numerics.` prefix on the Python side) so user code reads
+// like `from vle._engine import brent, solve_cubic, halley`. The
+// higher-level `vle` Python wrapper can re-export these into more
+// pythonic submodules later (`vle.numerics.brent` etc.) without
+// changing the binding shape.
+//
+// The three callback-taking functions (brent, illinois, halley) follow
+// the same pattern: cache any Python error raised inside the callback
+// in a RefCell, return NaN to the Rust solver (which handles NaN
+// gracefully via its `NanEvaluation` / `NonFiniteEvaluation` error
+// variants), then re-raise the original Python error after the solver
+// returns. This preserves Python tracebacks across the FFI boundary
+// instead of collapsing them into a generic Rust error message.
+// ──────────────────────────────────────────────────────────────────────
+
+/// Solve `a·x³ + b·x² + c·x + d = 0` over the reals.
+///
+/// Returns a list of every real root in ascending order — 1, 2, or 3
+/// entries depending on the discriminant. Raises `ValueError` if `a`
+/// is near zero (not actually a cubic) or any coefficient is non-finite.
+#[pyfunction]
+fn solve_cubic(a: f64, b: f64, c: f64, d: f64) -> PyResult<Vec<f64>> {
+    crate::numerics::cubic::solve_real(a, b, c, d)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// Brent's method scalar root finder on a bracketed interval.
+///
+/// `f(a)` and `f(b)` must have opposite signs. Returns the root in
+/// `[a, b]`. Raises `RuntimeError` if the bracket is invalid, the
+/// iteration limit is hit, or `f` returns NaN. Any exception raised
+/// inside `f` is re-raised through the Rust solver.
+#[pyfunction]
+#[pyo3(signature = (f, a, b, xtol = 1e-9, max_iter = 100))]
+fn brent(
+    py: Python<'_>,
+    f: PyObject,
+    a: f64,
+    b: f64,
+    xtol: f64,
+    max_iter: usize,
+) -> PyResult<f64> {
+    let err_cache: RefCell<Option<PyErr>> = RefCell::new(None);
+    let result = crate::numerics::root_finding::brent(
+        |x| call_scalar_callback(py, &f, x, &err_cache),
+        a,
+        b,
+        xtol,
+        max_iter,
+    );
+    if let Some(e) = err_cache.into_inner() {
+        return Err(e);
+    }
+    result.map_err(|e| PyRuntimeError::new_err(e.to_string()))
+}
+
+/// Illinois algorithm (modified Regula Falsi) scalar root finder.
+///
+/// Lighter-weight alternative to [`brent`]: predictable per-iteration
+/// cost, slightly slower convergence. Same bracketing requirement and
+/// error semantics.
+#[pyfunction]
+#[pyo3(signature = (f, a, b, xtol = 1e-9, max_iter = 100))]
+fn illinois(
+    py: Python<'_>,
+    f: PyObject,
+    a: f64,
+    b: f64,
+    xtol: f64,
+    max_iter: usize,
+) -> PyResult<f64> {
+    let err_cache: RefCell<Option<PyErr>> = RefCell::new(None);
+    let result = crate::numerics::root_finding::illinois(
+        |x| call_scalar_callback(py, &f, x, &err_cache),
+        a,
+        b,
+        xtol,
+        max_iter,
+    );
+    if let Some(e) = err_cache.into_inner() {
+        return Err(e);
+    }
+    result.map_err(|e| PyRuntimeError::new_err(e.to_string()))
+}
+
+/// Halley's method scalar root finder (cubic convergence).
+///
+/// `f_and_derivs(x)` must return a 3-tuple `(f, f', f'')`. Not
+/// bracketed — caller is responsible for a good initial guess `x0`.
+/// Raises `RuntimeError` on non-convergence, singular step, or
+/// non-finite evaluation.
+#[pyfunction]
+#[pyo3(signature = (f_and_derivs, x0, xtol = 1e-12, max_iter = 50))]
+fn halley(
+    py: Python<'_>,
+    f_and_derivs: PyObject,
+    x0: f64,
+    xtol: f64,
+    max_iter: usize,
+) -> PyResult<f64> {
+    let err_cache: RefCell<Option<PyErr>> = RefCell::new(None);
+    let result = crate::numerics::halley::halley(
+        |x| match f_and_derivs
+            .call1(py, (x,))
+            .and_then(|r| r.extract::<(f64, f64, f64)>(py))
+        {
+            Ok(triple) => triple,
+            Err(e) => {
+                if err_cache.borrow().is_none() {
+                    *err_cache.borrow_mut() = Some(e);
+                }
+                (f64::NAN, f64::NAN, f64::NAN)
+            }
+        },
+        x0,
+        xtol,
+        max_iter,
+    );
+    if let Some(e) = err_cache.into_inner() {
+        return Err(e);
+    }
+    result.map_err(|e| PyRuntimeError::new_err(e.to_string()))
+}
+
+/// Helper for the scalar-callback solvers: call into Python, extract
+/// f64, cache the first error and return NaN so the Rust solver fails
+/// fast with `NanEvaluation`.
+fn call_scalar_callback(
+    py: Python<'_>,
+    f: &PyObject,
+    x: f64,
+    err_cache: &RefCell<Option<PyErr>>,
+) -> f64 {
+    // Short-circuit subsequent calls once an error is pending — saves
+    // wasted Python-call work while we wait for the Rust loop to exit.
+    if err_cache.borrow().is_some() {
+        return f64::NAN;
+    }
+    match f.call1(py, (x,)).and_then(|r| r.extract::<f64>(py)) {
+        Ok(v) => v,
+        Err(e) => {
+            *err_cache.borrow_mut() = Some(e);
+            f64::NAN
+        }
+    }
+}
+
+// ---- Utility functions ----------------------------------------------
+
+/// Compute `1 - sum(xs)`. Used as the Rachford-Rice / bubble-point
+/// composition-closure residual.
+#[pyfunction]
+fn sum_frac_residual(xs: Vec<f64>) -> f64 {
+    crate::numerics::utils::sum_frac_residual(&xs)
+}
+
+/// L1 (sum-of-absolutes) norm of a vector.
+#[pyfunction]
+fn norm_l1(xs: Vec<f64>) -> f64 {
+    crate::numerics::utils::norm_l1(&xs)
+}
+
+/// L2 (Euclidean) norm of a vector.
+#[pyfunction]
+fn norm_l2(xs: Vec<f64>) -> f64 {
+    crate::numerics::utils::norm_l2(&xs)
+}
+
+/// L∞ (max-of-absolutes) norm of a vector.
+#[pyfunction]
+fn norm_linf(xs: Vec<f64>) -> f64 {
+    crate::numerics::utils::norm_linf(&xs)
+}
+
 /// PyO3 module entry point.
 ///
 /// Maturin builds this into `vle/_engine.<platform>.<ext>` and Python
@@ -70,6 +251,16 @@ fn default_units_toml() -> &'static str {
 fn _engine(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(default_units_toml, m)?)?;
+
+    // M6.1 numerics — solvers + utility functions.
+    m.add_function(wrap_pyfunction!(solve_cubic, m)?)?;
+    m.add_function(wrap_pyfunction!(brent, m)?)?;
+    m.add_function(wrap_pyfunction!(illinois, m)?)?;
+    m.add_function(wrap_pyfunction!(halley, m)?)?;
+    m.add_function(wrap_pyfunction!(sum_frac_residual, m)?)?;
+    m.add_function(wrap_pyfunction!(norm_l1, m)?)?;
+    m.add_function(wrap_pyfunction!(norm_l2, m)?)?;
+    m.add_function(wrap_pyfunction!(norm_linf, m)?)?;
 
     // The four model-selection enums. Each is `#[pyclass(eq, eq_int)]`
     // at its definition site; here we just register the class with the
