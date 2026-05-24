@@ -50,9 +50,9 @@ jobs:
             arch: arm64
             runs-on: [self-hosted, macos, arm64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Cache cargo registry + git
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -89,7 +89,7 @@ jobs:
           /usr/bin/python3 -m pip install --user 'cibuildwheel==2.21.3'
           /usr/bin/python3 -m cibuildwheel --output-dir wheelhouse python
       - name: Upload wheels artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wheels-${{ matrix.os }}-${{ matrix.arch }}-${{ inputs.artifact-suffix }}
           path: ./wheelhouse/*.whl
@@ -112,9 +112,9 @@ jobs:
             arch: AMD64
             runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Cache cargo registry + git
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -129,7 +129,7 @@ jobs:
         env:
           CIBW_BUILD_VERBOSITY: 1
       - name: Upload wheels artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wheels-${{ matrix.os }}-${{ matrix.arch }}-${{ inputs.artifact-suffix }}
           path: ./wheelhouse/*.whl
@@ -141,8 +141,8 @@ jobs:
     name: build sdist
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install maturin
@@ -151,7 +151,7 @@ jobs:
         working-directory: python
         run: maturin sdist --out dist
       - name: Upload sdist artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sdist-${{ inputs.artifact-suffix }}
           path: python/dist/*.tar.gz

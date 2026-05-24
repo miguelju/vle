@@ -105,12 +105,13 @@ Sliced into three execution batches: **M6.1** (scalar solvers + utils + bindings
 
 - [x] **Implement Broyden quasi-Newton** (~3–4h) — rank-1 Jacobian update, periodic full refresh every K=5 steps via finite differences, stall detection (emergency refresh on near-zero `Δx·Δx`); `engine/src/numerics/broyden.rs`. Uses `nalgebra::DMatrix` for J and LU re-factorization per step. Includes `BroydenConfig` for tunable tolerances/cadence/FD step. PyO3 binding (`vle._engine.broyden`) preserves Python tracebacks across the FFI boundary via the same `RefCell<Option<PyErr>>` cache pattern as M6.1's brent/illinois/halley. 8 Rust unit tests + 7 Python binding tests.
 
-### M6.3 — Notebook + deploy + tag (pending)
+### M6.3 — Notebook + deploy + tag (done modulo the tag push)
 
-- [ ] **Create milestone notebook** (~2–3h) — `notebooks/m06_numerics.ipynb` per CLAUDE.md *Notebook Conventions*: MODERNIZATION_PLAN §A–§H snippets, convergence plots comparing Brent / Illinois / Broyden / Halley vs. legacy Regula Falsi, ≥2 user exercises (e.g. "solve a custom cubic with Cardano")
-- [ ] **Update public deploy docs** (~0.5h) — `deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`
-- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-06.md`
-- [ ] **Tag a release** (~0.3h) — `v0.2.0`: CI auto-publishes to PyPI + crates.io; `deploy-sandbox` runs the notebooks-only fast path on tag, full image rebuild stays manual via `workflow_dispatch` + `full_deploy=true`
+- [x] **Create milestone notebook** (~2–3h) — `notebooks/m06_numerics.ipynb` (23 cells, 7 code cells). Generator at `scripts/build_notebook_m06.py`. Walks Cardano on a Z-factor-style cubic, Brent vs. Illinois iteration-count plot, Halley vs. Newton convergence comparison, Broyden on a 2-equation nonlinear system, plus 2 collapsible-solution exercises. Executes top-to-bottom in a fresh kernel.
+- [x] **Update public deploy docs** (~0.5h) — No public-doc deltas required for M6 (no new env vars, no new services). `deploy/NOTEBOOKS.md` catalogue already listed `m06_numerics.ipynb`.
+- [x] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-06.md` (gitignored) with the two-mode deploy steps for the v0.2.0 release.
+- [x] **Bump GitHub Actions to Node-24 versions** *(side task, folded into M6.3)* — `actions/{checkout,cache,setup-python,upload-artifact,download-artifact}` bumped to their latest majors. Self-hosted runners may need a ≥ 2.327.1 update before the next CI run.
+- [ ] **Tag a release** (~0.3h) — `v0.2.0`: CI auto-publishes to PyPI + crates.io; `deploy-sandbox` runs the notebooks-only fast path on tag, full image rebuild stays manual via `workflow_dispatch` + `full_deploy=true`. **Pending operator approval — first release that exercises the two-mode deploy split end-to-end.**
 
 ## Milestone 7: Pure Component Models
 

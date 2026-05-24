@@ -87,13 +87,13 @@ jobs:
       id-token: write   # OIDC for PyPI Trusted Publishing
     steps:
       - name: Download all wheel + sdist artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           path: dist
           pattern: "wheels-*-release"
           merge-multiple: true
       - name: Download sdist artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: sdist-release
           path: dist
@@ -114,7 +114,7 @@ jobs:
     if: ${{ inputs.dry_run != true }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Load crates.io token from 1Password
@@ -141,7 +141,7 @@ jobs:
       contents: write   # for softprops/action-gh-release to create the release
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           path: artifacts
       - name: Flatten artifacts into a single dist/ dir
