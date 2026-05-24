@@ -72,6 +72,22 @@ elif ! "${INDEX_PY}" scripts/build_index.py; then
   echo "  ! build_index.py failed — falling back to committed index.ipynb"
 fi
 
+# -------- Stamp notebook version marker --------
+# The per-user seed-user-home.sh (NOTEBOOK-VERSION-RESEED-v1 sentinel) compares
+# /opt/vle/notebooks/.notebook-version inside the spawned container against
+# ~/work/notebooks/.notebook-version in the user volume, and re-seeds every
+# managed .ipynb on mismatch. The notebooks-only fast path
+# (deploy-notebooks.sh) stamps this file too; we mirror that here so a full
+# `deploy.sh` rebuild leaves no gap. Without this step the rebuilt image ships
+# no version marker, the `if [[ -f ${BUNDLED_VER_FILE} ]]` guard in the seed
+# script falls through, and existing users never receive new bundled notebooks.
+# (Hit on the v0.3.1 deploy on 2026-05-24 — see deploy/local/deploy-notes/
+# milestone-07.md "Outcome" section.)
+VLE_TAG="$(git describe --tags --exact-match 2>/dev/null \
+  || git rev-parse --short HEAD)"
+echo "==> Stamping notebooks/.notebook-version = ${VLE_TAG}"
+printf '%s\n' "${VLE_TAG}" > notebooks/.notebook-version
+
 # -------- Build images --------
 echo "==> Building notebook image (profile=build-only)${BUILD_FLAGS:+ $BUILD_FLAGS}"
 ( cd "${COMPOSE_DIR}" \
@@ -80,6 +96,30 @@ echo "==> Building notebook image (profile=build-only)${BUILD_FLAGS:+ $BUILD_FLA
 echo "==> Building hub image${BUILD_FLAGS:+ $BUILD_FLAGS}"
 ( cd "${COMPOSE_DIR}" \
   && docker compose --env-file "${ENV_FILE}" "${COMPOSE_PROFILES[@]}" build ${BUILD_FLAGS} )
+
+# -------- Force stale per-user containers to be recreated --------
+# DockerSpawner reuses an existing per-user container across spawns by default
+# (`remove=False`). After we rebuild `vle-notebook:latest`, those existing
+# containers are still pinned to the *old* image — even a "Stop My Server" +
+# "Start My Server" only restarts them, never recreates. So the new image
+# (with updated seed script, .notebook-version marker, and notebook content)
+# never gets used until each container is explicitly removed.
+#
+# We remove every container whose image is `vle-notebook:latest`. The user
+# volumes (`vle-user-<email>`) are *not* touched — they live independently
+# of the container lifecycle, so user-created notebooks survive. The next
+# spawn for each affected user creates a fresh container from the new image
+# and the seed-user-home.sh's version-marker re-seed picks up any new
+# bundled notebooks.
+echo "==> Force-removing stale per-user containers on vle-notebook:latest"
+STALE_CONTAINERS="$(docker ps -aq --filter ancestor=vle-notebook:latest)"
+if [[ -n "${STALE_CONTAINERS}" ]]; then
+  # shellcheck disable=SC2086
+  docker rm -f ${STALE_CONTAINERS} >/dev/null
+  echo "  removed $(echo "${STALE_CONTAINERS}" | wc -w | tr -d ' ') container(s)"
+else
+  echo "  none found (fresh install or no users have spawned yet)"
+fi
 
 # -------- Restart stack --------
 echo "==> Starting / updating stack"

@@ -124,7 +124,17 @@ c.DockerSpawner.image = NOTEBOOK_IMAGE
 c.DockerSpawner.network_name = DOCKER_NETWORK
 c.DockerSpawner.mem_limit = MEM_LIMIT
 c.DockerSpawner.cpu_limit = CPU_LIMIT
-c.DockerSpawner.remove = False
+# Destroy the per-user container on stop (idle culler, "Stop My Server",
+# JupyterHub restart). The user's persistent volume `vle-user-{username}` is
+# *not* touched — that's what holds their `Untitled.ipynb` and any work in
+# ~/work, and it survives independently of the container lifecycle. With
+# `remove=True`, every "Start My Server" creates a fresh container from
+# whatever the current `NOTEBOOK_IMAGE` is, so a `deploy.sh` rebuild reaches
+# every user automatically without operator intervention. Without it,
+# DockerSpawner reuses the existing container forever and the new image is
+# never picked up (this is what bit us on the v0.3.1 deploy — see
+# deploy/local/deploy-notes/milestone-07.md).
+c.DockerSpawner.remove = True
 c.DockerSpawner.notebook_dir = "/home/jovyan/work"
 _spawner_volumes: dict = {"vle-user-{username}": "/home/jovyan/work"}
 if NOTEBOOK_HOST_PATH:
