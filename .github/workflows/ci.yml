@@ -24,6 +24,12 @@ on:
 permissions:
   contents: read
 
+# Opt all JS actions into Node 24 (see comment in _build.yml). The reusable
+# build workflow sets this on its own, but CI's lint/test jobs also invoke
+# checkout/cache directly, so we mirror the setting here.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

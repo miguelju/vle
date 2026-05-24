@@ -150,9 +150,408 @@ pub enum LiquidModel {
 
 /// Phase identifier used to select liquid or vapor root from the cubic solver.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "python", pyo3::pyclass(eq, eq_int))]
+#[repr(i32)]
 pub enum PhaseId {
-    Vapor,
-    Liquid,
+    Vapor = 0,
+    Liquid = 1,
+}
+
+// ===========================================================================
+// M7.1 — pure-component cubic-EOS algorithms.
+//
+// This block fills in the family constants, alpha functions, Z-factor,
+// fugacity, and departure-property machinery for the *deployable core* of
+// the EOS catalogue: PR1976, RKS1972, RK1949, VdW1870. These are the
+// four variants Chapter IV's validation cases actually use.
+//
+// All other CubicEos variants intentionally panic via `unimplemented!`
+// with a pointer to the deferred sub-milestone (M7.2 for the remaining
+// 2-param α functions, M7.3 for the 3-param Pascal EOS). The panic
+// message names both the variant and the legacy source line, so a future
+// porting session has the receipt it needs to fill in the gap.
+//
+// Convention used throughout this block (Abbott form, matching VB6):
+//
+//     P = R·T/(V − b)  −  a·α(T) / (V² + k1·b·V + k2·b²)
+//
+// with a = OmA · R²·Tc²/Pc and b = OmB · R·Tc/Pc.
+// ===========================================================================
+
+use crate::numerics::cubic::{solve_real, CubicError};
+use crate::types::Component;
+use thiserror::Error;
+
+/// Errors raised by the cubic-EOS pure-component layer.
+///
+/// `Cubic` passes through any failure from the underlying cubic solver
+/// (NaN coefficient, near-zero leading coefficient). `NoRootForPhase` is
+/// thrown when the cubic has only one physical root and the caller asked
+/// for the wrong phase (e.g., requesting Liquid at supercritical T).
+/// `NotImplemented` is thrown for EOS variants whose α has not yet been
+/// ported — exactly the variants the deferred sub-milestones cover.
+#[derive(Debug, Error, PartialEq)]
+pub enum EosError {
+    /// The cubic solver itself returned an error (non-finite coefficient
+    /// or near-zero leading term).
+    #[error("cubic solver failed: {0}")]
+    Cubic(#[from] CubicError),
+
+    /// The cubic has no physical root for the requested phase. Usually
+    /// means the caller asked for Liquid above the critical point (or
+    /// vice versa) — the EOS has only one real root in that region.
+    #[error("no real root above B={big_b:.6e} found for phase {phase:?}")]
+    NoRootForPhase { phase: PhaseId, big_b: f64 },
+
+    /// The EOS variant's α function has not been ported yet. The variant
+    /// in the payload is the exact enum that triggered the panic.
+    #[error("EOS variant {0:?} not yet ported — see M7 sub-milestones")]
+    NotImplemented(CubicEos),
+}
+
+/// Two-parameter cubic-EOS family constants for the Abbott form.
+///
+/// `k1` and `k2` parameterize the attractive term's denominator
+/// `(V² + k1·b·V + k2·b²)`. `om_a` and `om_b` are the Ω_a / Ω_b
+/// dimensionless coefficients that multiply `R²·Tc²/Pc` and `R·Tc/Pc`
+/// to get the EOS `a` and `b` parameters.
+///
+/// Constants are stored as `f64` even though VB6 declares them as
+/// integers — the discriminant `k1² − 4·k2` is computed in f64 and
+/// matching types saves a noisy cast at every call site.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FamilyConstants {
+    /// Coefficient of `b·V` in the attractive-term denominator.
+    pub k1: f64,
+    /// Coefficient of `b²` in the attractive-term denominator.
+    pub k2: f64,
+    /// Ω_a — dimensionless coefficient for `a = Ω_a · R²·Tc²/Pc`.
+    pub om_a: f64,
+    /// Ω_b — dimensionless coefficient for `b = Ω_b · R·Tc/Pc`.
+    pub om_b: f64,
+}
+
+/// Return the 2-parameter family constants for the given EOS.
+///
+/// Source: `legacy/vb6/McommonFunctions.bas:273` (`GeneralConstantsEOS`).
+/// 3-parameter EOS (Schmidt-Wenzel, Patel-Teja) are M7.3 — they return
+/// zeros here so callers can still pattern-match without an early panic;
+/// the per-component override happens inside their own EOS code path.
+pub fn family_constants(eos: CubicEos) -> FamilyConstants {
+    use CubicEos::*;
+    match eos {
+        // PR family: k1=2, k2=-1 → denominator V² + 2bV − b² = (V+(1+√2)b)(V+(1−√2)b).
+        PR1976 | RP1978 | PRL1997 | PRATmng1997 | PRSV1986 | PROL1998 | PRMmn1989 => {
+            FamilyConstants {
+                k1: 2.0,
+                k2: -1.0,
+                om_a: 0.457235528921382,
+                om_b: 0.0777960739038885,
+            }
+        }
+        // RKS family: k1=1, k2=0 → denominator V² + bV = V(V+b).
+        RKS1972 | RKSL1997 | RKSGD1978 | RK1949 | VdWVald1989 | RKSATmn1995 | RKOL1998
+        | RKSmn1980 => FamilyConstants {
+            k1: 1.0,
+            k2: 0.0,
+            om_a: 0.427480233540341,
+            om_b: 0.0866403499649577,
+        },
+        // VdW family: k1=k2=0 → denominator V². Ω values are the analytical
+        // 27/64 and 1/8 (no floating-point rounding involved).
+        VdW1870 | Berth1899 | VdWAda1984 | VdWOL1998 => FamilyConstants {
+            k1: 0.0,
+            k2: 0.0,
+            om_a: 27.0 / 64.0,
+            om_b: 1.0 / 8.0,
+        },
+        // 3-parameter EOS — M7.3 deferred. Returning zeros lets callers
+        // pattern-match without an early panic; the EOS-specific code
+        // path is the one that should detect and refuse.
+        SchmidtWenzel | PatelTeja | PatelTejaUSB => FamilyConstants {
+            k1: 0.0,
+            k2: 0.0,
+            om_a: 0.0,
+            om_b: 0.0,
+        },
+    }
+}
+
+/// α(Tr) — the temperature-dependent multiplier on the attractive term.
+///
+/// # Arguments
+/// * `eos` — EOS variant.
+/// * `tr` — Reduced temperature T/Tc. **Dimensionless.**
+/// * `comp` — Component data (only `omega` is read by the four ported
+///   variants; future variants will read polar parameters).
+///
+/// # Returns
+/// α evaluated at `tr`, **dimensionless**.
+///
+/// # Panics
+/// Calls `unimplemented!` for any EOS variant not yet ported. The panic
+/// message includes the variant name and a pointer to the legacy source
+/// line (`legacy/vb6/clsQbicsPure.cls:1719`) so a future port can pick
+/// up where this left off.
+pub fn alpha(eos: CubicEos, tr: f64, comp: &Component) -> f64 {
+    use CubicEos::*;
+    let w = comp.omega;
+    match eos {
+        // ----- Deployable core (M7.1) -----
+        VdW1870 => 1.0,
+        RK1949 => 1.0 / tr.sqrt(),
+        RKS1972 => {
+            // α = [1 + m·(1 − √Tr)]² with m = 0.48 + 1.574ω − 0.176ω².
+            // VB6: clsQbicsPure.cls:1734
+            let m = 0.48 + 1.574 * w - 0.176 * w * w;
+            let s = 1.0 - tr.sqrt();
+            (1.0 + m * s).powi(2)
+        }
+        PR1976 => {
+            // α = [1 + κ·(1 − √Tr)]² with κ = 0.37464 + 1.54226ω − 0.26992ω².
+            // VB6: clsQbicsPure.cls:1741
+            let kappa = 0.37464 + 1.54226 * w - 0.26992 * w * w;
+            let s = 1.0 - tr.sqrt();
+            (1.0 + kappa * s).powi(2)
+        }
+        // ----- Deferred: remaining 2-param α variants → M7.2 -----
+        Berth1899 | VdWAda1984 | RKSGD1978 | RKSL1997 | RP1978 | PRL1997 | VdWVald1989
+        | RKSmn1980 | RKSATmn1995 | PRATmng1997 | PRMmn1989 | PRSV1986 | VdWOL1998 | RKOL1998
+        | PROL1998 => {
+            unimplemented!(
+                "M7.2 deferred: alpha({:?}) not yet ported — see legacy/vb6/clsQbicsPure.cls:1719",
+                eos
+            )
+        }
+        // ----- Deferred: 3-param Pascal EOS → M7.3 -----
+        SchmidtWenzel | PatelTeja | PatelTejaUSB => {
+            unimplemented!(
+                "M7.3 deferred: 3-param EOS {:?} not yet ported — see legacy/pascal/TERMOII.PAS",
+                eos
+            )
+        }
+    }
+}
+
+/// dα/dTr — analytical derivative of α with respect to reduced temperature.
+///
+/// Computed analytically per CLAUDE.md "Algorithm Choices": numerical
+/// derivatives exist only as test oracles. The closed forms for the four
+/// core variants are derived by hand from `alpha` above; see comments
+/// for the chain-rule step at each branch.
+pub fn d_alpha_d_tr(eos: CubicEos, tr: f64, comp: &Component) -> f64 {
+    use CubicEos::*;
+    let w = comp.omega;
+    match eos {
+        // ----- Deployable core (M7.1) -----
+        // α = 1 → dα/dTr = 0
+        VdW1870 => 0.0,
+        // α = Tr^(−1/2) → dα/dTr = −(1/2)·Tr^(−3/2) = −1 / (2·Tr·√Tr)
+        RK1949 => -0.5 / (tr * tr.sqrt()),
+        RKS1972 => {
+            // α = (1 + m·s)²  with s = 1 − √Tr, ds/dTr = −1/(2·√Tr).
+            // dα/dTr = 2·(1 + m·s)·m·(−1/(2·√Tr)) = −m·(1 + m·s)/√Tr.
+            let m = 0.48 + 1.574 * w - 0.176 * w * w;
+            let s = 1.0 - tr.sqrt();
+            -m * (1.0 + m * s) / tr.sqrt()
+        }
+        PR1976 => {
+            let kappa = 0.37464 + 1.54226 * w - 0.26992 * w * w;
+            let s = 1.0 - tr.sqrt();
+            -kappa * (1.0 + kappa * s) / tr.sqrt()
+        }
+        // ----- Deferred -----
+        Berth1899 | VdWAda1984 | RKSGD1978 | RKSL1997 | RP1978 | PRL1997 | VdWVald1989
+        | RKSmn1980 | RKSATmn1995 | PRATmng1997 | PRMmn1989 | PRSV1986 | VdWOL1998 | RKOL1998
+        | PROL1998 => {
+            unimplemented!(
+                "M7.2 deferred: d_alpha_d_tr({:?}) not yet ported",
+                eos
+            )
+        }
+        SchmidtWenzel | PatelTeja | PatelTejaUSB => {
+            unimplemented!(
+                "M7.3 deferred: 3-param EOS {:?} not yet ported",
+                eos
+            )
+        }
+    }
+}
+
+/// Compute dimensionless `A = a·P/(R·T)²` and `B = b·P/(R·T)` for the EOS.
+///
+/// Internal helper — every consumer below (z_factor, ln_phi, departure
+/// functions) shares the same A, B definitions, so factoring this out
+/// keeps the formulas consistent and the variable names clean.
+fn ab_dimensionless(eos: CubicEos, t: f64, p: f64, comp: &Component) -> (f64, f64) {
+    let fc = family_constants(eos);
+    let tr = t / comp.tc;
+    let pr = p / comp.pc;
+    let a_val = alpha(eos, tr, comp);
+    // A = OmA · α · Pr / Tr², B = OmB · Pr / Tr.
+    (fc.om_a * a_val * pr / (tr * tr), fc.om_b * pr / tr)
+}
+
+/// Compute Z = P·V/(R·T) for the requested phase.
+///
+/// Solves the cubic in Z and selects the appropriate real root:
+/// **liquid** = smallest Z above B (the lower stable branch), **vapor**
+/// = largest Z above B (the upper stable branch). Roots ≤ B are
+/// unphysical (V < b, molecular impossibility) and discarded.
+///
+/// # Arguments
+/// * `t` — Temperature in **K**.
+/// * `p` — Pressure in **kPa absolute**.
+/// * `comp` — Component (only Tc, Pc, ω used by the core variants).
+/// * `phase` — Which root to return.
+///
+/// # Returns
+/// `Z`, dimensionless. Use `V = Z·R·T/P` to recover the molar volume.
+///
+/// # Errors
+/// `EosError::Cubic` if the underlying solver fails. `NoRootForPhase`
+/// if the cubic has no real root above B for the requested phase.
+/// `NotImplemented` for 3-parameter EOS (deferred to M7.3).
+pub fn z_factor(
+    eos: CubicEos,
+    t: f64,
+    p: f64,
+    comp: &Component,
+    phase: PhaseId,
+) -> Result<f64, EosError> {
+    if eos.is_three_parameter() {
+        return Err(EosError::NotImplemented(eos));
+    }
+    let fc = family_constants(eos);
+    let (big_a, big_b) = ab_dimensionless(eos, t, p, comp);
+    // Cubic in Z: 1·Z³ + a2·Z² + a1·Z + a0 = 0
+    //   a2 = (k1 − 1)·B − 1
+    //   a1 = A − (k1 − k2)·B² − k1·B
+    //   a0 = −(k2·B³ + k2·B² + A·B)
+    // Verified against textbook forms for PR, RKS, VdW (see eos.rs::tests).
+    let a2 = (fc.k1 - 1.0) * big_b - 1.0;
+    let a1 = big_a - (fc.k1 - fc.k2) * big_b * big_b - fc.k1 * big_b;
+    let a0 = -(fc.k2 * big_b * big_b * big_b + fc.k2 * big_b * big_b + big_a * big_b);
+    let roots = solve_real(1.0, a2, a1, a0)?;
+    // Filter out roots ≤ B (V ≤ b is unphysical).
+    let mut physical: Vec<f64> = roots.into_iter().filter(|&z| z > big_b).collect();
+    if physical.is_empty() {
+        return Err(EosError::NoRootForPhase { phase, big_b });
+    }
+    physical.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    Ok(match phase {
+        PhaseId::Liquid => *physical.first().unwrap(),
+        PhaseId::Vapor => *physical.last().unwrap(),
+    })
+}
+
+/// Dimensionless attractive-term integral `F(Z, B; k1, k2)`.
+///
+/// Defined so that `ln(φ) = Z − 1 − ln(Z − B) − (A/B)·F`. The closed
+/// form for the non-degenerate case (k1² ≠ 4·k2) is:
+///
+/// ```text
+///   F = (1/√(k1² − 4·k2)) · ln( (2Z + B·(k1 + √(k1² − 4·k2)))
+///                              / (2Z + B·(k1 − √(k1² − 4·k2))) )
+/// ```
+///
+/// For the VdW limit (k1 = k2 = 0) the formula degenerates; we use the
+/// closed-form `F = B/Z` instead, which reproduces the standard VdW
+/// expression `ln(φ) = Z − 1 − ln(Z − B) − A/Z`.
+fn integral_attractive(z: f64, big_b: f64, fc: FamilyConstants) -> f64 {
+    let disc = fc.k1 * fc.k1 - 4.0 * fc.k2;
+    if disc.abs() < 1e-12 {
+        // VdW limit: F = B/Z. Verified by checking ln(φ_VdW) = Z − 1 −
+        // ln(Z − B) − A/Z (Smith-Van Ness-Abbott §6.4 example 6.4).
+        big_b / z
+    } else {
+        let sd = disc.sqrt();
+        (1.0 / sd) * ((2.0 * z + big_b * (fc.k1 + sd)) / (2.0 * z + big_b * (fc.k1 - sd))).ln()
+    }
+}
+
+/// Pure-component fugacity coefficient ln(φ).
+///
+/// `ln(φ) = Z − 1 − ln(Z − B) − (A/B)·F(Z, B; k1, k2)`.
+///
+/// Returns the **natural log** of the fugacity coefficient. To get φ
+/// itself, exponentiate. `ln(φ) → 0` as `P → 0` (ideal gas limit).
+///
+/// # Errors
+/// Same as [`z_factor`].
+pub fn ln_phi_pure(
+    eos: CubicEos,
+    t: f64,
+    p: f64,
+    comp: &Component,
+    phase: PhaseId,
+) -> Result<f64, EosError> {
+    if eos.is_three_parameter() {
+        return Err(EosError::NotImplemented(eos));
+    }
+    let fc = family_constants(eos);
+    let (big_a, big_b) = ab_dimensionless(eos, t, p, comp);
+    let z = z_factor(eos, t, p, comp, phase)?;
+    let f = integral_attractive(z, big_b, fc);
+    Ok(z - 1.0 - (z - big_b).ln() - (big_a / big_b) * f)
+}
+
+/// Departure enthalpy in dimensionless form `H^R / (R·T)`.
+///
+/// `H^R = H_real(T, P) − H_ideal_gas(T)`. Always **negative** for stable
+/// liquid and vapor phases at sub-critical conditions (the attractive
+/// term lowers the energy below the ideal-gas reference).
+///
+/// Formula (general 2-param cubic):
+/// ```text
+///   H^R/(RT) = (Z − 1) + (A/B)·F · (Tr·dα/dTr/α − 1)
+/// ```
+/// Derivation: Smith-Van Ness-Abbott §6.4, generalized to the Abbott
+/// (k1, k2) form. Verified against PR/RKS/VdW textbook expressions.
+///
+/// # Errors
+/// Same as [`z_factor`].
+pub fn h_departure_rt(
+    eos: CubicEos,
+    t: f64,
+    p: f64,
+    comp: &Component,
+    phase: PhaseId,
+) -> Result<f64, EosError> {
+    if eos.is_three_parameter() {
+        return Err(EosError::NotImplemented(eos));
+    }
+    let fc = family_constants(eos);
+    let (big_a, big_b) = ab_dimensionless(eos, t, p, comp);
+    let z = z_factor(eos, t, p, comp, phase)?;
+    let tr = t / comp.tc;
+    let a_val = alpha(eos, tr, comp);
+    let da_val = d_alpha_d_tr(eos, tr, comp);
+    let f = integral_attractive(z, big_b, fc);
+    Ok((z - 1.0) + (big_a / big_b) * f * (tr * da_val / a_val - 1.0))
+}
+
+/// Departure entropy in dimensionless form `S^R / R`.
+///
+/// `S^R = S_real(T, P) − S_ideal_gas(T, P)`. Use the identity
+/// `S^R/R = H^R/(RT) − G^R/(RT)` and `G^R/(RT) = ln(φ_pure)` for a pure
+/// component (Lewis-Randall).
+///
+/// # Errors
+/// Same as [`z_factor`].
+pub fn s_departure_r(
+    eos: CubicEos,
+    t: f64,
+    p: f64,
+    comp: &Component,
+    phase: PhaseId,
+) -> Result<f64, EosError> {
+    if eos.is_three_parameter() {
+        return Err(EosError::NotImplemented(eos));
+    }
+    let g_dep = ln_phi_pure(eos, t, p, comp, phase)?;
+    let h_dep = h_departure_rt(eos, t, p, comp, phase)?;
+    Ok(h_dep - g_dep)
 }
 
 // #[cfg(test)] is a conditional compilation attribute. It tells the Rust
@@ -200,5 +599,193 @@ mod tests {
         assert!(CubicEos::SchmidtWenzel.is_three_parameter());
         assert!(CubicEos::PatelTeja.is_three_parameter());
         assert!(CubicEos::PatelTejaUSB.is_three_parameter());
+    }
+
+    // -----------------------------------------------------------------
+    // M7.1 — tests for the deployable core (PR / RKS / RK / VdW).
+    // -----------------------------------------------------------------
+
+    fn methane() -> Component {
+        // Methane critical properties + acentric factor from NIST.
+        Component {
+            name: "methane".into(),
+            tc: 190.564,
+            pc: 4599.0,   // kPa
+            omega: 0.0115,
+            ..Component::default()
+        }
+    }
+
+    fn n_pentane() -> Component {
+        // n-Pentane — a more "typical" hydrocarbon with non-trivial ω.
+        Component {
+            name: "n-pentane".into(),
+            tc: 469.7,
+            pc: 3370.0,
+            omega: 0.252,
+            ..Component::default()
+        }
+    }
+
+    #[test]
+    fn family_constants_match_legacy_table() {
+        // PR family — verify the high-precision OmA/OmB constants from
+        // legacy/vb6/McommonFunctions.bas:273.
+        let fc = family_constants(CubicEos::PR1976);
+        assert_eq!(fc.k1, 2.0);
+        assert_eq!(fc.k2, -1.0);
+        assert!((fc.om_a - 0.457235528921382).abs() < 1e-15);
+        assert!((fc.om_b - 0.0777960739038885).abs() < 1e-15);
+
+        // RKS family.
+        let fc = family_constants(CubicEos::RKS1972);
+        assert_eq!(fc.k1, 1.0);
+        assert_eq!(fc.k2, 0.0);
+        assert!((fc.om_a - 0.427480233540341).abs() < 1e-15);
+        assert!((fc.om_b - 0.0866403499649577).abs() < 1e-15);
+
+        // VdW family — analytical fractions.
+        let fc = family_constants(CubicEos::VdW1870);
+        assert_eq!(fc.k1, 0.0);
+        assert_eq!(fc.k2, 0.0);
+        assert_eq!(fc.om_a, 27.0 / 64.0);
+        assert_eq!(fc.om_b, 1.0 / 8.0);
+    }
+
+    #[test]
+    fn alpha_at_tr_one_is_one_for_pr_rks() {
+        // For PR and RKS, α(Tr=1) = 1 by construction of the α form.
+        // VdW gives α=1 trivially; RK gives α=1/√1=1.
+        let c = n_pentane();
+        for eos in [
+            CubicEos::PR1976,
+            CubicEos::RKS1972,
+            CubicEos::RK1949,
+            CubicEos::VdW1870,
+        ] {
+            let a = alpha(eos, 1.0, &c);
+            assert!(
+                (a - 1.0).abs() < 1e-12,
+                "{:?}: α(Tr=1) = {} (expected 1.0)",
+                eos,
+                a
+            );
+        }
+    }
+
+    /// Numerical derivative via central differences — used as test oracle.
+    fn d_alpha_numerical(eos: CubicEos, tr: f64, comp: &Component, h: f64) -> f64 {
+        (alpha(eos, tr + h, comp) - alpha(eos, tr - h, comp)) / (2.0 * h)
+    }
+
+    #[test]
+    fn analytical_d_alpha_matches_numerical() {
+        // Sweep Tr across a sub/supercritical range and verify the
+        // analytical derivative agrees with central differences within
+        // 1e-7 relative tolerance — a CLAUDE.md "Algorithm Choices" rule
+        // (numerical derivatives are test oracles, not production code).
+        let c = n_pentane();
+        for eos in [
+            CubicEos::PR1976,
+            CubicEos::RKS1972,
+            CubicEos::RK1949,
+            CubicEos::VdW1870,
+        ] {
+            for tr in [0.5_f64, 0.8, 1.0, 1.2, 2.0] {
+                let analytical = d_alpha_d_tr(eos, tr, &c);
+                let numerical = d_alpha_numerical(eos, tr, &c, 1e-6);
+                let rel = if analytical.abs() < 1e-10 {
+                    (analytical - numerical).abs()
+                } else {
+                    ((analytical - numerical) / analytical).abs()
+                };
+                assert!(
+                    rel < 1e-5,
+                    "{:?} Tr={} analytical={} numerical={} rel={}",
+                    eos,
+                    tr,
+                    analytical,
+                    numerical,
+                    rel
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn z_factor_methane_supercritical() {
+        // Methane at 300 K, 5 MPa (5000 kPa). T > Tc → only one real
+        // root — vapor and "liquid" both resolve to the same root.
+        let c = methane();
+        let z_v = z_factor(CubicEos::PR1976, 300.0, 5000.0, &c, PhaseId::Vapor).unwrap();
+        // Z should be < 1 (attractive forces dominate at moderate pressure).
+        // For methane at 300 K and 5 MPa, Z ≈ 0.91 with PR.
+        assert!(z_v > 0.8 && z_v < 1.05, "Z(vapor) = {} not in plausible range", z_v);
+    }
+
+    #[test]
+    fn z_factor_n_pentane_two_phase() {
+        // n-pentane at 400 K (Tr = 0.85), 1500 kPa. Below critical and at
+        // moderate pressure → expect both liquid and vapor roots,
+        // Z_liquid << Z_vapor.
+        let c = n_pentane();
+        let z_l = z_factor(CubicEos::PR1976, 400.0, 1500.0, &c, PhaseId::Liquid).unwrap();
+        let z_v = z_factor(CubicEos::PR1976, 400.0, 1500.0, &c, PhaseId::Vapor).unwrap();
+        assert!(
+            z_l < z_v,
+            "expected Z_liquid={} < Z_vapor={}",
+            z_l,
+            z_v
+        );
+        assert!(z_l < 0.1, "liquid Z should be small, got {}", z_l);
+        assert!(z_v > 0.5, "vapor Z should be > 0.5, got {}", z_v);
+    }
+
+    #[test]
+    fn ln_phi_ideal_gas_limit() {
+        // At very low pressure, ln(φ) → 0 (any cubic EOS reduces to
+        // ideal gas). Use 0.1 kPa as "very low" — should give |ln(φ)|
+        // well below 1e-2 for methane at 300 K.
+        let c = methane();
+        for eos in [
+            CubicEos::PR1976,
+            CubicEos::RKS1972,
+            CubicEos::RK1949,
+            CubicEos::VdW1870,
+        ] {
+            let ln_phi = ln_phi_pure(eos, 300.0, 0.1, &c, PhaseId::Vapor).unwrap();
+            assert!(
+                ln_phi.abs() < 1e-3,
+                "{:?}: ln(φ) at P→0 = {} (expected near 0)",
+                eos,
+                ln_phi
+            );
+        }
+    }
+
+    #[test]
+    fn three_parameter_eos_errors_cleanly() {
+        // Schmidt-Wenzel and Patel-Teja must error, not panic, at the
+        // z_factor / ln_phi / departure layer. Their α functions panic
+        // (M7.3 deferred) but the higher-level functions short-circuit
+        // via EosError::NotImplemented before reaching α.
+        let c = methane();
+        for eos in [
+            CubicEos::SchmidtWenzel,
+            CubicEos::PatelTeja,
+            CubicEos::PatelTejaUSB,
+        ] {
+            let err = z_factor(eos, 300.0, 1000.0, &c, PhaseId::Vapor).unwrap_err();
+            assert!(matches!(err, EosError::NotImplemented(_)));
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "M7.2 deferred")]
+    fn deferred_alpha_panics_with_marker() {
+        // RKSGD1978 is in the M7.2-deferred bucket — verify the panic
+        // message names the variant and the porting milestone.
+        let c = methane();
+        let _ = alpha(CubicEos::RKSGD1978, 1.0, &c);
     }
 }

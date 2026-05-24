@@ -412,31 +412,50 @@ vle/
 - Brent's method and Illinois algorithm root finders — replace legacy Regula Falsi (from `clsSatPressureSolver.cls`) — see §C
 - Utility functions: `SumFrac`, `Norm`, convergence checks
 
-### Phase 7: Pure Component EOS *(Milestone 7)*
-- `GeneralConstantsEOS` parameter lookup for 3 EOS families (from `McommonFunctions.bas:273`) (5)
-- All 19 VB6 `alpha(Tr)` functions (from `clsQbicsPure.cls:1719`)
-- **Pascal-origin EOS** (4) (from `legacy/pascal/TERMOII.PAS`):
-  - Schmidt-Wenzel: 3-parameter cubic with acentric-factor-dependent covolume (Beta parameter), special C-parameter mixing
-  - Patel-Teja: 3-parameter cubic with component-specific Zc, two mixing variants (PatelT, PatelTUSB)
-  - Chao-Seader: liquid fugacity correlation with 10+ parameter fit (separate coefficient sets for normal compounds, H2, and methane)
-- Z-factor calculation using cubic solver (handles 2-parameter and 3-parameter cubics)
-- Fugacity coefficient, departure H/S
-- Maxwell equal-area test for saturation
-- **Key source files:** `legacy/vb6/clsQbicsPure.cls`, `legacy/pascal/TERMOII.PAS`
+### Phase 7: Pure Component EOS *(Milestone 7 — split: 7.1 done, 7.2 / 7.3 deferred)*
 
-### Phase 8: Saturation Pressure *(Milestone 7)*
-- **Antoine** correlation (4): ln(P/Pc) = a1 - a2/(a3+T) (from `legacy/pascal/TERMOI.PAS`)
-  - Includes `PseudoAntoine` procedure for converting other models to local Antoine equivalents
-- Riedel, Muller, RPM correlations (shared by both programs; VB6: `clsSatPressureSolver.cls:146`, Pascal: `TERMOI.PAS:154`)
-- Database polynomial evaluation (VB6-only)
-- Temperature derivatives (analytical for Antoine, numerical for others)
-- Boiling point calculation (`TEbullicion` from Pascal / `SatTemperature` from VB6)
-- Poynting correction factor (identical in both: `exp((P-Psat)*Vl/R/T/10)`)
-- **Key source files:** `legacy/vb6/clsSatPressureSolver.cls`, `legacy/pascal/TERMOI.PAS`
+**M7.1 — shipped in v0.3.0** (Claude Opus 4.7, 1M context):
+- `family_constants(eos)` for all 22 variants (from `McommonFunctions.bas:273`) (5)
+- α(Tr) + **analytical** dα/dTr for **PR1976, RKS1972, RK1949, VdW1870** — the four variants Chapter IV uses
+- Z-factor via the existing Cardano cubic solver (2-parameter EOS only)
+- Pure-component ln(φ) + dimensionless H^R/RT and S^R/R via the general Abbott integral
+- Cleanly errors (not panics) on the 3-parameter EOS at the API surface — α functions for deferred variants panic with an `M7.x deferred` marker pointing at the legacy line.
 
-### Phase 9: Virial Equation *(Milestone 7)*
-- Pitzer correlation: B0 = 0.083 - 0.422/Tr^1.6, B1 = 0.139 - 0.172/Tr^4.2
-- Pure and multicomponent Z, fugacity, HR/SR
+**M7.2 — planned v0.4.0** (the α-function zoo):
+- Port the 15 remaining 2-parameter α(Tr) functions from `clsQbicsPure.cls:1719`
+  (Berthelot, VdWAda1984, RKSGD1978, RKSL1997, RP1978, PRL1997, VdWVald1989, RKSmn1980,
+   RKSATmn1995, PRATmng1997, PRMmn1989, PRSV1986, VdWOL1998, RKOL1998, PROL1998)
+- Analytical dα/dTr for each (CLAUDE.md *Algorithm Choices*)
+- OL-family `Σ h_k·…` evaluator using the family-table `h_coeffs` field
+
+**M7.3 — planned v0.5.0** (3-parameter EOS + Chao-Seader, **Pascal-origin** Ref (4) from `TERMOII.PAS`):
+- Schmidt-Wenzel: per-component k₁/k₂ via Beta(ω) and a special C-parameter mixing rule
+- Patel-Teja: component-specific Zc, two C-parameter mixing variants (`PatelT`, `PatelTUSB`)
+- Chao-Seader liquid fugacity correlation with H₂ / methane special cases
+- Z-factor + fugacity + departure functions for all three 3-param EOS
+
+**Key source files:** `legacy/vb6/clsQbicsPure.cls`, `legacy/pascal/TERMOII.PAS`
+
+### Phase 8: Saturation Pressure *(Milestone 7 — split: Antoine done, others deferred)*
+
+**M7.1 — shipped in v0.3.0**:
+- **Antoine** correlation (4): `ln(P/Pc) = a1 − a2/(a3+T)` from `legacy/pascal/TERMOI.PAS`
+- Analytical `dPsat/dT = Psat · a2 / (a3+T)²`
+
+**M7.4 — planned v0.6.0** (the rest of the saturation layer):
+- Riedel, Müller, RPM correlations (VB6 `clsSatPressureSolver.cls:146`, Pascal `TERMOI.PAS:154`)
+- Database polynomial evaluation (VB6-only `P = exp(A + B/T + C·ln(T) + D·T^E)`)
+- `PseudoAntoine` helper that converts other models to Antoine equivalents
+- Boiling-point calculation (`TEbullicion` / `SatTemperature`)
+- Poynting correction `exp((P − Psat)·V_l / (R·T·10))`
+- Maxwell equal-area construction (iterative — uses Brent + cubic-EOS isotherm)
+
+**Key source files:** `legacy/vb6/clsSatPressureSolver.cls`, `legacy/pascal/TERMOI.PAS`
+
+### Phase 9: Virial Equation *(Milestone 7 — fully shipped in M7.1)*
+- Pitzer correlation: `B⁰ = 0.083 − 0.422/T_r^1.6`, `B¹ = 0.139 − 0.172/T_r^4.2`
+- Pure-component Z, ln(φ), H^R/RT, S^R/R with analytical `dB/dT`
+- Multicomponent: quadratic Lewis-Randall mixing for `B_mix(T, x)`; partial fugacity coefficients `ln(φ̂_i)`
 - **Key source files:** `legacy/vb6/clsVirial.cls`, `legacy/vb6/clsVirialMulticomp.cls`
 
 ### Phase 10: Activity Coefficient Models *(Milestone 8)*

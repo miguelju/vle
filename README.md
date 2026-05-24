@@ -188,7 +188,7 @@ Each milestone records which AI model was used (e.g., `Claude Opus 4.6 (1M conte
 
 ## Getting Started
 
-> **Status**: Milestones 0–5 complete (documentation, translation, dev environment & scaffolding, units library, component database with hub-deployed notebook, CI/CD pipeline + auto-deploy with v0.1.2 on PyPI / crates.io / GitHub Releases). Milestones 6–11 (numerics, models, flash, Python bindings, notebooks) not yet started.
+> **Status**: Milestones 0–6 complete and **M7.1 (Pure Component Models — Deployable Core) shipped in v0.3.0**: PR / RKS / RK / VdW cubic EOS with analytical α + dα/dTr + Z-factor + ln(φ) + departure H/S, Antoine vapor pressure with analytical dPsat/dT, and the full truncated virial equation (pure + multicomponent). Three placeholder notebooks (`02b_alpha_zoo`, `02c_three_param_eos`, `02d_advanced_saturation`) advertise the remaining M7 sub-milestones planned for v0.4.0 / v0.5.0 / v0.6.0. Milestones 8–11 (mixture models, mixing rules, flash, parameter regression, full validation) not yet started.
 
 ### Prerequisites
 - Python 3.10+ (for the component database and future Python wrapper)

@@ -63,6 +63,14 @@ on:
 permissions:
   contents: read
 
+# Opt all JS actions into Node 24 (see comment in _build.yml). Several
+# direct deps in this workflow still declare `using: node20` in their
+# action.yml — 1password/load-secrets-action@v2, softprops/action-gh-release@v2,
+# webfactory/ssh-agent@v0.9.0. The env var forces Node 24 across all of them
+# without forcing a same-day major-version bump on each.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -86,13 +94,13 @@ jobs:
       id-token: write   # OIDC for PyPI Trusted Publishing
     steps:
       - name: Download all wheel + sdist artifacts
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53  # v6
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
         with:
           path: dist
           pattern: "wheels-*-release"
           merge-multiple: true
       - name: Download sdist artifact
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53  # v6
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
         with:
           name: sdist-release
           path: dist
@@ -140,7 +148,7 @@ jobs:
       contents: write   # for softprops/action-gh-release to create the release
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53  # v6
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
         with:
           path: artifacts
       - name: Flatten artifacts into a single dist/ dir

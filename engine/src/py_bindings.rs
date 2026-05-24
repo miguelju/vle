@@ -44,6 +44,17 @@ use std::cell::RefCell;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
+use crate::eos::{
+    alpha as eos_alpha_rs, d_alpha_d_tr as eos_d_alpha_rs, family_constants, h_departure_rt,
+    ln_phi_pure, s_departure_r, z_factor, CubicEos, EosError, PhaseId,
+};
+use crate::saturation::{d_psat_dt_antoine, psat_antoine, SatError};
+use crate::types::Component;
+use crate::virial::{
+    b_mix as virial_b_mix, h_departure_rt_virial, ln_phi_mix_virial, ln_phi_pure_virial,
+    pitzer_b, pitzer_b0, pitzer_b1, pitzer_d_b_d_t, s_departure_r_virial, z_factor_virial,
+};
+
 /// Return the engine crate's version string (matches `Cargo.toml`).
 ///
 /// Useful for diagnostics: `print(vle._engine.version())` confirms which
@@ -300,6 +311,274 @@ fn norm_linf(xs: Vec<f64>) -> f64 {
     crate::numerics::utils::norm_linf(&xs)
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// M7.1 — pure-component EOS bindings.
+//
+// Cubic EOS expressions take scalar floats for the component data
+// (tc, pc, omega) rather than a `Component` pyclass — same convention
+// as the M6.1 numerics bindings. The higher-level `vle` Python wrapper
+// can pull these into a class-shaped API once we have a richer property
+// database; in M7 keeping the C ABI scalar-only keeps the FFI surface
+// minimal and the test matrix tractable.
+// ──────────────────────────────────────────────────────────────────────
+
+/// Build a minimal Component for the cubic-EOS layer. Internal helper —
+/// not exposed to Python. Only the four fields used by the core PR/RKS/
+/// RK/VdW path are populated; everything else stays at its `Default`.
+fn comp_for_eos(tc: f64, pc: f64, omega: f64) -> Component {
+    Component {
+        tc,
+        pc,
+        omega,
+        ..Component::default()
+    }
+}
+
+fn phase_from_str(s: &str) -> PyResult<PhaseId> {
+    match s.to_ascii_lowercase().as_str() {
+        "vapor" | "v" | "gas" => Ok(PhaseId::Vapor),
+        "liquid" | "l" => Ok(PhaseId::Liquid),
+        other => Err(PyValueError::new_err(format!(
+            "phase must be 'vapor' or 'liquid' (got {other:?})"
+        ))),
+    }
+}
+
+/// Map an `EosError` to a Python exception. `NotImplemented` becomes a
+/// `NotImplementedError`; the rest become `RuntimeError` so the
+/// originating message survives the FFI hop.
+fn map_eos_err(e: EosError) -> PyErr {
+    match e {
+        EosError::NotImplemented(_) => {
+            pyo3::exceptions::PyNotImplementedError::new_err(e.to_string())
+        }
+        _ => PyRuntimeError::new_err(e.to_string()),
+    }
+}
+
+/// α(Tr) for the requested cubic EOS.
+///
+/// Raises `NotImplementedError` for variants not yet ported (see the
+/// M7.2 / M7.3 sub-milestones in TODO.md).
+#[pyfunction]
+fn eos_alpha(eos: CubicEos, tr: f64, omega: f64) -> f64 {
+    eos_alpha_rs(eos, tr, &comp_for_eos(1.0, 1.0, omega))
+}
+
+/// dα/dTr for the requested cubic EOS (analytical).
+#[pyfunction]
+fn eos_d_alpha_d_tr(eos: CubicEos, tr: f64, omega: f64) -> f64 {
+    eos_d_alpha_rs(eos, tr, &comp_for_eos(1.0, 1.0, omega))
+}
+
+/// Family constants (k1, k2, OmA, OmB) for the EOS, as a 4-tuple.
+#[pyfunction]
+fn eos_family_constants(eos: CubicEos) -> (f64, f64, f64, f64) {
+    let fc = family_constants(eos);
+    (fc.k1, fc.k2, fc.om_a, fc.om_b)
+}
+
+/// Z = P·V/(R·T) for the requested phase.
+///
+/// `t` in K, `p` in kPa absolute. `phase` is "vapor" or "liquid".
+#[pyfunction]
+fn eos_z_factor(
+    eos: CubicEos,
+    t: f64,
+    p: f64,
+    tc: f64,
+    pc: f64,
+    omega: f64,
+    phase: &str,
+) -> PyResult<f64> {
+    let comp = comp_for_eos(tc, pc, omega);
+    let phase = phase_from_str(phase)?;
+    z_factor(eos, t, p, &comp, phase).map_err(map_eos_err)
+}
+
+/// Pure-component ln(φ) for the requested phase.
+#[pyfunction]
+fn eos_ln_phi_pure(
+    eos: CubicEos,
+    t: f64,
+    p: f64,
+    tc: f64,
+    pc: f64,
+    omega: f64,
+    phase: &str,
+) -> PyResult<f64> {
+    let comp = comp_for_eos(tc, pc, omega);
+    let phase = phase_from_str(phase)?;
+    ln_phi_pure(eos, t, p, &comp, phase).map_err(map_eos_err)
+}
+
+/// Departure enthalpy H^R/(R·T), dimensionless.
+#[pyfunction]
+fn eos_h_departure_rt(
+    eos: CubicEos,
+    t: f64,
+    p: f64,
+    tc: f64,
+    pc: f64,
+    omega: f64,
+    phase: &str,
+) -> PyResult<f64> {
+    let comp = comp_for_eos(tc, pc, omega);
+    let phase = phase_from_str(phase)?;
+    h_departure_rt(eos, t, p, &comp, phase).map_err(map_eos_err)
+}
+
+/// Departure entropy S^R/R, dimensionless.
+#[pyfunction]
+fn eos_s_departure_r(
+    eos: CubicEos,
+    t: f64,
+    p: f64,
+    tc: f64,
+    pc: f64,
+    omega: f64,
+    phase: &str,
+) -> PyResult<f64> {
+    let comp = comp_for_eos(tc, pc, omega);
+    let phase = phase_from_str(phase)?;
+    s_departure_r(eos, t, p, &comp, phase).map_err(map_eos_err)
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// M7.5 — Antoine saturation bindings.
+// ──────────────────────────────────────────────────────────────────────
+
+fn map_sat_err(e: SatError) -> PyErr {
+    match e {
+        SatError::NotImplemented(_) => {
+            pyo3::exceptions::PyNotImplementedError::new_err(e.to_string())
+        }
+        SatError::BadCoefficients { .. } => PyValueError::new_err(e.to_string()),
+        SatError::OutOfRange(_) => PyValueError::new_err(e.to_string()),
+    }
+}
+
+/// Antoine saturation pressure `ln(Psat/Pc) = a1 − a2/(a3 + T)`.
+///
+/// Returns Psat in **kPa**. `coeffs` is `[a1, a2, a3]`.
+#[pyfunction]
+fn antoine_psat(t: f64, pc: f64, coeffs: Vec<f64>) -> PyResult<f64> {
+    let comp = Component {
+        pc,
+        psat_coeffs: coeffs,
+        ..Component::default()
+    };
+    psat_antoine(&comp, t).map_err(map_sat_err)
+}
+
+/// Analytical dPsat/dT for the Antoine form. Returns kPa/K.
+#[pyfunction]
+fn antoine_d_psat_dt(t: f64, pc: f64, coeffs: Vec<f64>) -> PyResult<f64> {
+    let comp = Component {
+        pc,
+        psat_coeffs: coeffs,
+        ..Component::default()
+    };
+    d_psat_dt_antoine(&comp, t).map_err(map_sat_err)
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// M7.6 — Virial bindings.
+// ──────────────────────────────────────────────────────────────────────
+
+/// Pitzer B⁰(Tr) — simple-fluid reduced second virial coefficient.
+#[pyfunction]
+fn virial_pitzer_b0(tr: f64) -> f64 {
+    pitzer_b0(tr)
+}
+
+/// Pitzer B¹(Tr) — acentric correction to the reduced second virial coefficient.
+#[pyfunction]
+fn virial_pitzer_b1(tr: f64) -> f64 {
+    pitzer_b1(tr)
+}
+
+/// Second virial coefficient B(T) for a pure component. Returns cm³/mol.
+#[pyfunction]
+fn virial_b_pure(tc: f64, pc: f64, omega: f64, t: f64) -> f64 {
+    pitzer_b(&comp_for_eos(tc, pc, omega), t)
+}
+
+/// dB/dT for a pure component. Returns cm³/(mol·K).
+#[pyfunction]
+fn virial_d_b_d_t_pure(tc: f64, pc: f64, omega: f64, t: f64) -> f64 {
+    pitzer_d_b_d_t(&comp_for_eos(tc, pc, omega), t)
+}
+
+/// Z = 1 + B·P/(R·T) — pure-component truncated virial.
+#[pyfunction]
+fn virial_z(tc: f64, pc: f64, omega: f64, t: f64, p: f64) -> f64 {
+    z_factor_virial(&comp_for_eos(tc, pc, omega), t, p)
+}
+
+/// ln(φ) from the truncated virial — pure.
+#[pyfunction]
+fn virial_ln_phi(tc: f64, pc: f64, omega: f64, t: f64, p: f64) -> f64 {
+    ln_phi_pure_virial(&comp_for_eos(tc, pc, omega), t, p)
+}
+
+/// Departure enthalpy H^R/(R·T) from the truncated virial — pure.
+#[pyfunction]
+fn virial_h_dep_rt(tc: f64, pc: f64, omega: f64, t: f64, p: f64) -> f64 {
+    h_departure_rt_virial(&comp_for_eos(tc, pc, omega), t, p)
+}
+
+/// Departure entropy S^R/R from the truncated virial — pure.
+#[pyfunction]
+fn virial_s_dep_r(tc: f64, pc: f64, omega: f64, t: f64, p: f64) -> f64 {
+    s_departure_r_virial(&comp_for_eos(tc, pc, omega), t, p)
+}
+
+/// Mixture B(T, x) — quadratic Lewis-Randall mixing with Pitzer cross-terms.
+///
+/// Parallel input vectors `tcs`, `pcs`, `omegas`, `mole_fractions` all
+/// must have the same length. Returns B_mix in cm³/mol.
+#[pyfunction]
+fn virial_b_mix_py(
+    tcs: Vec<f64>,
+    pcs: Vec<f64>,
+    omegas: Vec<f64>,
+    mole_fractions: Vec<f64>,
+    t: f64,
+) -> PyResult<f64> {
+    let n = tcs.len();
+    if pcs.len() != n || omegas.len() != n || mole_fractions.len() != n {
+        return Err(PyValueError::new_err(
+            "tcs, pcs, omegas, mole_fractions must all have the same length",
+        ));
+    }
+    let comps: Vec<Component> = (0..n).map(|i| comp_for_eos(tcs[i], pcs[i], omegas[i])).collect();
+    virial_b_mix(&comps, &mole_fractions, t).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+}
+
+/// Mixture partial fugacity coefficients ln(φᵢ) from the truncated virial.
+///
+/// Returns one ln(φᵢ) per component in input order.
+#[pyfunction]
+fn virial_ln_phi_mix(
+    tcs: Vec<f64>,
+    pcs: Vec<f64>,
+    omegas: Vec<f64>,
+    mole_fractions: Vec<f64>,
+    t: f64,
+    p: f64,
+) -> PyResult<Vec<f64>> {
+    let n = tcs.len();
+    if pcs.len() != n || omegas.len() != n || mole_fractions.len() != n {
+        return Err(PyValueError::new_err(
+            "tcs, pcs, omegas, mole_fractions must all have the same length",
+        ));
+    }
+    let comps: Vec<Component> = (0..n).map(|i| comp_for_eos(tcs[i], pcs[i], omegas[i])).collect();
+    ln_phi_mix_virial(&comps, &mole_fractions, t, p)
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+}
+
 /// PyO3 module entry point.
 ///
 /// Maturin builds this into `vle/_engine.<platform>.<ext>` and Python
@@ -328,6 +607,32 @@ fn _engine(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::activity::ActivityModel>()?;
     m.add_class::<crate::mixing::MixingRule>()?;
     m.add_class::<crate::saturation::SatPressureModel>()?;
+    m.add_class::<crate::eos::PhaseId>()?;
+
+    // M7.1 cubic-EOS bindings.
+    m.add_function(wrap_pyfunction!(eos_alpha, m)?)?;
+    m.add_function(wrap_pyfunction!(eos_d_alpha_d_tr, m)?)?;
+    m.add_function(wrap_pyfunction!(eos_family_constants, m)?)?;
+    m.add_function(wrap_pyfunction!(eos_z_factor, m)?)?;
+    m.add_function(wrap_pyfunction!(eos_ln_phi_pure, m)?)?;
+    m.add_function(wrap_pyfunction!(eos_h_departure_rt, m)?)?;
+    m.add_function(wrap_pyfunction!(eos_s_departure_r, m)?)?;
+
+    // M7.5 Antoine saturation bindings.
+    m.add_function(wrap_pyfunction!(antoine_psat, m)?)?;
+    m.add_function(wrap_pyfunction!(antoine_d_psat_dt, m)?)?;
+
+    // M7.6 Virial bindings.
+    m.add_function(wrap_pyfunction!(virial_pitzer_b0, m)?)?;
+    m.add_function(wrap_pyfunction!(virial_pitzer_b1, m)?)?;
+    m.add_function(wrap_pyfunction!(virial_b_pure, m)?)?;
+    m.add_function(wrap_pyfunction!(virial_d_b_d_t_pure, m)?)?;
+    m.add_function(wrap_pyfunction!(virial_z, m)?)?;
+    m.add_function(wrap_pyfunction!(virial_ln_phi, m)?)?;
+    m.add_function(wrap_pyfunction!(virial_h_dep_rt, m)?)?;
+    m.add_function(wrap_pyfunction!(virial_s_dep_r, m)?)?;
+    m.add_function(wrap_pyfunction!(virial_b_mix_py, m)?)?;
+    m.add_function(wrap_pyfunction!(virial_ln_phi_mix, m)?)?;
 
     Ok(())
 }

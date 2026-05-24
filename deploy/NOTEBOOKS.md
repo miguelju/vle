@@ -68,7 +68,10 @@ of the research paper's Chapter IV validation cases.
 | `00_component_database.ipynb`                       | 4         | Browse & query the SQLite component DB          |
 | `m06_numerics.ipynb`                                | 6         | Demo of Brent / Illinois / Broyden / Halley     |
 | `01_introduction.ipynb`                             | 10        | Installation walk-through, basic API            |
-| `02_pure_component.ipynb`                           | 7         | PVT behaviour, compare cubic EOS variants       |
+| `02_pure_component.ipynb`                           | 7.1       | PR / RKS / RK / VdW: α, Z, ln(φ), Antoine, virial |
+| `02b_alpha_zoo.ipynb`                               | 7.2 (planned v0.4.0) | DRAFT — 15 remaining 2-param α variants  |
+| `02c_three_param_eos.ipynb`                         | 7.3 (planned v0.5.0) | DRAFT — Schmidt-Wenzel, Patel-Teja, Chao-Seader |
+| `02d_advanced_saturation.ipynb`                     | 7.4 (planned v0.6.0) | DRAFT — Riedel/Müller/RPM/Maxwell sat models  |
 | `03_activity_models.ipynb`                          | 8         | Activity coefficient models, excess Gibbs plots |
 | `04_bubble_dew_point.ipynb`                         | 9         | Reproduce Tables 4.6–4.9                        |
 | `05_flash_calculations.ipynb`                       | 9         | Reproduce Tables 4.3–4.4, 4.10                  |

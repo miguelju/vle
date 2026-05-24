@@ -127,19 +127,61 @@ Executed in three slices: **M6.1** = scalar solvers + utils + their PyO3 binding
 **Goal**: All pure component EOS, saturation pressure, and virial working.
 *Phases 7–9 of MODERNIZATION_PLAN.md*
 
-- [ ] EOS family constants — k1, k2, k3 parameterization (5)
-- [ ] All 22+ alpha(Tr) functions with analytical dα/dTr (§D)
-- [ ] 3-parameter EOS: Schmidt-Wenzel, Patel-Teja (4)
-- [ ] Chao-Seader liquid fugacity correlation (4)
-- [ ] Z-factor, fugacity coefficient, departure H/S
-- [ ] Maxwell equal-area test for saturation
-- [ ] Saturation pressure: Antoine (4), Riedel, Muller, RPM, polynomial, Maxwell
-- [ ] Virial equation — pure + multicomponent (Pitzer/Tsonopoulos)
-- [ ] Unit tests for all pure component calculations — validation test passes
-- [ ] Create milestone notebook (`notebooks/02_pure_component.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: Chapter II §2.3 (cubic EOS) snippets, PVT diagrams comparing EOS variants, saturation curves, ≥2 user exercises
-- [ ] Update public deploy docs (`deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`) — generic install deltas only
-- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-07.md`)
-- [ ] Deploy notebook to JupyterHub — rebuild notebook image, restart hub, verify via `${DOMAIN}`
+Split into four sub-milestones so the deployable core can ship without
+blocking on the long tail of legacy α-function variants and the
+Pascal-origin three-parameter EOS. M7.1 covers the variants Chapter IV's
+validation cases actually use; the rest land in subsequent releases.
+
+### Milestone 7.1 — Deployable Core (shipped in v0.3.0)
+*Executed by Claude Code using Claude Opus 4.7 (1M context)*
+
+- [x] EOS family constants — full table for all 22 variants (5)
+- [x] α(Tr) + analytical dα/dTr for **PR1976 / RKS1972 / RK1949 / VdW1870** (§D)
+- [x] Z-factor for 2-parameter cubic EOS (cubic solver integration)
+- [x] Pure-component fugacity coefficient ln(φ) + departure H^R/RT, S^R/R
+- [x] Antoine saturation pressure with analytical dPsat/dT (4)
+- [x] Virial equation — pure + multicomponent (Pitzer B⁰/B¹)
+- [x] PyO3 bindings for every new public function (M5+ rule)
+- [x] Rust + Python tests (50 Rust + 40 Python pass)
+- [x] Functional milestone notebook `notebooks/02_pure_component.ipynb`
+- [x] Three placeholder notebooks for the deferred sub-milestones below
+      (`02b_alpha_zoo.ipynb`, `02c_three_param_eos.ipynb`, `02d_advanced_saturation.ipynb`)
+- [x] Update public deploy docs (`deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`)
+- [x] Update private deploy notes (`deploy/local/deploy-notes/milestone-07.md`)
+- [x] Deploy notebook to JupyterHub — full image rebuild, verify via `${DOMAIN}`
+
+### Milestone 7.2 — Remaining α-Function Zoo (planned v0.4.0)
+*Will exercise `notebooks/02b_alpha_zoo.ipynb` once shipped.*
+
+- [ ] Port the 15 remaining 2-parameter α variants from `legacy/vb6/clsQbicsPure.cls:1719`
+      (Berthelot, VdWAda1984, RKSGD1978, RKSL1997, RP1978, PRL1997, VdWVald1989,
+       RKSmn1980, RKSATmn1995, PRATmng1997, PRMmn1989, PRSV1986, VdWOL1998,
+       RKOL1998, PROL1998)
+- [ ] Analytical dα/dTr for each (CLAUDE.md *Algorithm Choices* rule)
+- [ ] OL-family `Σ h_k·…` form using the existing family-table coefficients
+- [ ] Per-variant numerical-derivative oracle tests
+- [ ] Rename `02b_alpha_zoo.ipynb` placeholder → live: 22-variant α(Tr) comparison plot, PRSV K₁ demo
+
+### Milestone 7.3 — Three-Parameter EOS + Chao-Seader (planned v0.5.0)
+*Will exercise `notebooks/02c_three_param_eos.ipynb` once shipped.*
+
+- [ ] Schmidt-Wenzel 3-parameter EOS (per-component k₁/k₂ via Beta(ω)) (4)
+- [ ] Patel-Teja and Patel-Teja USB (component-specific Zc, two mixing variants) (4)
+- [ ] C-parameter mixing rules for 3-param EOS (mole-fraction + √B-weighted)
+- [ ] Chao-Seader liquid fugacity correlation with H₂ / methane special cases (4)
+- [ ] Z-factor + fugacity + departure functions across all three 3-param EOS
+- [ ] Rename `02c_three_param_eos.ipynb` placeholder → live
+
+### Milestone 7.4 — Advanced Saturation + Maxwell (planned v0.6.0)
+*Will exercise `notebooks/02d_advanced_saturation.ipynb` once shipped.*
+
+- [ ] Riedel, Müller, RPM, polynomial saturation correlations (4) + VB6
+- [ ] PseudoAntoine helper (converts other models to Antoine equivalent)
+- [ ] Analytical dPsat/dT where tractable; numerical fallback elsewhere
+- [ ] Maxwell equal-area construction (iterative, uses Brent + cubic EOS)
+- [ ] Boiling-point calculation (`TEbullicion` from Pascal, `SatTemperature` from VB6)
+- [ ] Poynting correction factor `exp((P − Psat)·V_l / (R·T·10))`
+- [ ] Rename `02d_advanced_saturation.ipynb` placeholder → live
 
 ## Milestone 8: Mixture Models
 **Goal**: Activity models, mixing rules, and multicomponent EOS working.

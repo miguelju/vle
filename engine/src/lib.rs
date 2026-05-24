@@ -86,6 +86,7 @@ pub mod mixing;
 pub mod numerics;
 pub mod saturation;
 pub mod types;
+pub mod virial;
 
 // Python bindings live in their own module, gated behind the `python` feature.
 // Maturin enables this feature when building the wheel; `cargo add vle-thermo`
