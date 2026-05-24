@@ -46,6 +46,11 @@ dependencies = [
     # in python/src/vle/units.py, so this is a hard runtime dependency —
     # not just a test dependency.
     "pint>=0.22",
+    # tomli is the stdlib `tomllib` backport for Python < 3.11. vle.units
+    # parses the unit catalog TOML at import time, and our wheel's abi3
+    # baseline is 3.10 (cp310-abi3-*), so on 3.10 we need the backport.
+    # On 3.11+ tomllib is in stdlib and this dep is skipped by pip.
+    'tomli>=2.0; python_version < "3.11"',
 ]
 
 [project.optional-dependencies]

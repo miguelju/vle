@@ -9,9 +9,16 @@ unit-conversion tables).
 from __future__ import annotations
 
 import math
-import tomllib
+import sys
 
 import pytest
+
+# tomllib is stdlib on 3.11+; on 3.10 we fall back to the `tomli`
+# backport (declared as a conditional dep in pyproject.toml).
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # pragma: no cover — only exercised on 3.10
+    import tomli as tomllib
 
 from vle._engine import default_units_toml
 from vle.units import set_atmospheric_pressure, to_canonical
