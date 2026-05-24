@@ -89,18 +89,28 @@ Hybrid CI/CD pipeline, first PyO3 bindings, and automatic sandbox redeploy on ta
 
 ## Milestone 6: Numerics
 
-- [ ] **Implement Cardano cubic solver** (~2–3h) — from `McommonFunctions.bas:324`, add (12) robustness for near-degenerate discriminant, (13) volume root selection
-- [ ] **Implement Brent's method** (~2h) — default bracketed root finder, from VB6 `clsLVE.cls` (Numerical Recipes reference)
-- [ ] **Implement Illinois algorithm** (~1h) — lightweight modified Regula Falsi
-- [ ] **Implement Broyden quasi-Newton** (~3–4h) — rank-1 Jacobian update, periodic full refresh every K=5 steps, stall detection fallback
-- [ ] **Implement Halley's method** (~1h) — for scalar equations (used in Rachford-Rice)
-- [ ] **Implement utility functions** (~1h) — SumFrac, Norm, convergence checks, parabolic interpolation
-- [ ] **PyO3 bindings for every new public function/type** (~1–2h) — per the PyO3 Bindings Rule (M5+); exposed via `#[pyfunction]` in `engine/src/py_bindings.rs`; tested from Python under cibuildwheel
-- [ ] **Write numerical method tests** (~2–3h) — test against known roots, convergence rates, edge cases — validation tests pass
+Sliced into three execution batches: **M6.1** (scalar solvers + utils + bindings, ~10h), **M6.2** (Broyden, ~4h), **M6.3** (notebook + deploy + tag, ~3-4h).
+
+### M6.1 — Scalar solvers + utils + bindings (done)
+
+- [x] **Implement Cardano cubic solver** (~2–3h) — from `McommonFunctions.bas:324`, add (12) robustness for near-degenerate discriminant, (13) volume root selection
+- [x] **Implement Brent's method** (~2h) — default bracketed root finder, from VB6 `clsLVE.cls` (Numerical Recipes reference)
+- [x] **Implement Illinois algorithm** (~1h) — lightweight modified Regula Falsi
+- [x] **Implement Halley's method** (~1h) — for scalar equations (used in Rachford-Rice)
+- [x] **Implement utility functions** (~1h) — SumFrac, Norm, convergence checks, parabolic interpolation
+- [x] **PyO3 bindings for the M6.1 surface** (~1–2h) — `solve_cubic`, `brent`, `illinois`, `halley`, `sum_frac_residual`, `norm_l1/l2/linf` exposed in `vle._engine`; Python-callback exceptions re-raised through the Rust solvers via a `RefCell<Option<PyErr>>` cache pattern
+- [x] **Write numerical method tests** (~2–3h) — 28 Rust unit tests under `engine/src/numerics/` + 20 Python binding tests under `python/tests/test_numerics.py`
+
+### M6.2 — Broyden quasi-Newton (pending)
+
+- [ ] **Implement Broyden quasi-Newton** (~3–4h) — rank-1 Jacobian update, periodic full refresh every K=5 steps, stall detection fallback; lands in `engine/src/numerics/broyden.rs`. Includes PyO3 binding + tests per the M5+ rule.
+
+### M6.3 — Notebook + deploy + tag (pending)
+
 - [ ] **Create milestone notebook** (~2–3h) — `notebooks/m06_numerics.ipynb` per CLAUDE.md *Notebook Conventions*: MODERNIZATION_PLAN §A–§H snippets, convergence plots comparing Brent / Illinois / Broyden / Halley vs. legacy Regula Falsi, ≥2 user exercises (e.g. "solve a custom cubic with Cardano")
 - [ ] **Update public deploy docs** (~0.5h) — `deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`
 - [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-06.md`
-- [ ] **Tag a release** (~0.3h) — `v0.2.0`: CI auto-publishes to PyPI + crates.io and auto-deploys to rocky + Oracle
+- [ ] **Tag a release** (~0.3h) — `v0.2.0`: CI auto-publishes to PyPI + crates.io; `deploy-sandbox` runs the notebooks-only fast path on tag, full image rebuild stays manual via `workflow_dispatch` + `full_deploy=true`
 
 ## Milestone 7: Pure Component Models
 

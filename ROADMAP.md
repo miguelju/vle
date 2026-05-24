@@ -107,18 +107,20 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 **Goal**: Core numerical utilities tested and benchmarked, with PyO3 bindings exposed in the wheel.
 *Phase 6 of MODERNIZATION_PLAN.md*
 
-- [ ] Cardano cubic solver with (12) Poling & Prausnitz robustness
-- [ ] Brent's method root finder (default bracketed solver)
-- [ ] Illinois algorithm root finder (lightweight alternative)
-- [ ] Broyden quasi-Newton solver with periodic Jacobian refresh
-- [ ] Halley's method for scalar equations
-- [ ] Utility functions: SumFrac, Norm, convergence checks
-- [ ] PyO3 bindings for every new public function/type added in this milestone (per CLAUDE.md PyO3 Bindings Rule)
-- [ ] Unit tests for all numerical methods — validation test passes
-- [ ] Create milestone notebook (`notebooks/m06_numerics.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: research-paper snippets (§A–§H algorithm choices), worked convergence comparisons, ≥2 user exercises
-- [ ] Update public deploy docs (`deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`) — generic install deltas only
-- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-06.md`)
-- [ ] Tag a release (`v0.2.0`) — CI publishes to PyPI + crates.io and auto-deploys to the sandbox
+Executed in three slices: **M6.1** = scalar solvers + utils + their PyO3 bindings (foundation); **M6.2** = Broyden quasi-Newton (multi-variable); **M6.3** = milestone notebook + deploy docs + `v0.2.0` tag.
+
+- [x] Cardano cubic solver with (12) Poling & Prausnitz robustness *(M6.1)*
+- [x] Brent's method root finder (default bracketed solver) *(M6.1)*
+- [x] Illinois algorithm root finder (lightweight alternative) *(M6.1)*
+- [ ] Broyden quasi-Newton solver with periodic Jacobian refresh *(M6.2)*
+- [x] Halley's method for scalar equations *(M6.1)*
+- [x] Utility functions: SumFrac, Norm, convergence checks *(M6.1)*
+- [x] PyO3 bindings for every new public function/type added in this milestone (per CLAUDE.md PyO3 Bindings Rule) *(M6.1 — Broyden binding lands with M6.2)*
+- [x] Unit tests for all numerical methods — validation test passes *(M6.1; engine numerics tests: 28 Rust + 20 Python)*
+- [ ] Create milestone notebook (`notebooks/m06_numerics.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: research-paper snippets (§A–§H algorithm choices), worked convergence comparisons, ≥2 user exercises *(M6.3)*
+- [ ] Update public deploy docs (`deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`) — generic install deltas only *(M6.3)*
+- [ ] Update private deploy notes (`deploy/local/deploy-notes/milestone-06.md`) *(M6.3)*
+- [ ] Tag a release (`v0.2.0`) — CI publishes to PyPI + crates.io; deploy-sandbox auto-fires the notebooks-only fast path on tag, the full image rebuild stays manual via `workflow_dispatch` + `full_deploy=true` *(M6.3)*
 
 ## Milestone 7: Pure Component Models
 **Goal**: All pure component EOS, saturation pressure, and virial working.
