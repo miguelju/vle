@@ -6,11 +6,11 @@
 #   lint-rust  : cargo fmt + clippy on ubuntu-latest (cheap, public)
 #   test-rust  : cargo test on the self-hosted Linux runner (clean ephemeral
 #                container per run)
-#   build      : invokes _build.yml to produce the wheel matrix as
-#                artifact `wheels-*-ci` (no publish on this workflow)
 #
-# Release / publishing lives in release.yml (tag v* only). See PUBLISHING.md
-# and docs/ci.md for the end-to-end picture.
+# Wheel-matrix smoke build lives in build-smoke.yml (path-filtered to
+# code-affecting commits only). Release / publishing lives in
+# release.yml (tag v* only). See PUBLISHING.md and docs/ci.md for the
+# end-to-end picture.
 
 name: CI
 
@@ -97,9 +97,7 @@ jobs:
       - name: cargo test
         run: cargo test --workspace --all-targets
 
-  build:
-    name: build wheels
-    needs: [lint-rust]
-    uses: ./.github/workflows/_build.yml
-    with:
-      artifact-suffix: ci
+# The wheel-matrix smoke build moved to .github/workflows/build-smoke.yml
+# so it can be path-filtered independently of lint + test. Releases still
+# go through .github/workflows/release.yml (which calls _build.yml for
+# the real publishable artifacts).

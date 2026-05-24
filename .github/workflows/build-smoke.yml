@@ -1,0 +1,74 @@
+# Build (smoke test) — wheel matrix on every code-touching push/PR.
+#
+# Split out from ci.yml (which keeps the lint + cargo-test jobs) so the
+# expensive cross-platform wheel matrix only runs when files that can
+# plausibly affect a wheel actually change. Workflow-config-only
+# commits (touching `ci.yml`, this file, etc.) still get the lint +
+# test sanity check from ci.yml, but skip the ~3.5-minute matrix
+# build.
+#
+# `paths:` here is a *positive* filter (only run when these patterns
+# match), which is the inverse of `ci.yml`'s `paths-ignore`. Together
+# they cover the three regimes:
+#
+#   - Pure docs / notebook / deploy / legacy commit
+#       → ci.yml skipped (paths-ignore), build-smoke.yml skipped
+#         (paths doesn't match) ⇒ no CI work at all.
+#   - Workflow-config-only commit (e.g. tweaking ci.yml)
+#       → ci.yml runs lint + test, build-smoke.yml skipped.
+#   - Code commit (.rs / .py / .toml / Cargo.lock / engine/ / units/
+#     / python/ / _build.yml itself)
+#       → ci.yml runs lint + test (in parallel with this),
+#         build-smoke.yml runs the full wheel matrix.
+#
+# Why split rather than gate with a single workflow + outputs:
+# adding a `dorny/paths-filter`-style job would require a new
+# third-party action on the repo's `allowed_actions` allowlist, and an
+# inline `git diff` would have to handle both push and PR refs
+# correctly. Two workflows with native `paths:` filters is the
+# simplest correct shape.
+
+name: Build (smoke)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.rs'
+      - '**/*.toml'
+      - 'Cargo.lock'
+      - 'python/**'
+      - 'units/**'
+      - 'engine/**'
+      - '.github/workflows/_build.yml'
+      - '.github/workflows/build-smoke.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '**/*.rs'
+      - '**/*.toml'
+      - 'Cargo.lock'
+      - 'python/**'
+      - 'units/**'
+      - 'engine/**'
+      - '.github/workflows/_build.yml'
+      - '.github/workflows/build-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# See the comment in _build.yml — same Node 24 transition shim.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: build-smoke-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: build wheels
+    uses: ./.github/workflows/_build.yml
+    with:
+      artifact-suffix: ci
