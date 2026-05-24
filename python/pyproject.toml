@@ -7,7 +7,7 @@ build-backend = "maturin"
 # python-source = "src" + the src/vle/ directory) following the common
 # "distribution != import" pattern (Pillow → PIL, python-dateutil → dateutil).
 name = "vle-thermo"
-version = "0.2.0"
+version = "0.2.1"
 description = "Vapor-liquid equilibrium (VLE) thermodynamic calculator: 22+ cubic EOS, activity models, flash algorithms"
 readme = "README.md"
 license = { text = "MIT" }

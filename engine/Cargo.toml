@@ -27,7 +27,10 @@ thiserror = "1"
 # Sibling crate in the workspace. We pull it in to re-export the canonical
 # unit catalog (`vle_units::default_units_toml`) through PyO3, so the Python
 # wrapper drives `pint` from the same TOML the Rust registry uses.
-vle-units = { path = "../units" }
+# The `version` is required for `cargo publish` (path is local-only); we keep
+# it in sync with the workspace version by hand. Bump alongside the workspace
+# version in `Cargo.toml`.
+vle-units = { path = "../units", version = "0.2.1" }
 # `abi3-py310` builds against CPython's stable ABI starting at 3.10. One wheel
 # per (OS, arch) then loads cleanly on CPython 3.10, 3.11, 3.12, 3.13 and any
 # future 3.x — no rebuild per Python version. See docs/ci.md and
