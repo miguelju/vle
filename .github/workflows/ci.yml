@@ -63,6 +63,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          # Don't leave the GITHUB_TOKEN in .git/config after checkout —
+          # belt-and-suspenders against a subsequent step (compromised or
+          # otherwise) re-using it to push back to the repo. No job here
+          # pushes, so dropping the token is safe.
+          persist-credentials: false
       - name: Install stable Rust + components
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable @ 2026-05-24
         with:
@@ -84,6 +90,12 @@ jobs:
       || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          # Don't leave the GITHUB_TOKEN in .git/config after checkout —
+          # belt-and-suspenders against a subsequent step (compromised or
+          # otherwise) re-using it to push back to the repo. No job here
+          # pushes, so dropping the token is safe.
+          persist-credentials: false
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable @ 2026-05-24
       - name: Cache cargo
