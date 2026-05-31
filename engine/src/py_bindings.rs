@@ -334,6 +334,24 @@ fn comp_for_eos(tc: f64, pc: f64, omega: f64) -> Component {
     }
 }
 
+/// Build a Component carrying the parameters the M7.2 α functions read.
+/// Internal helper for the `_ex` α bindings. Tc/Pc are left at 1.0 because
+/// α(Tr) is a pure function of the *reduced* temperature and these polar
+/// parameters — it never touches the dimensional critical constants.
+fn comp_for_alpha(omega: f64, zc: f64, m: f64, n: f64, g: f64, prsv_k1: f64) -> Component {
+    Component {
+        tc: 1.0,
+        pc: 1.0,
+        omega,
+        zc,
+        m_polar: m,
+        n_polar: n,
+        g_polar: g,
+        prsv_k1,
+        ..Component::default()
+    }
+}
+
 fn phase_from_str(s: &str) -> PyResult<PhaseId> {
     match s.to_ascii_lowercase().as_str() {
         "vapor" | "v" | "gas" => Ok(PhaseId::Vapor),
@@ -358,17 +376,70 @@ fn map_eos_err(e: EosError) -> PyErr {
 
 /// α(Tr) for the requested cubic EOS.
 ///
-/// Raises `NotImplementedError` for variants not yet ported (see the
-/// M7.2 / M7.3 sub-milestones in TODO.md).
+/// This is the acentric-factor-only entry point: it covers every variant
+/// whose α depends solely on ω (PR1976, RKS1972, RK1949, VdW1870,
+/// Berth1899, VdWAda1984, RKSGD1978, RKSL1997, RP1978, PRL1997). For the
+/// variants that additionally read `Zc` or a fitted polar parameter
+/// (VdWVald1989, RKSmn1980, RKSATmn1995, PRATmng1997, PRMmn1989, PRSV1986)
+/// use [`eos_alpha_ex`], which accepts them.
+///
+/// Panics (surfaced as a Python `PanicException`) for the OL family
+/// (M7.4 — saturation-coupled) and the 3-param Pascal EOS (M7.3).
 #[pyfunction]
 fn eos_alpha(eos: CubicEos, tr: f64, omega: f64) -> f64 {
     eos_alpha_rs(eos, tr, &comp_for_eos(1.0, 1.0, omega))
 }
 
-/// dα/dTr for the requested cubic EOS (analytical).
+/// dα/dTr for the requested cubic EOS (analytical). ω-only entry point;
+/// see [`eos_d_alpha_d_tr_ex`] for the parameterized variants.
 #[pyfunction]
 fn eos_d_alpha_d_tr(eos: CubicEos, tr: f64, omega: f64) -> f64 {
     eos_d_alpha_rs(eos, tr, &comp_for_eos(1.0, 1.0, omega))
+}
+
+/// α(Tr) for the requested cubic EOS, with the full parameter set.
+///
+/// Extends [`eos_alpha`] with the fields the M7.2 polar/fitted variants
+/// read: `zc` (VdWVald1989), `m`/`n` (RKSmn1980, PRMmn1989), `m`/`n`/`g`
+/// (RKSATmn1995, PRATmng1997), and `prsv_k1` (PRSV1986). The ω-only
+/// variants ignore the extra arguments, so this is a strict superset of
+/// `eos_alpha` — passing the defaults reproduces it exactly.
+///
+/// All extra parameters default to 0, so callers only specify what their
+/// chosen variant needs.
+#[pyfunction]
+#[pyo3(signature = (eos, tr, omega, zc=0.0, m=0.0, n=0.0, g=0.0, prsv_k1=0.0))]
+#[allow(clippy::too_many_arguments)]
+fn eos_alpha_ex(
+    eos: CubicEos,
+    tr: f64,
+    omega: f64,
+    zc: f64,
+    m: f64,
+    n: f64,
+    g: f64,
+    prsv_k1: f64,
+) -> f64 {
+    eos_alpha_rs(eos, tr, &comp_for_alpha(omega, zc, m, n, g, prsv_k1))
+}
+
+/// dα/dTr for the requested cubic EOS (analytical), with the full
+/// parameter set. The `_ex` counterpart of [`eos_d_alpha_d_tr`] — see
+/// [`eos_alpha_ex`] for the parameter meanings.
+#[pyfunction]
+#[pyo3(signature = (eos, tr, omega, zc=0.0, m=0.0, n=0.0, g=0.0, prsv_k1=0.0))]
+#[allow(clippy::too_many_arguments)]
+fn eos_d_alpha_d_tr_ex(
+    eos: CubicEos,
+    tr: f64,
+    omega: f64,
+    zc: f64,
+    m: f64,
+    n: f64,
+    g: f64,
+    prsv_k1: f64,
+) -> f64 {
+    eos_d_alpha_rs(eos, tr, &comp_for_alpha(omega, zc, m, n, g, prsv_k1))
 }
 
 /// Family constants (k1, k2, OmA, OmB) for the EOS, as a 4-tuple.
@@ -616,6 +687,9 @@ fn _engine(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // M7.1 cubic-EOS bindings.
     m.add_function(wrap_pyfunction!(eos_alpha, m)?)?;
     m.add_function(wrap_pyfunction!(eos_d_alpha_d_tr, m)?)?;
+    // M7.2 — α variants taking the full polar/fitted parameter set.
+    m.add_function(wrap_pyfunction!(eos_alpha_ex, m)?)?;
+    m.add_function(wrap_pyfunction!(eos_d_alpha_d_tr_ex, m)?)?;
     m.add_function(wrap_pyfunction!(eos_family_constants, m)?)?;
     m.add_function(wrap_pyfunction!(eos_z_factor, m)?)?;
     m.add_function(wrap_pyfunction!(eos_ln_phi_pure, m)?)?;

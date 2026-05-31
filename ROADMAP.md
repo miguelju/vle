@@ -150,17 +150,22 @@ validation cases actually use; the rest land in subsequent releases.
 - [x] Update private deploy notes (`deploy/local/deploy-notes/milestone-07.md`)
 - [x] Deploy notebook to JupyterHub — full image rebuild, verify via `${DOMAIN}`
 
-### Milestone 7.2 — Remaining α-Function Zoo (planned v0.4.0)
-*Will exercise `notebooks/02b_alpha_zoo.ipynb` once shipped.*
+### Milestone 7.2 — Remaining α-Function Zoo (shipped in v0.4.0)
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
+*Exercised by `notebooks/02b_alpha_zoo.ipynb` (now live).*
 
-- [ ] Port the 15 remaining 2-parameter α variants from `legacy/vb6/clsQbicsPure.cls:1719`
+- [x] Port the 12 self-contained 2-parameter α variants from `legacy/vb6/clsQbicsPure.cls:1719`
       (Berthelot, VdWAda1984, RKSGD1978, RKSL1997, RP1978, PRL1997, VdWVald1989,
-       RKSmn1980, RKSATmn1995, PRATmng1997, PRMmn1989, PRSV1986, VdWOL1998,
-       RKOL1998, PROL1998)
-- [ ] Analytical dα/dTr for each (CLAUDE.md *Algorithm Choices* rule)
-- [ ] OL-family `Σ h_k·…` form using the existing family-table coefficients
-- [ ] Per-variant numerical-derivative oracle tests
-- [ ] Rename `02b_alpha_zoo.ipynb` placeholder → live: 22-variant α(Tr) comparison plot, PRSV K₁ demo
+       RKSmn1980, RKSATmn1995, PRATmng1997, PRMmn1989, PRSV1986)
+- [x] Analytical dα/dTr for each (CLAUDE.md *Algorithm Choices* rule)
+- [x] Extended PyO3 bindings `eos_alpha_ex` / `eos_d_alpha_d_tr_ex` (M5+ rule) — thread
+      the per-component `Zc` / `m` / `n` / `g` / `K₁` parameters across the FFI
+- [x] Per-variant numerical-derivative oracle tests (Rust + Python through the wheel)
+- [x] Rename `02b_alpha_zoo.ipynb` placeholder → live: 16-variant α(Tr) comparison plots, PRSV K₁ demo
+- **OL family (VdWOL1998, RKOL1998, PROL1998) re-scoped to M7.4.** Their α is
+  `Tr·(1 + Σ hₖ·…)` where the sum depends on the component's reduced saturation
+  pressure (`clsQbicsPure.cls:268`), so it is coupled to the saturation layer and
+  lands alongside the non-Antoine saturation models in M7.4.
 
 ### Milestone 7.3 — Three-Parameter EOS + Chao-Seader (planned v0.5.0)
 *Will exercise `notebooks/02c_three_param_eos.ipynb` once shipped.*
@@ -175,6 +180,9 @@ validation cases actually use; the rest land in subsequent releases.
 ### Milestone 7.4 — Advanced Saturation + Maxwell (planned v0.6.0)
 *Will exercise `notebooks/02d_advanced_saturation.ipynb` once shipped.*
 
+- [ ] OL-family α (VdWOL1998, RKOL1998, PROL1998) — `Tr·(1 + Σ hₖ·…)` from
+      `legacy/vb6/clsQbicsPure.cls:268` (`SumHk`); needs the reduced saturation
+      pressure, hence grouped here with the saturation layer (re-scoped from M7.2)
 - [ ] Riedel, Müller, RPM, polynomial saturation correlations (4) + VB6
 - [ ] PseudoAntoine helper (converts other models to Antoine equivalent)
 - [ ] Analytical dPsat/dT where tractable; numerical fallback elsewhere

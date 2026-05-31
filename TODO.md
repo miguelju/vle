@@ -121,7 +121,7 @@ Split into four sub-milestones; M7.1 ships in v0.3.0, the rest follow.
 *Executed by Claude Code using Claude Opus 4.7 (1M context)*
 
 - [x] **Implement EOS family constants** (~1h) — full table for all 22 variants per (5)
-- [x] **Implement core α + dα/dTr** (~1h) — PR1976, RKS1972, RK1949, VdW1870 with analytical derivatives; other 18 variants stubbed with `unimplemented!("M7.2 deferred")`
+- [x] **Implement core α + dα/dTr** (~1h) — PR1976, RKS1972, RK1949, VdW1870 with analytical derivatives; other 18 variants stubbed with `unimplemented!` pointing at the deferred sub-milestone (12 since ported in M7.2; OL family → M7.4; 3-param Pascal → M7.3)
 - [x] **Implement Z-factor** (~1h) — 2-parameter cubic EOS via the existing Cardano solver; 3-param EOS return `NotImplemented` cleanly
 - [x] **Implement fugacity + H^R/RT, S^R/R** (~1h) — pure component, Abbott form
 - [x] **Implement Antoine saturation** (~0.5h) — analytical dPsat/dT; other 5 models stubbed
@@ -134,13 +134,20 @@ Split into four sub-milestones; M7.1 ships in v0.3.0, the rest follow.
 - [x] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-07.md`
 - [x] **Deploy notebooks + full image rebuild** (~1h) — verify v0.3.0 hub via `${DOMAIN}`
 
-### Milestone 7.2 — α-Function Zoo (planned v0.4.0)
+### Milestone 7.2 — α-Function Zoo (shipped in v0.4.0)
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
-- [ ] **Port 15 remaining α functions** (~4–6h) — all VB6 variants from `legacy/vb6/clsQbicsPure.cls:1719`
-- [ ] **Analytical dα/dTr for each** (~2–3h)
-- [ ] **OL-family `Σ h_k` form** (~1h) — uses family-table h_coeffs
-- [ ] **Numerical-oracle tests across the new variants** (~1h)
-- [ ] **Rename `02b_alpha_zoo.ipynb` placeholder → live** with a 22-variant comparison plot (~1h)
+- [x] **Port 12 self-contained α functions** (~4–6h) — Berthelot, VdWAda1984, RKSGD1978,
+      RKSL1997, RP1978, PRL1997, VdWVald1989, RKSmn1980, RKSATmn1995, PRATmng1997,
+      PRMmn1989, PRSV1986 from `legacy/vb6/clsQbicsPure.cls:1719`
+- [x] **Analytical dα/dTr for each** (~2–3h) — verified against a central-difference oracle
+- [x] **Extended PyO3 bindings** (~0.5h) — `eos_alpha_ex` / `eos_d_alpha_d_tr_ex` carry the
+      per-component `Zc`/`m`/`n`/`g`/`K₁` (M5+ binding rule)
+- [x] **Numerical-oracle tests across the new variants** (~1h) — Rust (`eos.rs`) + Python
+      (`test_m7_pure_component.py`) through the built wheel
+- [x] **Rename `02b_alpha_zoo.ipynb` placeholder → live** (~1h) — 16-variant α(Tr) plots, PRSV K₁ demo
+- **OL family deferred to M7.4** — `Tr·(1 + Σ hₖ)` depends on reduced saturation pressure
+  (`clsQbicsPure.cls:268`); belongs with the saturation layer, not the pure-α zoo.
 
 ### Milestone 7.3 — Three-Parameter EOS + Chao-Seader (planned v0.5.0)
 
@@ -153,6 +160,8 @@ Split into four sub-milestones; M7.1 ships in v0.3.0, the rest follow.
 
 ### Milestone 7.4 — Advanced Saturation Models (planned v0.6.0)
 
+- [ ] **OL-family α** (~1–2h) — VdWOL1998 / RKOL1998 / PROL1998, `Tr·(1 + Σ hₖ)` with the
+      family-table h-coefficients; needs reduced saturation pressure (re-scoped from M7.2)
 - [ ] **Riedel, Müller, RPM, polynomial correlations** (~3–4h)
 - [ ] **PseudoAntoine helper + analytical dPsat/dT** (~1h)
 - [ ] **Maxwell equal-area construction** (~2h) — Brent + cubic-EOS isotherm

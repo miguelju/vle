@@ -158,16 +158,21 @@ pub enum PhaseId {
 }
 
 // ===========================================================================
-// M7.1 — pure-component cubic-EOS algorithms.
+// M7.1 / M7.2 — pure-component cubic-EOS algorithms.
 //
 // This block fills in the family constants, alpha functions, Z-factor,
-// fugacity, and departure-property machinery for the *deployable core* of
-// the EOS catalogue: PR1976, RKS1972, RK1949, VdW1870. These are the
-// four variants Chapter IV's validation cases actually use.
+// fugacity, and departure-property machinery for the two-parameter cubic
+// EOS catalogue. M7.1 shipped the *deployable core* (PR1976, RKS1972,
+// RK1949, VdW1870 — the four variants Chapter IV uses); M7.2 added the
+// remaining twelve two-parameter variants (Berthelot, VdWAda1984,
+// RKSGD1978, RKSL1997, RP1978, PRL1997, VdWVald1989, RKSmn1980,
+// RKSATmn1995, PRATmng1997, PRMmn1989, PRSV1986), each with an analytical
+// dα/dTr.
 //
-// All other CubicEos variants intentionally panic via `unimplemented!`
-// with a pointer to the deferred sub-milestone (M7.2 for the remaining
-// 2-param α functions, M7.3 for the 3-param Pascal EOS). The panic
+// The remaining CubicEos variants still panic via `unimplemented!` with a
+// pointer to their deferred sub-milestone: the OL family (VdWOL1998,
+// RKOL1998, PROL1998) is M7.4 because its α is coupled to the reduced
+// saturation pressure, and the 3-param Pascal EOS is M7.3. The panic
 // message names both the variant and the legacy source line, so a future
 // porting session has the receipt it needs to fill in the gap.
 //
@@ -282,17 +287,20 @@ pub fn family_constants(eos: CubicEos) -> FamilyConstants {
 /// # Arguments
 /// * `eos` — EOS variant.
 /// * `tr` — Reduced temperature T/Tc. **Dimensionless.**
-/// * `comp` — Component data (only `omega` is read by the four ported
-///   variants; future variants will read polar parameters).
+/// * `comp` — Component data. The acentric-factor variants read only
+///   `omega`; the polar/fitted variants additionally read `zc`
+///   (VdWVald1989), `m_polar`/`n_polar` (RKSmn1980, PRMmn1989),
+///   `m_polar`/`n_polar`/`g_polar` (RKSATmn1995, PRATmng1997), or
+///   `prsv_k1` (PRSV1986).
 ///
 /// # Returns
 /// α evaluated at `tr`, **dimensionless**.
 ///
 /// # Panics
-/// Calls `unimplemented!` for any EOS variant not yet ported. The panic
-/// message includes the variant name and a pointer to the legacy source
-/// line (`legacy/vb6/clsQbicsPure.cls:1719`) so a future port can pick
-/// up where this left off.
+/// Calls `unimplemented!` for the EOS variants not yet ported — the OL
+/// family (M7.4, saturation-coupled) and the 3-param Pascal EOS (M7.3).
+/// The panic message includes the variant name and a pointer to the legacy
+/// source line so a future port can pick up where this left off.
 pub fn alpha(eos: CubicEos, tr: f64, comp: &Component) -> f64 {
     use CubicEos::*;
     let w = comp.omega;
@@ -314,12 +322,104 @@ pub fn alpha(eos: CubicEos, tr: f64, comp: &Component) -> f64 {
             let s = 1.0 - tr.sqrt();
             (1.0 + kappa * s).powi(2)
         }
-        // ----- Deferred: remaining 2-param α variants → M7.2 -----
-        Berth1899 | VdWAda1984 | RKSGD1978 | RKSL1997 | RP1978 | PRL1997 | VdWVald1989
-        | RKSmn1980 | RKSATmn1995 | PRATmng1997 | PRMmn1989 | PRSV1986 | VdWOL1998 | RKOL1998
-        | PROL1998 => {
+        // ----- M7.2: remaining 2-parameter α variants -----
+        // All ported from VB6 `Friend Function Alpha` (clsQbicsPure.cls:1719).
+
+        // Berthelot (1899): a temperature-modified VdW. VB6:1730.
+        // α = 1/Tr.
+        Berth1899 => 1.0 / tr,
+
+        // van der Waals-Adachi (1984). VB6:1732. α = 10^(m·(1 − Tr)).
+        // The VB6 wrote m's linear term in two pieces
+        // (0.791981·ω + 0.654505·ω); we fold them into the single
+        // coefficient 1.446486·ω — a bit-identical result. (The split
+        // is almost certainly a transcription artifact of an intended
+        // higher-order term in the original correlation.)
+        VdWAda1984 => {
+            let m = 0.228165 + 1.446486 * w - 0.648552 * w * w;
+            10f64.powf(m * (1.0 - tr))
+        }
+
+        // Soave-shaped variants: α = [1 + m(ω)·(1 − √Tr)]², identical in
+        // form to RKS1972/PR1976 but with different m(ω) correlations.
+        // RKSGD1978 = Graboski-Daubert (VB6:1738).
+        RKSGD1978 => {
+            let m = 0.48508 + 1.55171 * w - 0.15613 * w * w;
+            let s = 1.0 - tr.sqrt();
+            (1.0 + m * s).powi(2)
+        }
+        // RKSL1997 = Lim's RKS modification, cubic in ω (VB6:1740).
+        RKSL1997 => {
+            let m = 0.478972559 + 1.576809191 * w - 0.187219516 * w * w + 0.020424946 * w * w * w;
+            let s = 1.0 - tr.sqrt();
+            (1.0 + m * s).powi(2)
+        }
+        // RP1978 = Redlich-Prausnitz, PR family, cubic in ω (VB6:1744).
+        RP1978 => {
+            let m = 0.379642 + 1.48503 * w - 0.164423 * w * w + 0.016666 * w * w * w;
+            let s = 1.0 - tr.sqrt();
+            (1.0 + m * s).powi(2)
+        }
+        // PRL1997 = Peng-Robinson-Lim, cubic in ω (VB6:1746).
+        PRL1997 => {
+            let m = 0.378710697 + 1.487972964 * w - 0.166754831 * w * w + 0.017169486 * w * w * w;
+            let s = 1.0 - tr.sqrt();
+            (1.0 + m * s).powi(2)
+        }
+
+        // Mathias-Naumann linear form: α = 1 + (1 − Tr)·(m + n/Tr).
+        // VdWVald1989 derives m, n from ω·Zc (VB6:1748); RKSmn1980 reads
+        // the component-specific fitted m, n directly (VB6:1753).
+        VdWVald1989 => {
+            let omegac = w * comp.zc;
+            let m = 0.4745 + (2.7349 + 6.0984 * omegac) * omegac;
+            let n = 0.0674 + (2.1031 + 3.9512 * omegac) * omegac;
+            1.0 + (1.0 - tr) * (m + n / tr)
+        }
+        RKSmn1980 => {
+            let (m, n) = (comp.m_polar, comp.n_polar);
+            1.0 + (1.0 - tr) * (m + n / tr)
+        }
+
+        // Adachi-Tagawa-Mathias-Naumann exponential form with three fitted
+        // constants (m, n, g). The expression is identical for the RKS and
+        // PR families — only the family k1/k2 constants differ. VB6:1755/1757.
+        // α = exp[ (1 − Tr)·m·|1 − Tr|^(g−1) + n·(1/Tr − 1) ].
+        RKSATmn1995 | PRATmng1997 => {
+            let (m, n, g) = (comp.m_polar, comp.n_polar, comp.g_polar);
+            let u = 1.0 - tr;
+            (u * m * u.abs().powf(g - 1.0) + n * (1.0 / tr - 1.0)).exp()
+        }
+
+        // PR-Mathias-Massih-Naumann (1989): α = exp[ (1 − Tr)·m + n·(1 − √Tr)² ].
+        // m, n are component-specific fitted constants. VB6:1759.
+        PRMmn1989 => {
+            let (m, n) = (comp.m_polar, comp.n_polar);
+            let s = 1.0 - tr.sqrt();
+            ((1.0 - tr) * m + n * s * s).exp()
+        }
+
+        // Peng-Robinson-Stryjek-Vera (1986): α = [1 + κ·(1 − √Tr)]² with
+        // κ = κ₀(ω) + K₁·(1 + √Tr)·(0.7 − Tr). K₁ is the component-specific
+        // PRSV parameter (zero recovers the plain PR-like κ₀ form). VB6:1762.
+        PRSV1986 => {
+            let r = tr.sqrt();
+            let kappa0 = 0.378893 + 1.4897153 * w - 0.17131848 * w * w + 0.0196554 * w * w * w;
+            let kappa = kappa0 + comp.prsv_k1 * (1.0 + r) * (0.7 - tr);
+            let inner = 1.0 + kappa * (1.0 - r);
+            inner * inner
+        }
+
+        // ----- Deferred: OL family → M7.4 -----
+        // The OL-family α is not a function of (Tr, ω): VB6 computes
+        // α = Tr·(1 + SumHk) where SumHk depends on the component's reduced
+        // saturation pressure (clsQbicsPure.cls:268). It is therefore coupled
+        // to the saturation layer and lands with M7.4 alongside the
+        // non-Antoine saturation models.
+        VdWOL1998 | RKOL1998 | PROL1998 => {
             unimplemented!(
-                "M7.2 deferred: alpha({:?}) not yet ported — see legacy/vb6/clsQbicsPure.cls:1719",
+                "M7.4 deferred: OL-family α({:?}) depends on reduced saturation pressure \
+                 (SumHk, legacy/vb6/clsQbicsPure.cls:268) — lands with the M7.4 saturation layer",
                 eos
             )
         }
@@ -360,11 +460,98 @@ pub fn d_alpha_d_tr(eos: CubicEos, tr: f64, comp: &Component) -> f64 {
             let s = 1.0 - tr.sqrt();
             -kappa * (1.0 + kappa * s) / tr.sqrt()
         }
-        // ----- Deferred -----
-        Berth1899 | VdWAda1984 | RKSGD1978 | RKSL1997 | RP1978 | PRL1997 | VdWVald1989
-        | RKSmn1980 | RKSATmn1995 | PRATmng1997 | PRMmn1989 | PRSV1986 | VdWOL1998 | RKOL1998
-        | PROL1998 => {
-            unimplemented!("M7.2 deferred: d_alpha_d_tr({:?}) not yet ported", eos)
+        // ----- M7.2: analytical derivatives for the remaining 2-param variants -----
+
+        // Berthelot: α = 1/Tr → dα/dTr = −1/Tr².
+        Berth1899 => -1.0 / (tr * tr),
+
+        // VdWAda: α = 10^(m·(1 − Tr)) = exp(m·(1 − Tr)·ln10) →
+        // dα/dTr = −m·ln(10)·α.
+        VdWAda1984 => {
+            let m = 0.228165 + 1.446486 * w - 0.648552 * w * w;
+            let a = 10f64.powf(m * (1.0 - tr));
+            -m * std::f64::consts::LN_10 * a
+        }
+
+        // Soave form: α = (1 + m·s)², s = 1 − √Tr, ds/dTr = −1/(2√Tr) →
+        // dα/dTr = −m·(1 + m·s)/√Tr.
+        RKSGD1978 => {
+            let m = 0.48508 + 1.55171 * w - 0.15613 * w * w;
+            let s = 1.0 - tr.sqrt();
+            -m * (1.0 + m * s) / tr.sqrt()
+        }
+        RKSL1997 => {
+            let m = 0.478972559 + 1.576809191 * w - 0.187219516 * w * w + 0.020424946 * w * w * w;
+            let s = 1.0 - tr.sqrt();
+            -m * (1.0 + m * s) / tr.sqrt()
+        }
+        RP1978 => {
+            let m = 0.379642 + 1.48503 * w - 0.164423 * w * w + 0.016666 * w * w * w;
+            let s = 1.0 - tr.sqrt();
+            -m * (1.0 + m * s) / tr.sqrt()
+        }
+        PRL1997 => {
+            let m = 0.378710697 + 1.487972964 * w - 0.166754831 * w * w + 0.017169486 * w * w * w;
+            let s = 1.0 - tr.sqrt();
+            -m * (1.0 + m * s) / tr.sqrt()
+        }
+
+        // Mathias-Naumann linear form: α = 1 + (1 − Tr)(m + n/Tr).
+        // The (1−Tr)·n/Tr terms collapse exactly: dα/dTr = −m − n/Tr².
+        VdWVald1989 => {
+            let omegac = w * comp.zc;
+            let m = 0.4745 + (2.7349 + 6.0984 * omegac) * omegac;
+            let n = 0.0674 + (2.1031 + 3.9512 * omegac) * omegac;
+            -m - n / (tr * tr)
+        }
+        RKSmn1980 => {
+            let (m, n) = (comp.m_polar, comp.n_polar);
+            -m - n / (tr * tr)
+        }
+
+        // ATmn exponential form: α = exp(f) with
+        // f = (1 − Tr)·m·|1 − Tr|^(g−1) + n·(1/Tr − 1).
+        // Using d/dTr[(1 − Tr)·|1 − Tr|^(g−1)] = −g·|1 − Tr|^(g−1):
+        // dα/dTr = α·( −m·g·|1 − Tr|^(g−1) − n/Tr² ).
+        RKSATmn1995 | PRATmng1997 => {
+            let (m, n, g) = (comp.m_polar, comp.n_polar, comp.g_polar);
+            let u = 1.0 - tr;
+            let a = (u * m * u.abs().powf(g - 1.0) + n * (1.0 / tr - 1.0)).exp();
+            a * (-m * g * u.abs().powf(g - 1.0) - n / (tr * tr))
+        }
+
+        // PRMmn: α = exp[(1 − Tr)·m + n·s²], s = 1 − √Tr.
+        // dα/dTr = α·( −m − n·s/√Tr ).
+        PRMmn1989 => {
+            let (m, n) = (comp.m_polar, comp.n_polar);
+            let r = tr.sqrt();
+            let s = 1.0 - r;
+            let a = ((1.0 - tr) * m + n * s * s).exp();
+            a * (-m - n * s / r)
+        }
+
+        // PRSV: α = inner², inner = 1 + κ·(1 − √Tr),
+        // κ = κ₀ + K₁·(1 + √Tr)·(0.7 − Tr). Let r = √Tr.
+        // dκ/dTr = K₁·[ (0.7 − Tr)/(2r) − (1 + r) ];
+        // d(inner)/dTr = dκ·(1 − r) − κ/(2r);
+        // dα/dTr = 2·inner·d(inner)/dTr.
+        PRSV1986 => {
+            let r = tr.sqrt();
+            let kappa0 = 0.378893 + 1.4897153 * w - 0.17131848 * w * w + 0.0196554 * w * w * w;
+            let kappa = kappa0 + comp.prsv_k1 * (1.0 + r) * (0.7 - tr);
+            let inner = 1.0 + kappa * (1.0 - r);
+            let dkappa = comp.prsv_k1 * ((0.7 - tr) / (2.0 * r) - (1.0 + r));
+            let dinner = dkappa * (1.0 - r) - kappa / (2.0 * r);
+            2.0 * inner * dinner
+        }
+
+        // ----- Deferred: OL family → M7.4 (saturation-coupled α) -----
+        VdWOL1998 | RKOL1998 | PROL1998 => {
+            unimplemented!(
+                "M7.4 deferred: OL-family dα/dTr({:?}) depends on reduced saturation pressure \
+                 (SumHk, legacy/vb6/clsQbicsPure.cls:268) — lands with the M7.4 saturation layer",
+                eos
+            )
         }
         SchmidtWenzel | PatelTeja | PatelTejaUSB => {
             unimplemented!("M7.3 deferred: 3-param EOS {:?} not yet ported", eos)
@@ -774,11 +961,159 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "M7.2 deferred")]
+    #[should_panic(expected = "M7.4 deferred")]
     fn deferred_alpha_panics_with_marker() {
-        // RKSGD1978 is in the M7.2-deferred bucket — verify the panic
-        // message names the variant and the porting milestone.
+        // The OL family is now the M7.4-deferred bucket (its α is coupled
+        // to the reduced saturation pressure) — verify the panic message
+        // names the variant and the porting milestone.
         let c = methane();
-        let _ = alpha(CubicEos::RKSGD1978, 1.0, &c);
+        let _ = alpha(CubicEos::RKOL1998, 1.0, &c);
+    }
+
+    // -----------------------------------------------------------------
+    // M7.2 — tests for the remaining twelve two-parameter α variants.
+    // -----------------------------------------------------------------
+
+    /// A synthetic "polar" component carrying every fitted parameter the
+    /// M7.2 variants might read (zc, m/n/g, prsv_k1). Critical constants
+    /// loosely mimic water so the numbers stay in a plausible range; the
+    /// exact values don't matter — the oracle test only checks internal
+    /// consistency of α and its analytical derivative.
+    fn polar_component() -> Component {
+        Component {
+            name: "synthetic-polar".into(),
+            tc: 647.1,
+            pc: 22064.0,
+            omega: 0.344,
+            zc: 0.229,
+            // Fitted polar parameters. g > 1 keeps |1−Tr|^(g−1) smooth at
+            // Tr = 1 for the ATmn exponential variants.
+            m_polar: 0.45,
+            n_polar: 0.12,
+            g_polar: 1.5,
+            prsv_k1: 0.07,
+            ..Component::default()
+        }
+    }
+
+    /// Every M7.2 variant, plus the synthetic component each one is
+    /// exercised against. The OL family is excluded — it is M7.4.
+    const M72_VARIANTS: [CubicEos; 12] = [
+        CubicEos::Berth1899,
+        CubicEos::VdWAda1984,
+        CubicEos::RKSGD1978,
+        CubicEos::RKSL1997,
+        CubicEos::RP1978,
+        CubicEos::PRL1997,
+        CubicEos::VdWVald1989,
+        CubicEos::RKSmn1980,
+        CubicEos::RKSATmn1995,
+        CubicEos::PRATmng1997,
+        CubicEos::PRMmn1989,
+        CubicEos::PRSV1986,
+    ];
+
+    #[test]
+    fn m72_alpha_is_finite_and_positive() {
+        // α must be a finite, strictly positive number everywhere — a
+        // negative or NaN α would make a·α negative and break the EOS.
+        let c = polar_component();
+        for eos in M72_VARIANTS {
+            for tr in [0.5_f64, 0.7, 0.9, 1.0, 1.3, 2.0] {
+                let a = alpha(eos, tr, &c);
+                assert!(
+                    a.is_finite() && a > 0.0,
+                    "{:?} Tr={} gave α={} (expected finite, positive)",
+                    eos,
+                    tr,
+                    a
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn m72_alpha_at_tr_one_is_one() {
+        // By construction, all of these α forms collapse to 1 at Tr = 1
+        // (the 1 − √Tr / 1 − Tr / 1/Tr − 1 factors all vanish there). This
+        // is the single most important sanity check on the porting: the
+        // attractive term must reduce to its critical-point value at Tc.
+        let c = polar_component();
+        for eos in M72_VARIANTS {
+            let a = alpha(eos, 1.0, &c);
+            assert!(
+                (a - 1.0).abs() < 1e-12,
+                "{:?}: α(Tr=1) = {} (expected 1.0)",
+                eos,
+                a
+            );
+        }
+    }
+
+    #[test]
+    fn m72_analytical_d_alpha_matches_numerical() {
+        // The CLAUDE.md "Algorithm Choices" rule: analytical dα/dTr is the
+        // production path, the central-difference value is only an oracle.
+        // Tr = 1.0 is skipped for the abs-power ATmn variants — even with
+        // g = 1.5 the |1−Tr|^(g−1) factor is only C¹ there, so a symmetric
+        // difference would clip the corner; every other Tr is smooth.
+        let c = polar_component();
+        for eos in M72_VARIANTS {
+            for tr in [0.55_f64, 0.7, 0.85, 1.1, 1.4] {
+                let analytical = d_alpha_d_tr(eos, tr, &c);
+                let numerical = d_alpha_numerical(eos, tr, &c, 1e-6);
+                let rel = if analytical.abs() < 1e-8 {
+                    (analytical - numerical).abs()
+                } else {
+                    ((analytical - numerical) / analytical).abs()
+                };
+                assert!(
+                    rel < 1e-5,
+                    "{:?} Tr={} analytical={} numerical={} rel={}",
+                    eos,
+                    tr,
+                    analytical,
+                    numerical,
+                    rel
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn prsv_k1_recovers_kappa0_when_zero() {
+        // With K₁ = 0 the PRSV κ collapses to κ₀(ω), so α(PRSV) must match
+        // the bracketed [1 + κ₀(1−√Tr)]² form exactly. This pins the K₁
+        // contribution as a pure additive correction.
+        let mut c = polar_component();
+        c.prsv_k1 = 0.0;
+        let w = c.omega;
+        let kappa0 = 0.378893 + 1.4897153 * w - 0.17131848 * w * w + 0.0196554 * w * w * w;
+        for tr in [0.6_f64, 0.8, 1.2] {
+            let s = 1.0 - tr.sqrt();
+            let expected = (1.0 + kappa0 * s).powi(2);
+            let got = alpha(CubicEos::PRSV1986, tr, &c);
+            assert!(
+                (got - expected).abs() < 1e-12,
+                "PRSV K₁=0 Tr={}: got {} expected {}",
+                tr,
+                got,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn m72_z_factor_and_ln_phi_work() {
+        // The full Z-factor / ln(φ) machinery must run end-to-end for the
+        // new variants (they were panicking before M7.2). Use the polar
+        // component below its critical point.
+        let c = polar_component();
+        for eos in M72_VARIANTS {
+            let z = z_factor(eos, 500.0, 2000.0, &c, PhaseId::Vapor).unwrap();
+            assert!(z > 0.0 && z < 1.2, "{:?}: Z={} out of range", eos, z);
+            let ln_phi = ln_phi_pure(eos, 500.0, 2000.0, &c, PhaseId::Vapor).unwrap();
+            assert!(ln_phi.is_finite(), "{:?}: ln(φ)={} not finite", eos, ln_phi);
+        }
     }
 }

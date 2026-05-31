@@ -69,7 +69,7 @@ of the research paper's Chapter IV validation cases.
 | `m06_numerics.ipynb`                                | 6         | Demo of Brent / Illinois / Broyden / Halley     |
 | `01_introduction.ipynb`                             | 10        | Installation walk-through, basic API            |
 | `02_pure_component.ipynb`                           | 7.1       | PR / RKS / RK / VdW: α, Z, ln(φ), Antoine, virial |
-| `02b_alpha_zoo.ipynb`                               | 7.2 (planned v0.4.0) | DRAFT — 15 remaining 2-param α variants  |
+| `02b_alpha_zoo.ipynb`                               | 7.2       | 12 more 2-param α variants + analytical dα/dTr, PRSV K₁ demo |
 | `02c_three_param_eos.ipynb`                         | 7.3 (planned v0.5.0) | DRAFT — Schmidt-Wenzel, Patel-Teja, Chao-Seader |
 | `02d_advanced_saturation.ipynb`                     | 7.4 (planned v0.6.0) | DRAFT — Riedel/Müller/RPM/Maxwell sat models  |
 | `03_activity_models.ipynb`                          | 8         | Activity coefficient models, excess Gibbs plots |

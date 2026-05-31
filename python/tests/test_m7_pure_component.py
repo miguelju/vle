@@ -85,6 +85,78 @@ def test_analytical_d_alpha_matches_numerical(eos, tr) -> None:
 
 
 # =============================================================================
+# M7.2 — the remaining twelve two-parameter α variants
+# =============================================================================
+
+# A synthetic "polar" component carrying every fitted parameter the M7.2
+# variants might read. The exact numbers don't matter — the oracle tests
+# check internal consistency of α and its analytical derivative. g > 1
+# keeps |1 − Tr|^(g−1) smooth at Tr = 1 for the ATmn exponential variants.
+POLAR = dict(omega=0.344, zc=0.229, m=0.45, n=0.12, g=1.5, prsv_k1=0.07)
+
+# The twelve variants shipped in M7.2 (the OL family is M7.4, the 3-param
+# Pascal EOS is M7.3).
+M72_VARIANTS = [
+    e.CubicEos.Berth1899,
+    e.CubicEos.VdWAda1984,
+    e.CubicEos.RKSGD1978,
+    e.CubicEos.RKSL1997,
+    e.CubicEos.RP1978,
+    e.CubicEos.PRL1997,
+    e.CubicEos.VdWVald1989,
+    e.CubicEos.RKSmn1980,
+    e.CubicEos.RKSATmn1995,
+    e.CubicEos.PRATmng1997,
+    e.CubicEos.PRMmn1989,
+    e.CubicEos.PRSV1986,
+]
+
+
+@pytest.mark.parametrize("eos", M72_VARIANTS)
+def test_m72_alpha_at_tr_one(eos) -> None:
+    """α(Tr=1) = 1 for every M7.2 variant — they all reduce to the
+    critical-point value at Tc by construction."""
+    a = e.eos_alpha_ex(eos, 1.0, **POLAR)
+    assert a == pytest.approx(1.0, abs=1e-12)
+
+
+@pytest.mark.parametrize("eos", M72_VARIANTS)
+@pytest.mark.parametrize("tr", [0.55, 0.7, 0.85, 1.1, 1.4])
+def test_m72_analytical_d_alpha_matches_numerical(eos, tr) -> None:
+    """Analytical dα/dTr agrees with a central-difference oracle, through
+    the extended binding (so the full parameter set crosses the FFI)."""
+    h = 1e-6
+    analytical = e.eos_d_alpha_d_tr_ex(eos, tr, **POLAR)
+    numerical = (
+        e.eos_alpha_ex(eos, tr + h, **POLAR) - e.eos_alpha_ex(eos, tr - h, **POLAR)
+    ) / (2.0 * h)
+    if abs(analytical) < 1e-8:
+        assert abs(analytical - numerical) < 1e-6
+    else:
+        assert numerical == pytest.approx(analytical, rel=1e-5)
+
+
+def test_eos_alpha_ex_superset_of_eos_alpha() -> None:
+    """For an ω-only variant, the extended binding with default extras
+    must match the simple binding bit-for-bit."""
+    for eos in [e.CubicEos.Berth1899, e.CubicEos.RKSGD1978, e.CubicEos.PR1976]:
+        for tr in [0.6, 1.0, 1.5]:
+            assert e.eos_alpha_ex(eos, tr, 0.252) == e.eos_alpha(eos, tr, 0.252)
+
+
+def test_prsv_k1_is_additive_correction() -> None:
+    """PRSV with K₁=0 collapses to the κ₀(ω) form; a nonzero K₁ shifts α."""
+    w = 0.344
+    a0 = e.eos_alpha_ex(e.CubicEos.PRSV1986, 0.6, w, prsv_k1=0.0)
+    a1 = e.eos_alpha_ex(e.CubicEos.PRSV1986, 0.6, w, prsv_k1=0.07)
+    # κ₀ form, evaluated independently.
+    kappa0 = 0.378893 + 1.4897153 * w - 0.17131848 * w**2 + 0.0196554 * w**3
+    inner = 1.0 + kappa0 * (1.0 - 0.6**0.5)
+    assert a0 == pytest.approx(inner**2, abs=1e-12)
+    assert a1 != pytest.approx(a0)
+
+
+# =============================================================================
 # Z-factor, ln(φ), H^R/RT, S^R/R
 # =============================================================================
 
@@ -247,15 +319,19 @@ def test_three_param_eos_raises_not_implemented(eos) -> None:
 
 @pytest.mark.parametrize(
     "eos",
-    [e.CubicEos.RKSGD1978, e.CubicEos.PRSV1986, e.CubicEos.RKSmn1980],
+    [e.CubicEos.VdWOL1998, e.CubicEos.RKOL1998, e.CubicEos.PROL1998],
 )
 def test_deferred_alpha_variants_panic_at_alpha(eos) -> None:
-    """Deferred α variants panic at the α layer — pyo3 turns the Rust panic into PanicException."""
-    # The Rust `unimplemented!` macro panics. PyO3 traps the panic and
-    # raises `pyo3.exceptions.PyBaseException` (subclass of PanicException).
+    """The OL family is the only α bucket still deferred (now M7.4).
+
+    Its α is coupled to the reduced saturation pressure, so it lands with
+    the M7.4 saturation layer. The Rust ``unimplemented!`` macro panics;
+    PyO3 traps the panic and raises a ``PanicException`` (subclass of
+    ``BaseException``).
+    """
     with pytest.raises(BaseException) as excinfo:
         e.eos_alpha(eos, 1.0, 0.2)
-    assert "M7.2 deferred" in str(excinfo.value)
+    assert "M7.4 deferred" in str(excinfo.value)
 
 
 def test_non_antoine_sat_models_raise_not_implemented() -> None:

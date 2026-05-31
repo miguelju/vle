@@ -412,7 +412,7 @@ vle/
 - Brent's method and Illinois algorithm root finders — replace legacy Regula Falsi (from `clsSatPressureSolver.cls`) — see §C
 - Utility functions: `SumFrac`, `Norm`, convergence checks
 
-### Phase 7: Pure Component EOS *(Milestone 7 — split: 7.1 done, 7.2 / 7.3 deferred)*
+### Phase 7: Pure Component EOS *(Milestone 7 — split: 7.1 / 7.2 done, 7.3 deferred; OL-family α → 7.4)*
 
 **M7.1 — shipped in v0.3.0** (Claude Opus 4.7, 1M context):
 - `family_constants(eos)` for all 22 variants (from `McommonFunctions.bas:273`) (5)
@@ -421,12 +421,18 @@ vle/
 - Pure-component ln(φ) + dimensionless H^R/RT and S^R/R via the general Abbott integral
 - Cleanly errors (not panics) on the 3-parameter EOS at the API surface — α functions for deferred variants panic with an `M7.x deferred` marker pointing at the legacy line.
 
-**M7.2 — planned v0.4.0** (the α-function zoo):
-- Port the 15 remaining 2-parameter α(Tr) functions from `clsQbicsPure.cls:1719`
+**M7.2 — shipped in v0.4.0** (Claude Opus 4.8, 1M context — the α-function zoo):
+- Ported the 12 self-contained 2-parameter α(Tr) functions from `clsQbicsPure.cls:1719`
   (Berthelot, VdWAda1984, RKSGD1978, RKSL1997, RP1978, PRL1997, VdWVald1989, RKSmn1980,
-   RKSATmn1995, PRATmng1997, PRMmn1989, PRSV1986, VdWOL1998, RKOL1998, PROL1998)
-- Analytical dα/dTr for each (CLAUDE.md *Algorithm Choices*)
-- OL-family `Σ h_k·…` evaluator using the family-table `h_coeffs` field
+   RKSATmn1995, PRATmng1997, PRMmn1989, PRSV1986), each with an analytical dα/dTr verified
+  against a central-difference oracle.
+- New `eos_alpha_ex` / `eos_d_alpha_d_tr_ex` PyO3 bindings thread the per-component
+  `Zc` / `m` / `n` / `g` / `K₁` parameters across the FFI (the ω-only `eos_alpha` is a
+  strict subset).
+- The three OL-family variants (VdWOL1998, RKOL1998, PROL1998) were **re-scoped to M7.4**:
+  their α is `Tr·(1 + Σ hₖ·…)` where `SumHk` (`clsQbicsPure.cls:268`) reads the reduced
+  saturation pressure, making α a function of the saturation correlation rather than of
+  `(Tr, ω)` alone. They land with the M7.4 saturation layer.
 
 **M7.3 — planned v0.5.0** (3-parameter EOS + Chao-Seader, **Pascal-origin** Ref (4) from `TERMOII.PAS`):
 - Schmidt-Wenzel: per-component k₁/k₂ via Beta(ω) and a special C-parameter mixing rule
@@ -443,6 +449,9 @@ vle/
 - Analytical `dPsat/dT = Psat · a2 / (a3+T)²`
 
 **M7.4 — planned v0.6.0** (the rest of the saturation layer):
+- OL-family α (VdWOL1998, RKOL1998, PROL1998) — `Tr·(1 + SumHk)` with the family-table
+  h-coefficients (`clsQbicsPure.cls:268`); evaluated against the reduced saturation
+  pressure, hence grouped with the saturation work (re-scoped from M7.2)
 - Riedel, Müller, RPM correlations (VB6 `clsSatPressureSolver.cls:146`, Pascal `TERMOI.PAS:154`)
 - Database polynomial evaluation (VB6-only `P = exp(A + B/T + C·ln(T) + D·T^E)`)
 - `PseudoAntoine` helper that converts other models to Antoine equivalents

@@ -363,7 +363,11 @@ def m7_4_advanced_sat() -> Placeholder:
 
 def main() -> None:
     NB_DIR.mkdir(parents=True, exist_ok=True)
-    for p in (m7_2_alpha_zoo(), m7_3_three_param(), m7_4_advanced_sat()):
+    # NB: 02b_alpha_zoo is now LIVE (M7.2 shipped in v0.4.0) — it is built
+    # by scripts/build_notebook_m72.py, not here. `m7_2_alpha_zoo()` is kept
+    # below only as historical reference; it is no longer generated so it
+    # cannot clobber the live notebook. Only 02c / 02d remain placeholders.
+    for p in (m7_3_three_param(), m7_4_advanced_sat()):
         nb = build_placeholder(p)
         out = NB_DIR / p.filename
         print(f"Executing {p.filename} ({p.milestone} → {p.planned_release})...")

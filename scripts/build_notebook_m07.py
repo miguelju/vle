@@ -126,10 +126,11 @@ def build() -> nbf.NotebookNode:
         "Those four sets of constants live verbatim in "
         "[`engine/src/eos.rs`](https://github.com/miguelju/vle/blob/main/engine/src/eos.rs) "
         "(family_constants table from `legacy/vb6/McommonFunctions.bas:273`). "
-        "The remaining 15 α variants from VB6 (PRSV, polar Mathias-Naumann "
-        "extensions, etc.) and the three-parameter Pascal EOS "
-        "(Schmidt-Wenzel, Patel-Teja) are deferred to M7.2 / M7.3 — see "
-        "[`02b_alpha_zoo.ipynb`](02b_alpha_zoo.ipynb) and "
+        "The other 12 two-parameter α variants from VB6 (PRSV, polar "
+        "Mathias-Naumann extensions, etc.) shipped in **M7.2** — see "
+        "[`02b_alpha_zoo.ipynb`](02b_alpha_zoo.ipynb). The three OL-family "
+        "variants (M7.4) and the three-parameter Pascal EOS "
+        "(Schmidt-Wenzel, Patel-Teja; M7.3) are still to come — see "
         "[`02c_three_param_eos.ipynb`](02c_three_param_eos.ipynb)."
     ))
 
