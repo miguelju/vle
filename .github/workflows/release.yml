@@ -76,13 +76,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: build wheels + sdist
-    uses: ./.github/workflows/_build.yml
-    with:
-      artifact-suffix: release
-
-  # check-already-published runs once after the build job and probes each
+  # check-already-published runs FIRST (before the build) and probes each
   # downstream registry (PyPI, crates.io for vle-units + vle-thermo, GitHub
   # Releases) to see whether the current tag is already there. The three
   # publish jobs and gh-release each read these flags via their `if:` to
@@ -93,12 +87,17 @@ jobs:
   # uploaded" on crates.io, which cascades into deploy-sandbox being
   # skipped because its `needs:` job failed.
   #
+  # It runs before `build` (rather than after) so the build job can gate
+  # itself on these flags and skip the expensive wheel+sdist rebuild when a
+  # full_deploy re-run of an already-published tag has nothing left to
+  # build for. The probe only needs the tag ref + curl/gh — no artifacts —
+  # so it has no dependency on the build.
+  #
   # All probes are read-only HEAD-equivalent requests; no auth needed.
   # See deploy/local/deploy-notes/milestone-07.md "v0.3.1 deploy
   # post-mortem" for the original incident.
   check-already-published:
     name: check what's already published
-    needs: [build]
     if: ${{ inputs.dry_run != true }}
     runs-on: ubuntu-latest
     outputs:
@@ -123,14 +122,21 @@ jobs:
             echo "pypi_published=false" >> "$GITHUB_OUTPUT"
           fi
 
-          if curl -sf -o /dev/null "https://crates.io/api/v1/crates/vle-units/${VERSION}"; then
+          # crates.io rejects requests without a User-Agent (HTTP 403), so
+          # the `-A` flag is load-bearing: a UA-less `curl -sf` fails for
+          # *every* request, making the probe always report "not published",
+          # which re-runs `cargo publish` on an already-published version and
+          # fails with "already exists" — poisoning deploy-sandbox via its
+          # `!failure()` guard. (Bit us on the v0.4.0 full-deploy re-run.)
+          CRATES_UA="vle-thermo-ci (https://github.com/${GITHUB_REPOSITORY})"
+          if curl -sf -A "${CRATES_UA}" -o /dev/null "https://crates.io/api/v1/crates/vle-units/${VERSION}"; then
             echo "  ✓ vle-units ${VERSION} already on crates.io"
             echo "crates_units_published=true" >> "$GITHUB_OUTPUT"
           else
             echo "crates_units_published=false" >> "$GITHUB_OUTPUT"
           fi
 
-          if curl -sf -o /dev/null "https://crates.io/api/v1/crates/vle-thermo/${VERSION}"; then
+          if curl -sf -A "${CRATES_UA}" -o /dev/null "https://crates.io/api/v1/crates/vle-thermo/${VERSION}"; then
             echo "  ✓ vle-thermo ${VERSION} already on crates.io"
             echo "crates_thermo_published=true" >> "$GITHUB_OUTPUT"
           else
@@ -143,6 +149,38 @@ jobs:
           else
             echo "release_exists=false" >> "$GITHUB_OUTPUT"
           fi
+
+  build:
+    name: build wheels + sdist
+    needs: [check-already-published]
+    # Skip the (expensive) wheel + sdist rebuild when there is nothing left
+    # to build *for*. The only consumers of these artifacts are publish-pypi,
+    # publish-crates, and gh-release; a full_deploy re-run against an
+    # already-published tag just wants deploy-sandbox, which rebuilds the
+    # Docker image on the host from source and never touches these artifacts.
+    #
+    # Build runs when:
+    #   - it's a build-only smoke test (dry_run == true), or
+    #   - any publish/release target for this tag still needs the artifacts.
+    # `always()` is required so this evaluates even though
+    # check-already-published is *skipped* in dry-run (its outputs are then
+    # empty strings, so every `!= 'true'` clause is true and the build runs —
+    # exactly what a build-only smoke test wants). When every target is
+    # already published, all clauses are false and the build is skipped; the
+    # publish/release jobs then skip too (their own `if:` guards), and
+    # deploy-sandbox still runs because its `!failure()` guard treats a
+    # skipped upstream as non-fatal.
+    if: >-
+      ${{ always() && (
+        inputs.dry_run == true
+        || needs.check-already-published.outputs.pypi_published != 'true'
+        || needs.check-already-published.outputs.crates_units_published != 'true'
+        || needs.check-already-published.outputs.crates_thermo_published != 'true'
+        || needs.check-already-published.outputs.release_exists != 'true'
+      ) }}
+    uses: ./.github/workflows/_build.yml
+    with:
+      artifact-suffix: release
 
   publish-pypi:
     name: publish to PyPI
