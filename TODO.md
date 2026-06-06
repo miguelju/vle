@@ -5,6 +5,23 @@ Check off items as they're completed. Time estimates assume working with Claude 
 
 ---
 
+## Milestone 0: Project Foundation
+*Executed by Claude Code using Claude Opus 4.6 (1M context)*
+
+Repository, documentation structure, and legacy analysis complete.
+
+- [x] Analyze legacy VB6 codebase (~15,000 lines)
+- [x] Analyze legacy Pascal codebase (~2,500 lines)
+- [x] Create Pascal vs VB6 comparison document
+- [x] Create modernization plan with 17 implementation phases
+- [x] Map algorithms to 22 academic references (ACS format)
+- [x] Propose 8 algorithm performance improvements (A–H)
+- [x] Initialize git repository
+- [x] Create README, LICENSE (MIT), .gitignore
+- [x] Reorganize repo structure (legacy/, docs/en/, docs/es/)
+- [x] Create navigatable English research paper skeleton (13 interlinked files)
+- [x] Convert all citations to ACS format
+
 ## Milestone 1: Documentation & Translation
 *Executed by Claude Code using Claude Opus 4.6 (1M context)*
 
@@ -111,7 +128,7 @@ Sliced into three execution batches: **M6.1** (scalar solvers + utils + bindings
 - [x] **Update public deploy docs** (~0.5h) — No public-doc deltas required for M6 (no new env vars, no new services). `deploy/NOTEBOOKS.md` catalogue already listed `m06_numerics.ipynb`.
 - [x] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-06.md` (gitignored) with the two-mode deploy steps for the v0.2.0 release.
 - [x] **Bump GitHub Actions to Node-24 versions** *(side task, folded into M6.3)* — `actions/{checkout,cache,setup-python,upload-artifact,download-artifact}` bumped to their latest majors. Self-hosted runners may need a ≥ 2.327.1 update before the next CI run.
-- [ ] **Tag a release** (~0.3h) — `v0.2.0`: CI auto-publishes to PyPI + crates.io; `deploy-sandbox` runs the notebooks-only fast path on tag, full image rebuild stays manual via `workflow_dispatch` + `full_deploy=true`. **Pending operator approval — first release that exercises the two-mode deploy split end-to-end.**
+- [x] **Tag a release** (`v0.2.0`) — CI auto-published to PyPI + crates.io and ran the sandbox redeploy; the two-mode deploy split was exercised end-to-end. Subsequent releases `v0.3.0` (M7.1) and `v0.4.0` (M7.2) followed on the same pipeline.
 
 ## Milestone 7: Pure Component Models
 
@@ -177,9 +194,8 @@ Split into four sub-milestones; M7.1 ships in v0.3.0, the rest follow.
 - [ ] **Implement enthalpy/entropy** (~3–4h) — ideal Cp integration, departure functions (9), condensation enthalpy (4), reference state handling
 - [ ] **Write mixture model tests** (~3–4h) — compare against VB6/Pascal outputs — validation tests pass
 - [ ] **Create milestone notebook** (~2–3h) — `notebooks/03_activity_models.ipynb` per CLAUDE.md *Notebook Conventions*: Chapter II §2.4–2.5 snippets, gamma vs. composition plots, excess Gibbs energy, mixing-rule comparison, ≥2 user exercises
-- [ ] **Update public deploy docs** (~0.5h) — `deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`
-- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-08.md`
-- [ ] **Deploy notebook to JupyterHub** (~1h) — rebuild, restart, verify via `${DOMAIN}`
+- [ ] **Update the notebook catalogue** (~0.3h) — add to `deploy/NOTEBOOKS.md`; touch `deploy/README.md` only if a distribution channel changed
+- [ ] **Refresh the hosted hub** (~0.3h) — operator-side: run `deploy-vle` in `homelab-iac`, verify the new notebook
 
 ## Milestone 9: Flash & Regression
 
@@ -197,9 +213,8 @@ Split into four sub-milestones; M7.1 ships in v0.3.0, the rest follow.
   - `notebooks/06_critical_points.ipynb` (~2–3h) — Tables 4.1–4.2
   - `notebooks/07_kij_regression.ipynb` (~2h) — Tables 4.11–4.12
   - `notebooks/08_aij_regression.ipynb` (~2–3h) — Aij fitting (Pascal-origin)
-- [ ] **Update public deploy docs** (~0.5h) — `deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`
-- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-09.md`
-- [ ] **Deploy notebooks to JupyterHub** (~1h) — rebuild, restart, verify each new notebook via `${DOMAIN}`
+- [ ] **Update the notebook catalogue** (~0.3h) — add the new notebooks to `deploy/NOTEBOOKS.md`; touch `deploy/README.md` only if a distribution channel changed
+- [ ] **Refresh the hosted hub** (~0.3h) — operator-side: run `deploy-vle` in `homelab-iac`, verify each new notebook
 
 ## Milestone 10: Python Bindings & Wrapper
 
@@ -211,19 +226,17 @@ Split into four sub-milestones; M7.1 ships in v0.3.0, the rest follow.
 - [ ] **Write Python test suite** (~2–3h) — `test_validation.py` reproducing all Chapter IV results — validation tests pass
 - [ ] **Write installation guide** (~1h) — end-user: `pip install`, basic usage example
 - [ ] **Create milestone notebook** (~2–3h) — `notebooks/01_introduction.ipynb` per CLAUDE.md *Notebook Conventions*: Chapter I + Appendix B snippets, `vle.System` API tour, first flash calculation end-to-end, ≥2 user exercises
-- [ ] **Update public deploy docs** (~0.5h) — `deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`
-- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-10.md`
-- [ ] **Deploy notebook to JupyterHub** (~1h) — rebuild, restart, verify via `${DOMAIN}`
+- [ ] **Update the notebook catalogue** (~0.3h) — add to `deploy/NOTEBOOKS.md`; touch `deploy/README.md` only if a distribution channel changed
+- [ ] **Refresh the hosted hub** (~0.3h) — operator-side: run `deploy-vle` in `homelab-iac`, verify the new notebook
 
 ## Milestone 11: Chapter IV Walkthrough & Final Deployment
 
-Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone is the capstone: one new walkthrough notebook covering all Chapter IV results, plus a final clean-state redeployment of every notebook.
+Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone is the capstone: one new walkthrough notebook covering all Chapter IV results, plus a final operator-side hub refresh of every notebook.
 
 - [ ] **Re-run all prior milestone notebooks** (~1–2h) — fresh kernel, Run All, verify no cell errors — validation pass
 - [ ] **Create `notebooks/09_chapter4_validation_walkthrough.ipynb`** (~4–6h) — per CLAUDE.md *Notebook Conventions*: narrated end-to-end walkthrough of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md) §4.1–§4.7, running the library against every Table 4.1–4.12 and reporting % error vs. published values, ≥2 user exercises
-- [ ] **Update public deploy docs** (~0.5h) — `deploy/README.md`, `deploy/NOTEBOOKS.md` catalogue marked complete
-- [ ] **Update private deploy notes** (~0.5h) — `deploy/local/deploy-notes/milestone-11.md` with final redeploy steps + smoke test checklist
-- [ ] **Full clean-state redeploy** (~1–2h) — `docker compose down`, rebuild both hub and notebook images from scratch, bring stack back up, verify every notebook in the catalogue opens and Run-All succeeds via `${DOMAIN}`
+- [ ] **Update the notebook catalogue** (~0.3h) — `deploy/NOTEBOOKS.md` catalogue marked complete
+- [ ] **Final hub refresh** (~0.5h) — operator-side: run `deploy-vle` (mode=full) in `homelab-iac`, verify every notebook in the catalogue opens and Run-All succeeds on the hub
 
 ---
 
@@ -236,13 +249,13 @@ Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone i
 | 2. Dev Environment & Scaffolding | ~9–12h | **Done** |
 | 3. Units Library | ~19–26h | **Done** |
 | 4. Component Database | ~12–15h | **Done** |
-| 5. CI/CD + Auto-Deploy | ~16–22h | Not started |
-| 6. Numerics | ~16–20h | Not started |
-| 7. Pure Component Models | ~28–37h | Not started |
+| 5. CI/CD + Auto-Deploy | ~16–22h | **Done** |
+| 6. Numerics | ~16–20h | **Done** |
+| 7. Pure Component Models | ~28–37h | In progress (7.1 + 7.2 shipped; 7.3/7.4 planned) |
 | 8. Mixture Models | ~25–35h | Not started |
 | 9. Flash & Regression | ~38–52h | Not started |
 | 10. Python Bindings & Wrapper | ~19–27h | Not started |
 | 11. Ch. IV Walkthrough & Final Deploy | ~7–11h | Not started |
 | **Total** | **~209–285h** | |
 
-Each active milestone's total now includes: milestone notebook (~2–4h) + public deploy docs (~0.5h) + private deploy notes (~0.5h) + deploy to hub (~1h).
+Each active milestone's total now includes: milestone notebook (~2–4h) + notebook-catalogue update (~0.3h). Deploying to the hosted hub is a separate operator-side step in the `homelab-iac` repo, not counted here.

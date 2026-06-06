@@ -69,11 +69,11 @@ def build() -> nbf.NotebookNode:
         "equation."
     ))
 
-    # ---- Hub sandbox notice (CLAUDE.md "Notebook Conventions" §2) -------
+    # ---- Notebook sandbox notice (CLAUDE.md "Notebook Conventions" §2) -------
     cells.append(md(
-        "> 💾 **Hub sandbox notice — only applies if you're running this "
-        "notebook on the hosted VLE JupyterLab.** If the VLE developers gave "
-        "you a URL to a shared JupyterLab environment, that environment is an "
+        "> 💾 **Notebook sandbox notice — only applies if you're running this "
+        "notebook on a shared JupyterLab someone set up for you.** If you were given "
+        "a URL to a shared JupyterLab environment, treat it as an "
         "*educational sandbox*: edits you make to this notebook won't survive "
         "a container restart, the bundled `vle-thermo` version may lag PyPI, "
         "and any `pip install` you run inside this container is ephemeral "

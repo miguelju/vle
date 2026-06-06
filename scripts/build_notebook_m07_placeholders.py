@@ -52,9 +52,9 @@ def code(text: str) -> nbf.NotebookNode:
 
 def hub_sandbox_notice() -> nbf.NotebookNode:
     return md(
-        "> 💾 **Hub sandbox notice — only applies if you're running this "
-        "notebook on the hosted VLE JupyterLab.** If the VLE developers gave "
-        "you a URL to a shared JupyterLab environment, that environment is an "
+        "> 💾 **Notebook sandbox notice — only applies if you're running this "
+        "notebook on a shared JupyterLab someone set up for you.** If you were given "
+        "a URL to a shared JupyterLab environment, treat it as an "
         "*educational sandbox*: edits you make to this notebook won't survive "
         "a container restart, the bundled `vle-thermo` version may lag PyPI, "
         "and any `pip install` you run inside this container is ephemeral "
@@ -120,7 +120,7 @@ def build_placeholder(p: Placeholder) -> nbf.NotebookNode:
         f"{p.one_liner}\n"
     ))
 
-    # ---- Hub sandbox notice + optional pip cell ------------------------
+    # ---- Notebook sandbox notice + optional pip cell ------------------------
     cells.append(hub_sandbox_notice())
     cells.extend(optional_pip_install_cell())
 

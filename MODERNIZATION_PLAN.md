@@ -188,21 +188,14 @@ An **independent `units/` Rust crate** (sibling to `engine/`) plus a Python comp
 
 ## Deployment Strategy
 
-The project maintains **two parallel deployment tracks**. Both evolve together as milestones ship, but only the public track is committed to GitHub. See `CLAUDE.md` → *Deployment Rules* for the authoritative checklist.
+This repo distributes through **crates.io + PyPI + the example notebooks** only. The multi-user JupyterHub + Docker stack that used to live under `deploy/` has been **moved to the operator's private `homelab-iac` repo** (Ansible role `vle` + a gated `deploy-vle` workflow that deploys to both hub hosts — rocky + oracle — as a hot standby). See `CLAUDE.md` → *Deployment Rules* and [`deploy/README.md`](../deploy/README.md) for the distribution channels.
 
-- **Public (generic, committed)** — a JupyterHub + Docker stack that works on any ARM64 Linux host with a reverse proxy + header-setting auth gateway. Lives under `deploy/` (excluding `deploy/local/` and `deploy/.env`):
-  - `deploy/README.md` — multi-user JupyterHub stack (Traefik + DockerSpawner + header auth)
-  - `deploy/NOTEBOOKS.md` — minimum install to run any VLE notebook outside the stack
-  - `deploy/.env.example` — documented env var template (no real values)
-  - `deploy/docker/` — `Dockerfile.jupyterhub`, `Dockerfile.notebook` (ARM64)
-  - `deploy/compose/` — `docker-compose.yml`, `jupyterhub_config.py`
-  - `deploy/scripts/deploy.sh` — pull + rebuild + restart
-- **Private (operator-specific, gitignored)** — the concrete architecture, secrets, and per-milestone deploy log for Miguel's Oracle Cloud VPS. Lives under `deploy/local/`:
-  - `deploy/local/DEPLOYMENT.md` — host, domain, Traefik setup, Cloudflare Access config
-  - `deploy/local/deploy-notes/milestone-NN.md` — one per active milestone; captures the exact commands + outcomes
-  - `deploy/.env` — populated env file
+`deploy/` now contains only:
+  - `deploy/README.md` — the distribution channels (crates.io, PyPI, notebooks)
+  - `deploy/NOTEBOOKS.md` — host-agnostic guide to running any VLE notebook
+  - `deploy/scripts/publish-crate.sh`, `publish-pypi.sh` — manual publish paths
 
-Each non-completed milestone (4–11) ends with four parallel steps after validation tests pass: (1) create a milestone notebook following CLAUDE.md *Notebook Conventions*, (2) update the public deploy docs with any generic delta, (3) update the private deploy notes with operator-specific steps, (4) tag a release — CI auto-publishes to PyPI + crates.io and auto-deploys to the sandbox hosts. Milestone 11 performs a final full redeployment that includes a Chapter IV walkthrough notebook.
+Each non-completed milestone (8–11) that ships a user-facing artifact ends with two steps after validation tests pass: (1) create a milestone notebook following CLAUDE.md *Notebook Conventions*, and (2) update the `deploy/NOTEBOOKS.md` catalogue. Tagging a release auto-publishes to PyPI + crates.io; refreshing the hosted teaching hub is a separate operator step in `homelab-iac` (run `deploy-vle`), not part of the release. Milestone 11 adds a Chapter IV walkthrough notebook.
 
 ---
 
@@ -398,13 +391,12 @@ vle/
 - **Three-workflow GitHub Actions architecture**:
   - `.github/workflows/_build.yml` (reusable) — cibuildwheel matrix over Linux x64 (self-hosted ephemeral), Linux arm64 (`ubuntu-24.04-arm` hosted), macOS arm64 (self-hosted Mac mini M1), Windows (hosted); CPython 3.10+ abi3 wheels; manylinux_2_28 baseline; `pytest {project}/tests` against each built wheel
   - `.github/workflows/ci.yml` — push/PR/dispatch: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`, plus the wheel matrix as artifact-only; fork-PR guard (`if: github.event_name != 'pull_request' || …head.repo.full_name == github.repository`) on every self-hosted job
-  - `.github/workflows/release.yml` — `v*` tag: PyPI Trusted Publishing (OIDC, no token), crates.io publish (`vle-units` then `vle-thermo`, token loaded from 1Password), GitHub Release with wheels + sdist, automatic sandbox redeploy on rocky (plain SSH) and Oracle (Tailscale SSH)
+  - `.github/workflows/release.yml` — `v*` tag: PyPI Trusted Publishing (OIDC, no token), crates.io publish (`vle-units` then `vle-thermo`, token loaded from 1Password), GitHub Release with wheels + sdist. (It publishes only — the teaching-hub deploy moved to the `homelab-iac` repo; see *Deployment Strategy*.)
 - **First PyO3 module**: `engine/src/py_bindings.rs` exposes `version()` and the four enum types (`CubicEos`, `ActivityModel`, `MixingRule`, `SatPressureModel`) as `#[pyclass(eq, eq_int)]`. From this phase forward the **PyO3 Bindings Rule** (CLAUDE.md) is in force: every later milestone that adds Rust functionality also exposes it via PyO3 in the same commit series.
 - **abi3 wheels**: PyO3 `abi3-py310` feature in `engine/Cargo.toml`; one wheel per (OS, arch) covers CPython 3.10+ including unreleased versions. Boundary-crossing overhead is negligible for VLE's workload (Python calls the engine once per `flash(...)`; the heavy work stays in Rust).
-- **Secrets via 1Password Service Accounts**: a single GitHub secret (`OP_SERVICE_ACCOUNT_TOKEN`) loads every other credential (SSH keys, Tailscale OAuth, crates.io token, host names) at workflow runtime via `1password/load-secrets-action@v2`. Workflow files commit `op://vault/item/field` paths (locators, not values).
-- **Asymmetric auto-deploy**: rocky reachable via plain SSH on a public port (host name from 1Password); Oracle reachable only over the tailnet, with the `deploy-sandbox` job running on the `vle-runner` self-hosted LXC (a permanent tagged tailnet member) rather than an ephemeral hosted runner. Each host runs `/usr/local/bin/vle-deploy` locked into `authorized_keys` with `command="…"`, regex-validating the tag before checkout. No `git pull` on hosts in steady state — the wrapper checks out a specific tag.
+- **Secrets via 1Password Service Accounts**: a single GitHub secret (`OP_SERVICE_ACCOUNT_TOKEN`) loads the crates.io token at workflow runtime via `1password/load-secrets-action@v2`. Workflow files commit `op://vault/item/field` paths (locators, not values).
+- **Auto-deploy (historical)**: M5 originally shipped a `deploy-sandbox` job that SSHed to rocky (plain SSH) and Oracle (Tailscale) via a `/usr/local/bin/vle-deploy` force-command wrapper. This was **removed** when the JupyterHub deployment moved to the `homelab-iac` repo (role `vle`); the release pipeline now publishes only, and the hub is deployed from there (see *Deployment Strategy*).
 - **Public docs**: `docs/ci.md` (developer overview, ephemerality table, fork-PR guard), `docs/runners/linux-setup.md` (Proxmox LXC + Docker + `myoung34/github-runner` ephemeral), `docs/runners/macos-setup.md` (Mac mini M1 launchd service + toolchain bootstrap).
-- **Private installer**: `deploy/local/auto-deploy/{vle-deploy, install-rocky.sh, install-oracle.sh}` — gitignored, one-shot install per host that drops the wrapper, configures authorized_keys, sets up fail2ban on rocky.
 
 ### Phase 6: Numerics *(Milestone 6)*
 - Cardano cubic solver (from `McommonFunctions.bas:324`) (12),(13) — see also §H for robustness improvements
@@ -531,7 +523,7 @@ vle/
 Notebooks 01–08 are produced by the milestone that builds the underlying feature (see table below), each following CLAUDE.md *Notebook Conventions*. Phase 17 is the capstone that adds the Chapter IV walkthrough notebook and performs a final clean-state redeployment:
 
 - **09_chapter4_validation_walkthrough**: Single end-to-end notebook that narrates every section of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md). For each of §4.1–§4.7 it quotes the research-paper text, runs the `vle` library against the referenced table (4.1–4.12), reports absolute and percent error against published values, and presents ≥2 user exercises (e.g. "repeat the kij regression for a different binary pair").
-- **Full redeploy**: `docker compose down` → rebuild both `Dockerfile.jupyterhub` and `Dockerfile.notebook` from a clean state → bring the stack back up → verify every notebook listed in [`deploy/NOTEBOOKS.md`](../deploy/NOTEBOOKS.md) opens and Runs-All without error via `${DOMAIN}`.
+- **Final hub refresh**: run the `deploy-vle` workflow in `homelab-iac` with `mode=full` (rebuilds the engine-from-source image and restarts the stack on both hub hosts), then verify every notebook listed in [`deploy/NOTEBOOKS.md`](../deploy/NOTEBOOKS.md) opens and Runs-All without error on the hub.
 
 **Notebook-to-milestone map (produced incrementally through Milestones 4–9):**
 

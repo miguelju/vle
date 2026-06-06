@@ -30,7 +30,7 @@ git diff --cached origin/main -- ':!deploy/local' ':!deploy/.env' \
 
 If the grep hits anything, stop and move the offending content under `deploy/local/` or replace it with an `${ENV_VAR}` / `example.com` placeholder before pushing.
 
-Note: addresses on `migueljackson.dev` (e.g. `admin@migueljackson.dev`, `git@migueljackson.dev`) are Miguel's intentional public / professional identity and are safe to include in committed files — `Cargo.toml` / `pyproject.toml` `authors`, git commit author fields, READMEs, etc. They are **not** covered by this gate. The JupyterHub deployment hostname is still private and must be referenced via `${DOMAIN}` (see the rule list below).
+Note: addresses on `migueljackson.dev` (e.g. `admin@migueljackson.dev`, `git@migueljackson.dev`) are Miguel's intentional public / professional identity and are safe to include in committed files — `Cargo.toml` / `pyproject.toml` `authors`, git commit author fields, READMEs, etc. They are **not** covered by this gate. The JupyterHub deployment now lives in the private `homelab-iac` repo, so no deployment hostnames, IPs, or Cloudflare Access team names should appear in this repo's committed files at all — use `example.com` / `${VAR}` placeholders (see the rule list below).
 
 ## Phase / Milestone Synchronization Rules
 
@@ -193,103 +193,64 @@ The minimal scaffolding (`vle._engine` exposing `version()` plus the four enum t
 
 ## Deployment Rules
 
-The project ships a public, generic deployment story in parallel with a private,
-operator-specific one. Both evolve together, but **only the public track is
-ever committed to GitHub**.
+This repo distributes through **three channels only**: crates.io, PyPI, and the
+**example notebooks** (run locally, or on any Jupyter). It no longer carries a
+deployment — the multi-user Docker/JupyterHub stack that used to live under
+`deploy/` moved to the operator's **private `homelab-iac` repo** (Ansible role
+`vle` + the gated `deploy-vle` workflow). `deploy/` now holds only
+`README.md` (distribution channels), `NOTEBOOKS.md` (host-agnostic notebook
+guide), and `scripts/publish-{crate,pypi}.sh`. See `PUBLISHING.md` for the
+release flow.
 
-### Two-track layout
+### After a release: refreshing the hub (operator-only, not in this repo)
 
-| Track | Location | Scope | In git? |
-|-------|----------|-------|---------|
-| Public — generic | `deploy/README.md`, `deploy/NOTEBOOKS.md`, `deploy/.env.example`, `deploy/docker/`, `deploy/compose/`, `deploy/scripts/` | Works on any ARM64 Linux host with Docker + a reverse proxy + a header-setting auth gateway | Yes |
-| Private — operator-specific | `deploy/local/DEPLOYMENT.md`, `deploy/local/deploy-notes/milestone-*.md`, `deploy/.env` | Hostname, IPs, cert paths, admin emails, Cloudflare Access team, real secrets | **No** — gitignored |
+`release.yml` publishes to crates.io + PyPI + GitHub Releases on a `v*` tag and
+**deploys nowhere**. To update the hosted teaching hub, the operator runs the
+gated `deploy-vle` workflow (or `ansible-playbook playbooks/deploy-vle.yml`) in
+`homelab-iac`, choosing `mode=notebooks` (content refresh) or `mode=full`
+(engine rebuild from source). Nothing in this repo triggers that — keep it that
+way (no cross-repo deploy coupling).
 
-The `.gitignore` already blocks `deploy/local/`, `deploy/.env`, `*.pem`, `*.key`.
-Do not undo these entries. When adding new private files, put them under
-`deploy/local/` so they are covered automatically.
+### Per-milestone artifact workflow
 
-### What must never appear in a committed file
-
-- Real domain names — use `vle.example.com` or `${DOMAIN}` in examples.
-- Real public IP addresses — use `203.0.113.10` (TEST-NET-3) or `${HOST_IP}`.
-- Real email addresses — use `admin@example.com` or `${JUPYTERHUB_ADMIN_EMAIL}`.
-- Real Cloudflare Access team names — use `example.cloudflareaccess.com`.
-- Any value from `deploy/local/.env` or `deploy/local/DEPLOYMENT.md`.
-- TLS certificate or key material, even if expired.
-- VPS provider, region, instance size, or SSH/Tailscale routing details.
-
-If you need a non-generic value in a public file, it is almost certainly wrong —
-push it through `.env` / `.env.example` via a `${VAR}` substitution instead.
-
-### Per-milestone deployment workflow
-
-Every non-completed milestone that produces a user-facing artifact (notebook,
-CLI, or library API) ends with **four parallel steps**, executed in this
-order after validation tests pass:
+Every milestone that produces a user-facing artifact ends with:
 
 1. **Create the milestone notebook** — see *Notebook Conventions* below.
-2. **Update the public deployment docs** — `deploy/README.md`, `deploy/NOTEBOOKS.md`,
-   and `deploy/.env.example` get any new generic install step, env var, or
-   prerequisite that this milestone introduced.
-3. **Update the private deployment notes** — append a new
-   `deploy/local/deploy-notes/milestone-NN.md` with the operator-specific
-   build/rebuild/restart commands for Miguel's host, referencing the values in
-   `deploy/local/.env` and `deploy/local/DEPLOYMENT.md`.
-4. **Deploy the notebook to JupyterHub** — pick the right deploy mode (see
-   below), then verify the notebook is reachable through the production URL.
-   Record the outcome at the bottom of `deploy/local/deploy-notes/milestone-NN.md`.
+2. **Update the notebook docs** — add the notebook to the `deploy/NOTEBOOKS.md`
+   catalogue and note any new prerequisite; touch `deploy/README.md` only if a
+   distribution channel changed.
 
-Steps 2 and 3 happen **in the same commit series** so the two tracks never
-diverge. After all milestones complete, Milestone 11 performs one final
-redeployment that includes the Chapter IV walkthrough notebook.
+Deploying that notebook to the hub is a **separate operator-side step** in
+`homelab-iac`, not part of the milestone commit here.
 
-### CI deploy modes (auto on tag vs. manual full rebuild)
+### Keep private infrastructure out of committed files
 
-As of 2026-05-23, the `release.yml` `deploy-sandbox` job picks one of two
-modes based on the `full_deploy` workflow_dispatch input:
-
-- **`notebooks` (default, auto on every `v*` tag)** — runs
-  `deploy/scripts/deploy-notebooks.sh`: regenerate `index.ipynb`, stamp
-  `notebooks/.notebook-version`. No docker build, no stack restart. Per-user
-  containers bind-mount the host's `notebooks/` directory via
-  `NOTEBOOK_HOST_PATH`. Cost: ~15 s. Use this for notebook content changes
-  (new milestones, typo fixes, new exercises).
-- **`full` (manual `workflow_dispatch` + `full_deploy=true`)** — runs
-  `deploy/scripts/deploy.sh`: rebuild both images (notebook + hub) and
-  restart the stack. Cost: minutes. Use this for engine bumps, Dockerfile
-  changes, base-image bumps, or any change to `seed-user-home.sh` /
-  `jupyterhub_config.py`.
-
-**Picking the right mode for a milestone:**
-
-- New milestone notebook only (no engine API surface changed) → tag-push is
-  enough; the notebooks-only auto-deploy will pick it up.
-- New milestone that touches the Rust engine, Python wrapper, or compose
-  config → tag-push deploys the notebook content, **then** trigger a manual
-  full deploy via `workflow_dispatch` so per-user containers run against the
-  new engine.
-
-When in doubt, do the full deploy — it's slower but always correct.
+The pre-push gate (see *Release & Push Rules*) blocks real domain names, public
+IPs, Cloudflare Access team names, and TLS key material. In any committed
+example use placeholders — `vle.example.com`, `203.0.113.10` (TEST-NET-3),
+`admin@example.com`, `example.cloudflareaccess.com`, or `${VAR}`. All
+operator-specific values (real hostnames, the tunnel token, cert paths) live
+**only** in the private `homelab-iac` repo.
 
 ## Notebook Conventions
 
 Every milestone-level Jupyter notebook MUST follow a professional structure so
-the collection works as a coherent learning path for users on the hub.
+the collection works as a coherent learning path for learners working through them.
 
 **Required sections (top to bottom):**
 
 1. **Title + one-sentence motivation** (H1 + lead paragraph).
-2. **Hub sandbox notice** — a single blockquote markdown cell immediately
-   after the title that scopes itself to the hosted hub, lists the three
-   sandbox properties (no persistence, version may lag PyPI, in-container
-   `pip install` is ephemeral), and points readers running locally at
-   `pip install vle-thermo`. Use this exact wording so the notice is
-   consistent across notebooks:
+2. **Notebook sandbox notice** — a single blockquote markdown cell immediately
+   after the title that scopes itself to *a shared JupyterLab someone else set
+   up* (this repo does not operate a hub), lists the three sandbox properties
+   (no persistence, version may lag PyPI, in-container `pip install` is
+   ephemeral), and points readers running locally at `pip install vle-thermo`.
+   Use this exact wording so the notice is consistent across notebooks:
 
    ```markdown
-   > 💾 **Hub sandbox notice — only applies if you're running this notebook
-   > on the hosted VLE JupyterLab.** If the VLE developers gave you a URL to
-   > a shared JupyterLab environment, that environment is an *educational
+   > 💾 **Notebook sandbox notice — only applies if you're running this notebook
+   > on a shared JupyterLab someone set up for you.** If you were given a URL to
+   > a shared JupyterLab environment, treat it as an *educational
    > sandbox*: edits you make to this notebook won't survive a container
    > restart, the bundled `vle-thermo` version may lag PyPI, and any
    > `pip install` you run inside this container is ephemeral (it vanishes
@@ -305,7 +266,7 @@ the collection works as a coherent learning path for users on the hub.
    files include it manually.
 
 2b. **Optional setup cell (commented `%pip install --upgrade vle-thermo`)**
-    — immediately after the hub sandbox notice and before the
+    — immediately after the notebook sandbox notice and before the
     research-paper context, every milestone notebook includes a short
     "Setup (optional)" markdown cell followed by a code cell containing
     exactly:

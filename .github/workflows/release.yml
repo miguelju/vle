@@ -1,38 +1,23 @@
 # Release workflow: triggered when a tag matching `v*` is pushed.
 #
-# Five jobs run sequentially:
+# Jobs:
+#   check-already-published - probe PyPI / crates.io / GitHub Releases so a
+#                     re-run skips already-published targets (idempotent release)
 #   build           - calls _build.yml to produce the wheel matrix + sdist
 #   publish-pypi    - PyPI Trusted Publishing (OIDC, no token; env: pypi)
 #   publish-crates  - cargo publish vle-units then vle-thermo (token loaded
-#                     from 1Password at runtime)
+#                     from 1Password at runtime; env: crates-io)
 #   gh-release      - creates the GitHub Release and attaches all wheels + sdist
-#   deploy-sandbox  - SSHes to rocky + Oracle and runs vle-deploy in ONE OF
-#                     two modes (see "Deploy modes" below). The wrapper at
-#                     /usr/local/bin/vle-deploy on each host is pinned by
-#                     ~/.ssh/authorized_keys `command=`.
 #
-# Deploy modes (selected by the `full_deploy` workflow_dispatch input):
-#
-#   notebooks  - DEFAULT for every `v*` tag push. SSH command is
-#                "notebooks:<tag>" → vle-deploy invokes deploy-notebooks.sh:
-#                regenerates index.ipynb + stamps notebooks/.notebook-version.
-#                No docker build, no stack restart. Per-user spawns pick up
-#                the new content via NOTEBOOK_HOST_PATH bind-mount; existing
-#                user volumes re-seed on next login via the version marker.
-#                Cost: ~10-15 seconds.
-#   full       - workflow_dispatch + full_deploy=true. SSH command is plain
-#                "<tag>" → vle-deploy invokes deploy.sh: full image rebuild
-#                (notebook + hub) and stack restart. Use this for engine
-#                bumps, Dockerfile changes, base-image bumps. Cost: minutes.
-#
-# Rationale: the hub is an educational sandbox (see deploy/README.md). Most
-# `v*` tags only need to update notebook content; the expensive rebuild path
-# is reserved for engine/infra changes and gated behind a manual click.
+# Deploying the teaching hub is NO LONGER part of this pipeline. The
+# Docker-Compose JupyterHub stack moved to the operator's private homelab-iac
+# repo; after a release, refresh the hub from there via the gated `deploy-vle`
+# workflow / `ansible-playbook playbooks/deploy-vle.yml` (notebooks or full
+# mode). See PUBLISHING.md.
 #
 # Secrets:
 #   GitHub secret OP_SERVICE_ACCOUNT_TOKEN is the *only* GitHub-side secret;
-#   everything else (rocky/Oracle SSH keys, Tailscale OAuth, crates.io token,
-#   host names) is loaded from 1Password at workflow runtime via
+#   the crates.io token is loaded from 1Password at workflow runtime via
 #   1password/load-secrets-action@v2. See docs/ci.md and PUBLISHING.md.
 
 name: Release
@@ -41,24 +26,16 @@ on:
   push:
     tags:
       - "v*"
-  # Manual lever — two independent toggles:
-  #   dry_run=true      build only, skip publish-* and deploy-sandbox
-  #   full_deploy=true  use the full image-rebuild path instead of the
-  #                     default notebooks-only fast path (only meaningful
-  #                     when dispatched against a `v*` tag ref; against
-  #                     `main` the deploy will fail the vle-deploy regex)
+  # Manual lever: dry_run=true builds only (skips publish-*) for a build-only
+  # smoke test. A real re-run (dry_run=false) against an already-published tag
+  # is safe — check-already-published makes each publish job skip itself.
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Skip publish-* and deploy-sandbox (build-only smoke test)"
+        description: "Skip publish-* (build-only smoke test)"
         type: boolean
         required: true
         default: true
-      full_deploy:
-        description: "Full image rebuild + stack restart (engine bumps). Default = notebooks-only."
-        type: boolean
-        required: true
-        default: false
 
 permissions:
   contents: read
@@ -80,18 +57,16 @@ jobs:
   # downstream registry (PyPI, crates.io for vle-units + vle-thermo, GitHub
   # Releases) to see whether the current tag is already there. The three
   # publish jobs and gh-release each read these flags via their `if:` to
-  # skip themselves on re-runs (e.g., when an auto tag-push deploy has
-  # already published and a subsequent `workflow_dispatch full_deploy=true`
-  # is just trying to redo the deploy-sandbox step). Without this the
-  # second run hits 422 "version already exists" on PyPI / "crate already
-  # uploaded" on crates.io, which cascades into deploy-sandbox being
-  # skipped because its `needs:` job failed.
+  # skip themselves on re-runs (e.g., when a prior run published PyPI but
+  # crates.io failed midway, and you re-run the tag to finish it). Without
+  # this the second run hits 422 "version already exists" on PyPI / "crate
+  # already uploaded" on crates.io and fails.
   #
   # It runs before `build` (rather than after) so the build job can gate
   # itself on these flags and skip the expensive wheel+sdist rebuild when a
-  # full_deploy re-run of an already-published tag has nothing left to
-  # build for. The probe only needs the tag ref + curl/gh — no artifacts —
-  # so it has no dependency on the build.
+  # re-run of an already-published tag has nothing left to build for. The
+  # probe only needs the tag ref + curl/gh — no artifacts — so it has no
+  # dependency on the build.
   #
   # All probes are read-only HEAD-equivalent requests; no auth needed.
   # See deploy/local/deploy-notes/milestone-07.md "v0.3.1 deploy
@@ -126,8 +101,7 @@ jobs:
           # the `-A` flag is load-bearing: a UA-less `curl -sf` fails for
           # *every* request, making the probe always report "not published",
           # which re-runs `cargo publish` on an already-published version and
-          # fails with "already exists" — poisoning deploy-sandbox via its
-          # `!failure()` guard. (Bit us on the v0.4.0 full-deploy re-run.)
+          # fails the release with "already exists". (Bit us on a v0.4.0 re-run.)
           CRATES_UA="vle-thermo-ci (https://github.com/${GITHUB_REPOSITORY})"
           if curl -sf -A "${CRATES_UA}" -o /dev/null "https://crates.io/api/v1/crates/vle-units/${VERSION}"; then
             echo "  ✓ vle-units ${VERSION} already on crates.io"
@@ -155,9 +129,7 @@ jobs:
     needs: [check-already-published]
     # Skip the (expensive) wheel + sdist rebuild when there is nothing left
     # to build *for*. The only consumers of these artifacts are publish-pypi,
-    # publish-crates, and gh-release; a full_deploy re-run against an
-    # already-published tag just wants deploy-sandbox, which rebuilds the
-    # Docker image on the host from source and never touches these artifacts.
+    # publish-crates, and gh-release.
     #
     # Build runs when:
     #   - it's a build-only smoke test (dry_run == true), or
@@ -167,9 +139,7 @@ jobs:
     # empty strings, so every `!= 'true'` clause is true and the build runs —
     # exactly what a build-only smoke test wants). When every target is
     # already published, all clauses are false and the build is skipped; the
-    # publish/release jobs then skip too (their own `if:` guards), and
-    # deploy-sandbox still runs because its `!failure()` guard treats a
-    # skipped upstream as non-fatal.
+    # publish/release jobs then skip too (their own `if:` guards).
     if: >-
       ${{ always() && (
         inputs.dry_run == true
@@ -291,109 +261,3 @@ jobs:
           files: dist/*
           generate_release_notes: true
           fail_on_unmatched_files: true
-
-  deploy-sandbox:
-    name: deploy sandbox (rocky + Oracle)
-    needs: [publish-pypi, publish-crates, gh-release]
-    # Run deploy-sandbox whenever a real release is happening (`dry_run !=
-    # true`) AND no upstream job actually failed. We deliberately use
-    # `!failure() && !cancelled()` instead of the implicit `success()` so a
-    # *skipped* publish job (e.g. version was already on PyPI / crates.io,
-    # see check-already-published) doesn't drag deploy-sandbox down with it.
-    # That's what enables `gh workflow run release.yml -f full_deploy=true
-    # --ref vX.Y.Z` to redo just the deploy half against an already-published
-    # tag — which is the canonical recovery path documented in
-    # deploy/local/deploy-notes/milestone-07.md.
-    #
-    # Also skipped in dry-run: deploy-sandbox needs a real git tag on origin
-    # to check out, and workflow_dispatch from `main` has no such tag.
-    # SSH/force-command plumbing was already validated by the
-    # install-{rocky,oracle}.sh smoke tests on 2026-05-21, so dry-run safely
-    # omits this job.
-    if: ${{ inputs.dry_run != true && !failure() && !cancelled() }}
-    # Self-hosted runner that lives permanently on the tailnet (CT 105,
-    # tag:vle-runner). Has direct LAN access to rocky and tailnet access to
-    # Oracle, so no per-job Tailscale join is needed.
-    runs-on: [self-hosted, linux, x64]
-    steps:
-      - name: Load deploy secrets from 1Password
-        uses: 1password/load-secrets-action@581a835fb51b8e7ec56b71cf2ffddd7e68bb25e0  # v2
-        with:
-          export-env: true
-        env:
-          OP_SERVICE_ACCOUNT_TOKEN:        ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          ROCKY_HOST:                      op://vle-thermo-ci/rocky-deploy/hostname
-          ROCKY_USER:                      op://vle-thermo-ci/rocky-deploy/username
-          ROCKY_SSH_KEY:                   op://vle-thermo-ci/rocky-deploy/private_key
-          ROCKY_HOST_KEY_FINGERPRINT:      op://vle-thermo-ci/rocky-deploy/host_key_fingerprint
-          ORACLE_HOST:                     op://vle-thermo-ci/oracle-deploy/tailnet_hostname
-          ORACLE_USER:                     op://vle-thermo-ci/oracle-deploy/username
-          ORACLE_SSH_KEY:                  op://vle-thermo-ci/oracle-deploy/private_key
-      - name: Set up SSH agent with both deploy keys
-        uses: webfactory/ssh-agent@dc588b651fe13675774614f8e6a936a468676387  # v0.9.0
-        with:
-          ssh-private-key: |
-            ${{ env.ROCKY_SSH_KEY }}
-            ${{ env.ORACLE_SSH_KEY }}
-      - name: Pin rocky's host key
-        # Pull the host keys fresh and verify the stored SHA-256 fingerprint
-        # matches *any* of them. rocky advertises three host keys (RSA,
-        # ECDSA, ED25519) and ssh-keyscan returns them in non-deterministic
-        # order, so we can't pick "the first" — we match against the full
-        # set. If none match (host reinstall, MITM), the step fails and the
-        # deploy aborts.
-        run: |
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          ssh-keyscan -H "$ROCKY_HOST" > /tmp/rocky_known
-          if [[ -z "$ROCKY_HOST_KEY_FINGERPRINT" ]]; then
-            echo "ROCKY_HOST_KEY_FINGERPRINT not set in 1Password" >&2
-            exit 1
-          fi
-          actual_set=$(ssh-keygen -lf /tmp/rocky_known | awk '{print $2}')
-          if ! echo "$actual_set" | grep -qF "$ROCKY_HOST_KEY_FINGERPRINT"; then
-            echo "rocky host-key fingerprint mismatch" >&2
-            echo "  expected (any of these):" >&2
-            echo "$actual_set" | sed 's/^/    /' >&2
-            echo "  stored: $ROCKY_HOST_KEY_FINGERPRINT" >&2
-            exit 1
-          fi
-          cat /tmp/rocky_known >> ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-      - name: Pick deploy mode (notebooks vs. full)
-        id: mode
-        # On tag-push, inputs.full_deploy is empty (input only exists in
-        # workflow_dispatch context), so the string compare picks notebooks.
-        # On workflow_dispatch + full_deploy=true, picks full. Either way we
-        # compose a single SSH command string consumed by vle-deploy on the
-        # other side via the authorized_keys `command=` force-command.
-        run: |
-          if [[ "${{ inputs.full_deploy }}" == "true" ]]; then
-            echo "ssh_command=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-            echo "mode=full" >> "$GITHUB_OUTPUT"
-            echo "==> Mode: full image rebuild (engine bump)"
-          else
-            echo "ssh_command=notebooks:${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-            echo "mode=notebooks" >> "$GITHUB_OUTPUT"
-            echo "==> Mode: notebooks-only fast path"
-          fi
-      - name: Deploy to rocky (plain SSH)
-        # The host's authorized_keys binds this key to
-        # `command="/usr/local/bin/vle-deploy"`. SSH_ORIGINAL_COMMAND on the
-        # other end will be the value computed above ("<tag>" for full mode
-        # or "notebooks:<tag>" for the fast path). The wrapper regex-validates
-        # before doing anything destructive.
-        run: |
-          ssh -o StrictHostKeyChecking=yes \
-              -o BatchMode=yes \
-              "$ROCKY_USER@$ROCKY_HOST" \
-              "${{ steps.mode.outputs.ssh_command }}"
-      - name: Deploy to Oracle (SSH over Tailscale)
-        # ORACLE_HOST resolves via MagicDNS because the self-hosted runner
-        # (CT 105, tag:vle-runner) is a permanent tailnet member. No
-        # StrictHostKeyChecking pin needed — Tailscale's authentication
-        # already establishes endpoint identity.
-        run: |
-          ssh -o BatchMode=yes \
-              -o StrictHostKeyChecking=accept-new \
-              "$ORACLE_USER@$ORACLE_HOST" \
-              "${{ steps.mode.outputs.ssh_command }}"

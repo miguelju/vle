@@ -1,15 +1,15 @@
 # Publishing
 
 How releases work for `vle-thermo`: PyPI + crates.io publishes happen
-automatically on `v*` tag pushes via GitHub Actions. The Docker image used
-by the sandbox JupyterHub deployment is NOT a public install artifact —
-end users get the library via `pip install vle-thermo` or
-`cargo add vle-thermo`, not from a registry image.
+automatically on `v*` tag pushes via GitHub Actions. End users get the
+library via `pip install vle-thermo` or `cargo add vle-thermo`.
 
 > **Note for Milestones 6+**: each milestone that adds Rust functionality
 > also adds PyO3 bindings (CLAUDE.md "PyO3 Bindings Rule (M5+)") and
-> typically cuts a new release tag. Tag → push → registries + sandbox
-> redeploy is the standard milestone-completion workflow.
+> typically cuts a new release tag. Tag → push → registries is the standard
+> milestone-completion workflow. Refreshing the teaching hub is a separate,
+> operator-side step in the private `homelab-iac` repo (see *Deploying the
+> teaching hub* below).
 
 ---
 
@@ -30,16 +30,14 @@ git tag v0.X.Y && git push origin v0.X.Y
         ├── publish-pypi   → PyPI Trusted Publishing (OIDC, no token)
         ├── publish-crates → cargo publish vle-units, then vle-thermo
         │     (token loaded from 1Password via Service Account)
-        ├── gh-release     → GitHub Release with all wheels + sdist
-        └── deploy-sandbox → rocky (plain SSH) + Oracle (Tailscale SSH)
-                              trigger /usr/local/bin/vle-deploy <tag>;
-                              the wrapper checks out the tag, runs
-                              docker compose build + up.
+        └── gh-release     → GitHub Release with all wheels + sdist
 ```
+
+The pipeline **deploys nowhere** — it only publishes. Refreshing the hosted
+teaching hub is a separate operator step (see *Deploying the teaching hub*).
 
 End-to-end clock from `git push origin vX.Y.Z` to "available on PyPI" is
 typically 5–15 minutes (the Mac mini wheel build is the long pole).
-Sandbox redeploy lands ~30 seconds after the publish jobs succeed.
 
 ---
 
@@ -69,8 +67,28 @@ Sandbox redeploy lands ~30 seconds after the publish jobs succeed.
    `pypi` environment with required reviewers, click **Review
    deployments → Approve and deploy** to release the publish step.
 
-7. **Verify** (next section). The sandbox should auto-redeploy within
-   a couple minutes after the publish jobs succeed.
+7. **Verify** (next section). To refresh the hosted teaching hub with the
+   new release, run the gated `deploy-vle` workflow in the private
+   `homelab-iac` repo (see *Deploying the teaching hub* below) — this repo
+   does not trigger any deploy.
+
+---
+
+## Deploying the teaching hub
+
+The multi-user JupyterHub stack is **not** in this repo. It lives as an
+Ansible role (`vle`) in the operator's private `homelab-iac` repo and deploys
+to both hub hosts (rocky + oracle) as a hot standby. After a release, refresh
+it from there:
+
+- **CI:** Actions → `deploy-vle` → Run workflow → type `deploy`, set `ref` to
+  the new tag, pick `mode` (`notebooks` for a content refresh, `full` to
+  rebuild the engine-from-source image).
+- **By hand (controller):**
+  `ansible-playbook playbooks/deploy-vle.yml -e vle_ref=vX.Y.Z -e vle_deploy_mode=notebooks`
+
+This is intentionally decoupled — no token or trigger crosses from this repo
+into the deployment.
 
 ---
 
@@ -87,11 +105,6 @@ deploy/scripts/publish-pypi.sh   --go   # PyPI (needs $MATURIN_PYPI_TOKEN or ~/.
 These remain dry-run by default; pass `--go` to actually upload. They're
 documented for completeness, but the GitHub Actions path is the
 canonical release route.
-
-The `deploy/scripts/publish-docker.sh` helper is still in the tree but
-**no longer used by the release flow** — the sandbox image is built and
-consumed by the hosts themselves via `deploy/scripts/deploy.sh`, not
-pushed to a public registry.
 
 ---
 
@@ -113,8 +126,8 @@ deactivate && rm -rf /tmp/vle-check
 ```
 
 Both registries should show the new version within a couple minutes of
-publish. The sandbox hub at `${DOMAIN}` should be serving the new
-notebook image after the auto-deploy lands.
+publish. (To serve the new version on the hosted teaching hub, run the
+`deploy-vle` workflow in `homelab-iac` — see *Deploying the teaching hub*.)
 
 ---
 
@@ -128,10 +141,10 @@ a patch release.
 **PyPI**: `twine yank vle-thermo==X.Y.Z --reason "..."` (or file a PyPI
 removal request). Same "cannot delete" rule — yank + patch.
 
-**Sandbox hosts**: re-tag the prior known-good version and push the tag
-again to retrigger the auto-deploy at that tag. Manual override:
-`docker compose down && git checkout <prior-tag> && deploy/scripts/deploy.sh`
-on each host.
+**Teaching hub**: roll the hub back independently of the registries — in
+`homelab-iac`, run `deploy-vle` with `ref` set to the prior known-good tag
+(`mode=full` to rebuild the engine image). The hub version is decoupled from
+what's on PyPI/crates.io.
 
 ---
 
@@ -162,9 +175,9 @@ and delete the secret.
 - Service Account: read-only on that vault
 - The token lives in `GitHub Settings → Secrets → OP_SERVICE_ACCOUNT_TOKEN`
 
-This is the **only** secret in GitHub. Everything else — SSH keys,
-Tailscale OAuth, host names, crates.io token — is in the 1Password
-vault and resolved at workflow runtime via `op://vault/item/field`
-paths.
+This is the **only** secret in GitHub. The crates.io token is in the
+1Password vault and resolved at workflow runtime via `op://vault/item/field`
+paths. (Deploy SSH keys / host names are no longer needed here — deployment
+moved to `homelab-iac`.)
 
 See `docs/ci.md` and `docs/runners/` for the full CI architecture.

@@ -10,24 +10,16 @@ builds).
 Designed for the lab; tagged `self-hosted, linux, x64` so the workflows
 in `.github/workflows/` target it correctly.
 
-## Path B context — this LXC also lives on the tailnet
+## Build-only runner
 
-The vle CI/CD pipeline runs a `deploy-sandbox` step that SSHes into
-`oracle-vps.owl-rankine.ts.net` (a Tailscale-tagged host) to push a
-fresh build. So this LXC is a **new container, separate from any
-existing runner LXC**, and it must:
-
-1. Join the tailnet at creation time, **tagged `tag:vle-runner`** so
-   that ACL grants control its reach.
-2. Run the runner with `--network host` so the Docker container shares
-   the LXC's tailscale interface (otherwise Docker's bridge network
-   has no tailnet visibility).
-3. Carry an ACL grant `tag:vle-runner → tag:vle-deploy:tcp:22` so that
-   the runner can reach the deploy sandbox.
-
-If you only want this LXC for *building wheels* and not for the deploy
-step, the Tailscale install and `--network host` flag are optional —
-but you'll need a separate strategy for `deploy-sandbox`.
+This runner exists solely to **build wheels and run Rust tests** for vle CI
+(`_build.yml` / `ci.yml`, jobs tagged `self-hosted, linux, x64`). It no longer
+participates in any deploy step — the JupyterHub deployment moved to the
+`homelab-iac` repo, which uses its own runner. So this LXC needs only outbound
+HTTPS; **Tailscale, `--network host`, and the old `tag:vle-deploy` ACL grant
+are no longer required.** The Tailscale-related steps later in this doc are kept
+only for operators who repurpose this LXC for tailnet work — skip them for a
+pure build runner.
 
 ## Why ephemeral?
 
@@ -49,17 +41,10 @@ The host LXC still needs occasional updates (Docker, kernel), but the
 - A Proxmox VE host with enough capacity for 4 vCPU / 8 GB RAM / 40 GB
   disk per concurrent runner (more if you want to run 2–3 in parallel).
 - A network segment that allows outbound HTTPS to `github.com`,
-  `pkg.cloudflare.com`, `pypi.org`, `crates.io`, GHCR, and the
-  `quay.io/jupyter` registry. Inbound is not needed.
-- A **Tailscale auth-key** minted with **Tags: `tag:vle-runner`**
-  (REQUIRED — tagged keys disable 90-day node-key expiry, untagged ones
-  don't). Single-use, 1-day expiry is fine; ephemeral=off, reusable=off.
-  Mint at <https://login.tailscale.com/admin/settings/keys>.
-- A **tailnet ACL grant** in
-  <https://login.tailscale.com/admin/acls/file> that allows
-  `tag:vle-runner → tag:vle-deploy:tcp:22` (or whatever deploy target
-  your workflows hit), and a DNS grant so the runner can resolve names
-  through your tailnet DNS resolver if one is in the path.
+  `pypi.org`, and `crates.io`. Inbound is not needed.
+- *(Optional — only if you repurpose this LXC for tailnet work; not needed
+  for vle builds)* a **Tailscale auth-key** tagged `tag:vle-runner` and any
+  ACL/DNS grants its workloads require.
 - A **GitHub Personal Access Token (classic)** with the `repo` scope.
   (Long-term, prefer a GitHub App token for finer-grained permissions;
   short-term, a PAT is simpler.) The PAT is used by the runner image
@@ -246,18 +231,8 @@ disk pressure.
    ```sh
    gh api repos/<owner>/<repo>/actions/runners --jq '.runners[] | {name, status, labels: [.labels[].name]}'
    ```
-2. **Tailnet smoke test** (only if you're using Path B with
-   `--network host`): from inside the LXC, confirm the runner
-   container can reach the deploy sandbox over the tailnet:
-   ```sh
-   docker exec vle-runner-01 ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
-       <user>@<deploy-target>.<tailnet>.ts.net "echo ok"
-   ```
-   Expected output: `Permission denied (publickey)`. That means DNS
-   resolved, tailnet routed, and SSH handshake completed — only the
-   key check failed (the workflow injects a deploy key per-job).
-   If you see `Connection timed out` or `Could not resolve hostname`,
-   debug the ACL grant or the `--network host` flag respectively.
+2. **(Build-only — no tailnet test needed.)** This runner doesn't deploy,
+   so there's nothing to smoke-test over the tailnet. Skip to the next step.
 3. **Trigger a test workflow**: from a branch, push a small commit
    touching any file. The `lint-rust` job runs on a hosted runner;
    `test-rust` and `build` (Linux x86_64) should land on your
@@ -286,9 +261,8 @@ disk pressure.
   you from a runtime escape.
 - **VLAN isolation**: keep the runner LXC on a network segment that
   cannot reach your other lab services. Outbound to internet is fine;
-  inbound from internet should not be possible. The tailnet ACL
-  enforces the same idea at L3: deploy targets are reachable only
-  because of the `tag:vle-runner → tag:vle-deploy` grant.
+  inbound from internet should not be possible. (This is a build-only
+  runner — it makes no inbound or deploy connections to lab hosts.)
 - **PAT scope**: the classic `repo`-scoped PAT can do quite a lot; if
   this runner is ever shared with a teammate, rotate to a GitHub App
   token with `Actions: write` + `Self-hosted runners: write` only.
@@ -335,17 +309,6 @@ disk pressure.
   `docker logs <name>` will show the registration error (usually a
   bad PAT or the runner being orphaned in GitHub's database — go to
   Settings → Actions → Runners and delete the stale entry first).
-- **Runner online but `deploy-sandbox` fails with `Connection timed
-  out`**: the container can't reach the deploy target over the
-  tailnet. Most likely `--network host` was dropped from the
-  `docker run`, or the ACL grant for `tag:vle-runner → tag:vle-deploy`
-  is missing/typo'd. Verify the LXC itself can reach the target
-  (`ssh <target>` from the LXC shell) first to bisect.
-- **`Could not resolve hostname <target>.<tailnet>.ts.net`** from
-  inside the container: tailscaled inside the LXC isn't being shared
-  by `--network host`, or the tailnet DNS grant is missing in the
-  ACL. Try `docker exec <runner> nslookup <target>.<tailnet>.ts.net`
-  first.
 - **`failed to start runner: docker socket permission`**: confirm
   `/var/run/docker.sock` is mounted and the runner image's UID maps
   to the host's `docker` group. The image handles this automatically

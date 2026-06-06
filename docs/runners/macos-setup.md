@@ -32,8 +32,7 @@ onboard collaborators with push access, revisit.
 - An admin user account on the Mac for the runner. We use `vle-runner`;
   pick what suits you. Avoid running the runner as your personal user
   account.
-- Outbound HTTPS to `github.com`, PyPI, crates.io, GHCR (if your
-  workflows touch any). Inbound is not needed.
+- Outbound HTTPS to `github.com`, PyPI, and crates.io. Inbound is not needed.
 
 ## Step 1 — Install Xcode Command Line Tools
 

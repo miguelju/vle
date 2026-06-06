@@ -175,8 +175,8 @@ def build() -> nbf.NotebookNode:
     # container restarts or image rebuilds. The notice goes on the landing
     # page so first-time visitors see it before opening any notebook.
     cells.append(md(
-        "> 💾 **Hub sandbox notice — only applies if you're running this "
-        "hub on the hosted VLE JupyterLab.** If the VLE developers gave you "
+        "> 💾 **Notebook sandbox notice — only applies if you're running this "
+        "hub on a shared JupyterLab someone set up for you.** If you were given "
         "a URL to this shared JupyterLab environment, you're in an "
         "*educational sandbox*: the bundled `vle-thermo` version may lag "
         "PyPI, any `pip install` you run inside a notebook is ephemeral "

@@ -2,12 +2,8 @@
 
 This document describes the **generic** requirements for running the VLE
 Jupyter notebooks. It is intentionally host-agnostic: the same instructions
-apply whether you run them on your laptop, a CI runner, a managed notebook
-service (Binder, Colab, SageMaker, etc.), or the multi-user JupyterHub stack
-documented in [`README.md`](README.md).
-
-> Looking to run the multi-user, auth-gated deployment instead?
-> See [`deploy/README.md`](README.md) for the JupyterHub + Docker stack.
+apply whether you run them on your laptop, a CI runner, or a managed notebook
+service (Binder, Colab, SageMaker, etc.).
 
 ## Prerequisites
 
@@ -114,11 +110,6 @@ for the parameter inventory and [`python/src/vle/db/sql/schema.sql`](../python/s
 for the schema. The schema ships inside the installed wheel, so there is no
 separate install step for it.
 
-> When running through the JupyterHub Docker stack, you do not need to run
-> `vle-db init` yourself — `Dockerfile.notebook` bakes a pre-seeded
-> `components.db` into the image and a startup hook copies it into each user's
-> `~/work/data/` on first login. See [`README.md`](README.md).
-
 ## Troubleshooting
 
 **`ModuleNotFoundError: No module named 'vle'`** — the wheel (Option A) failed
@@ -133,5 +124,5 @@ Classic notebook 6.x is end-of-life.
 
 **Kernel dies mid-calculation** — check memory; the critical-point and
 adiabatic-flash notebooks can spike to a few hundred MB on large systems.
-Set `CONTAINER_MEM_LIMIT` higher in your environment or run locally with more
-headroom.
+Give the kernel more headroom (close other notebooks, or run on a machine with
+more RAM).

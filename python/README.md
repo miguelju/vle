@@ -104,21 +104,8 @@ cd vle/notebooks
 jupyter lab
 ```
 
-For a zero-setup option, the repo ships a self-contained Dockerfile that
-bundles JupyterLab + `vle-thermo` + the example notebooks. Build and run
-it locally:
-
-```sh
-git clone https://github.com/miguelju/vle.git
-cd vle
-docker build -f deploy/docker/Dockerfile.standalone -t vle-standalone .
-docker run --rm -p 8888:8888 vle-standalone
-```
-
-A publish script ([`deploy/scripts/publish-docker.sh`](https://github.com/miguelju/vle/blob/main/deploy/scripts/publish-docker.sh))
-is also included if you want to host the image yourself at
-`ghcr.io/<your-user>/vle-thermo` for others to `docker pull`. CI does
-not currently publish an upstream image — see
+See [`deploy/NOTEBOOKS.md`](https://github.com/miguelju/vle/blob/main/deploy/NOTEBOOKS.md)
+for the full host-agnostic guide and
 [`deploy/README.md`](https://github.com/miguelju/vle/blob/main/deploy/README.md)
 for the distribution story.
 

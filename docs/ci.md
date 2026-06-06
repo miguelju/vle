@@ -19,7 +19,7 @@ If you are a contributor opening a PR, read on.
 .github/workflows/
 ├── _build.yml      # reusable wheel matrix; called by ci.yml and release.yml
 ├── ci.yml          # push/PR/dispatch: lint + test + wheel artifacts
-└── release.yml     # tag v*: publish PyPI + crates.io + GitHub Release + sandbox redeploy
+└── release.yml     # tag v*: publish PyPI + crates.io + GitHub Release
 ```
 
 `_build.yml` is a "reusable workflow" (called via `workflow_call`). The
@@ -37,7 +37,7 @@ directly.
 | `build` macOS arm64   | `[self-hosted, macos, arm64]`         | **Persistent** Mac mini M1 (periodic cleanup)   |
 | `build` windows       | `windows-latest` (GitHub-hosted)      | Fresh VM per run                                |
 | `build-sdist`         | `ubuntu-latest`                       | Fresh VM per run                                |
-| All publish/deploy    | `ubuntu-latest`                       | Fresh VM per run                                |
+| All publish jobs      | `ubuntu-latest`                       | Fresh VM per run                                |
 
 Self-hosted runners are tagged `self-hosted, <os>, <arch>`. Ephemeral
 Linux runners are recreated per job by a containerized runner image
@@ -109,10 +109,10 @@ The `release.yml` workflow then:
 3. Publishes `vle-units` then `vle-thermo` to crates.io (token loaded
    from 1Password).
 4. Creates a GitHub Release and attaches all wheels + sdist.
-5. SSHes to rocky (plain SSH) and Oracle (Tailscale SSH) and runs
-   `/usr/local/bin/vle-deploy vX.Y.Z` on each. The wrapper validates
-   the tag name against a regex, checks out the tag, and rebuilds the
-   sandbox compose stack.
+
+The pipeline **publishes only — it deploys nowhere.** The teaching hub is
+refreshed separately from the private `homelab-iac` repo (gated `deploy-vle`
+workflow); see [PUBLISHING.md](../PUBLISHING.md) → *Deploying the teaching hub*.
 
 End-to-end clock from `git push origin vX.Y.Z` to "PyPI install works"
 is typically 5–15 min. See [PUBLISHING.md](../PUBLISHING.md) for the
@@ -129,9 +129,9 @@ full release procedure.
   without a click.
 - **Settings → Secrets and variables → Actions** — add a single secret
   `OP_SERVICE_ACCOUNT_TOKEN` (the 1Password Service Account token).
-  Everything else (SSH keys, Tailscale OAuth, crates.io token, host
-  names) lives in the 1Password vault `vle-thermo-ci` and is loaded at
-  workflow runtime.
+  The crates.io token lives in the 1Password vault `vle-thermo-ci` and is
+  loaded at workflow runtime. (Deploy SSH keys / host names are no longer
+  needed — deployment moved to the `homelab-iac` repo.)
 - **Self-hosted runners** — register one or more per the
   `runners/*-setup.md` docs.
 

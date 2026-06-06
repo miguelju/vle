@@ -102,11 +102,12 @@ API docs: <https://docs.rs/vle-thermo>. See [engine/README.md](engine/README.md)
 
 ---
 
-**Want to try VLE in your browser without installing anything?** See the
-[sandbox JupyterHub deployment](deploy/) — a multi-user hub with the
-notebooks pre-loaded, intended for instructors and students. The Docker
-image powering it is a *deployment vehicle*, not a way to install
-vle-thermo into your own programs; use PyPI or crates.io for that.
+**Want to work through the notebooks?** Install `vle-thermo` and open the
+[`notebooks/`](notebooks/) folder in your own Jupyter — see
+[deploy/NOTEBOOKS.md](deploy/NOTEBOOKS.md). Distribution channels (PyPI,
+crates.io, notebooks) are summarized in [deploy/README.md](deploy/README.md).
+Educators can stand up a shared JupyterHub of these notebooks with any
+standard hub + a per-user image that `pip install`s `vle-thermo`.
 
 Release process and registry maintenance: [PUBLISHING.md](PUBLISHING.md).
 
