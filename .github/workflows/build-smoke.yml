@@ -58,10 +58,6 @@ on:
 permissions:
   contents: read
 
-# See the comment in _build.yml — same Node 24 transition shim.
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 concurrency:
   group: build-smoke-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

@@ -30,18 +30,6 @@ on:
 permissions:
   contents: read
 
-# Opt every JS action into Node.js 24 ahead of the June 2nd 2026 forced
-# switchover (and the September 16th 2026 Node 20 removal from runners).
-# Covers transitive Node-20 actions we don't directly control — notably
-# pypa/cibuildwheel v2.x, which hard-codes `uses: actions/setup-python@v5`
-# inside its composite action and was the source of the deprecation warning
-# on every build job except macOS (macOS bypasses the cibuildwheel action
-# wrapper entirely — see the inline comment in build-self-hosted below).
-# Becomes a no-op once Node 24 is the runner default. Ref:
-# https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   # ----- Self-hosted Linux x64 + macOS arm64 -----
   # Blocked from running on PRs from forks.
