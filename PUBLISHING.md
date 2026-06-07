@@ -7,9 +7,7 @@ library via `pip install vle-thermo` or `cargo add vle-thermo`.
 > **Note for Milestones 6+**: each milestone that adds Rust functionality
 > also adds PyO3 bindings (CLAUDE.md "PyO3 Bindings Rule (M5+)") and
 > typically cuts a new release tag. Tag → push → registries is the standard
-> milestone-completion workflow. Refreshing the teaching hub is a separate,
-> operator-side step in the private `homelab-iac` repo (see *Deploying the
-> teaching hub* below).
+> milestone-completion workflow.
 
 ---
 
@@ -32,9 +30,6 @@ git tag v0.X.Y && git push origin v0.X.Y
         │     (token loaded from 1Password via Service Account)
         └── gh-release     → GitHub Release with all wheels + sdist
 ```
-
-The pipeline **deploys nowhere** — it only publishes. Refreshing the hosted
-teaching hub is a separate operator step (see *Deploying the teaching hub*).
 
 End-to-end clock from `git push origin vX.Y.Z` to "available on PyPI" is
 typically 5–15 minutes (the Mac mini wheel build is the long pole).
@@ -67,28 +62,7 @@ typically 5–15 minutes (the Mac mini wheel build is the long pole).
    `pypi` environment with required reviewers, click **Review
    deployments → Approve and deploy** to release the publish step.
 
-7. **Verify** (next section). To refresh the hosted teaching hub with the
-   new release, run the gated `deploy-vle` workflow in the private
-   `homelab-iac` repo (see *Deploying the teaching hub* below) — this repo
-   does not trigger any deploy.
-
----
-
-## Deploying the teaching hub
-
-The multi-user JupyterHub stack is **not** in this repo. It lives as an
-Ansible role (`vle`) in the operator's private `homelab-iac` repo and deploys
-to both hub hosts (rocky + oracle) as a hot standby. After a release, refresh
-it from there:
-
-- **CI:** Actions → `deploy-vle` → Run workflow → type `deploy`, set `ref` to
-  the new tag, pick `mode` (`notebooks` for a content refresh, `full` to
-  rebuild the engine-from-source image).
-- **By hand (controller):**
-  `ansible-playbook playbooks/deploy-vle.yml -e vle_ref=vX.Y.Z -e vle_deploy_mode=notebooks`
-
-This is intentionally decoupled — no token or trigger crosses from this repo
-into the deployment.
+7. **Verify** (next section).
 
 ---
 
@@ -126,8 +100,7 @@ deactivate && rm -rf /tmp/vle-check
 ```
 
 Both registries should show the new version within a couple minutes of
-publish. (To serve the new version on the hosted teaching hub, run the
-`deploy-vle` workflow in `homelab-iac` — see *Deploying the teaching hub*.)
+publish.
 
 ---
 
@@ -140,11 +113,6 @@ a patch release.
 
 **PyPI**: `twine yank vle-thermo==X.Y.Z --reason "..."` (or file a PyPI
 removal request). Same "cannot delete" rule — yank + patch.
-
-**Teaching hub**: roll the hub back independently of the registries — in
-`homelab-iac`, run `deploy-vle` with `ref` set to the prior known-good tag
-(`mode=full` to rebuild the engine image). The hub version is decoupled from
-what's on PyPI/crates.io.
 
 ---
 
@@ -177,7 +145,6 @@ and delete the secret.
 
 This is the **only** secret in GitHub. The crates.io token is in the
 1Password vault and resolved at workflow runtime via `op://vault/item/field`
-paths. (Deploy SSH keys / host names are no longer needed here — deployment
-moved to `homelab-iac`.)
+paths.
 
 See `docs/ci.md` and `docs/runners/` for the full CI architecture.

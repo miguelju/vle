@@ -161,7 +161,7 @@ pub fn s_departure_r_virial(comp: &Component, t: f64, p: f64) -> f64 {
 /// For M7.1 simplicity we use the simplest rules: Tcij = √(Tci·Tcj),
 /// Pcij = (Pci + Pcj)/2, ωij = (ωi + ωj)/2. The Tsonopoulos/Hayden
 /// O'Connell refinements (which the VB6 code optionally uses) are
-/// M7.4 deferred.
+/// deferred to a later milestone.
 pub fn b_mix_matrix(components: &[Component], t: f64) -> Vec<Vec<f64>> {
     let n = components.len();
     let mut mat = vec![vec![0.0_f64; n]; n];

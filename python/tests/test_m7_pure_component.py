@@ -307,36 +307,137 @@ def test_virial_ln_phi_mix_sums_correctly() -> None:
 # =============================================================================
 
 
-@pytest.mark.parametrize(
-    "eos",
-    [e.CubicEos.SchmidtWenzel, e.CubicEos.PatelTeja, e.CubicEos.PatelTejaUSB],
-)
-def test_three_param_eos_raises_not_implemented(eos) -> None:
-    """The 3-parameter EOS variants (M7.3 deferred) raise NotImplementedError."""
-    with pytest.raises(NotImplementedError, match="not yet ported"):
-        e.eos_z_factor(eos, 300.0, 1000.0, 200.0, 4000.0, 0.1, "vapor")
+# =============================================================================
+# M7.3 — three-parameter EOS (Schmidt-Wenzel, Patel-Teja, PT-USB) + Chao-Seader
+# Ref (4): Da Silva & Báez (1989), legacy/pascal/TERMOII.PAS.
+# =============================================================================
+
+THREE_PARAM = [e.CubicEos.SchmidtWenzel, e.CubicEos.PatelTeja, e.CubicEos.PatelTejaUSB]
 
 
-@pytest.mark.parametrize(
-    "eos",
-    [e.CubicEos.VdWOL1998, e.CubicEos.RKOL1998, e.CubicEos.PROL1998],
-)
-def test_deferred_alpha_variants_panic_at_alpha(eos) -> None:
-    """The OL family is the only α bucket still deferred (now M7.4).
-
-    Its α is coupled to the reduced saturation pressure, so it lands with
-    the M7.4 saturation layer. The Rust ``unimplemented!`` macro panics;
-    PyO3 traps the panic and raises a ``PanicException`` (subclass of
-    ``BaseException``).
-    """
-    with pytest.raises(BaseException) as excinfo:
-        e.eos_alpha(eos, 1.0, 0.2)
-    assert "M7.4 deferred" in str(excinfo.value)
+@pytest.mark.parametrize("eos", THREE_PARAM)
+def test_three_param_alpha_unity_at_critical(eos) -> None:
+    """α(Tr=1)=1 — the EOS prefactor is folded into Ω_a."""
+    assert e.eos_alpha(eos, 1.0, N_PENTANE["omega"]) == pytest.approx(1.0, abs=1e-12)
 
 
-def test_non_antoine_sat_models_raise_not_implemented() -> None:
-    """Riedel/Müller/RPM/polynomial/Maxwell go through the saturation dispatch
-    via the engine's `psat` function — but at the binding layer we only
-    expose `antoine_psat` for now. Verify Antoine works (positive control)."""
-    psat = e.antoine_psat(300.0, 4599.0, [9.0, 1500.0, -30.0])
-    assert psat > 0
+@pytest.mark.parametrize("eos", THREE_PARAM)
+@pytest.mark.parametrize("tr", [0.5, 0.7, 0.9, 1.2, 1.5])
+def test_three_param_d_alpha_matches_numerical(eos, tr) -> None:
+    """Analytical dα/dTr vs central difference, away from the SW Tr=1 kink."""
+    h = 1e-6
+    w = N_PENTANE["omega"]
+    analytical = e.eos_d_alpha_d_tr(eos, tr, w)
+    numerical = (e.eos_alpha(eos, tr + h, w) - e.eos_alpha(eos, tr - h, w)) / (2 * h)
+    if abs(analytical) < 1e-10:
+        assert abs(analytical - numerical) < 1e-6
+    else:
+        assert numerical == pytest.approx(analytical, rel=1e-5)
+
+
+@pytest.mark.parametrize("eos", THREE_PARAM)
+def test_three_param_ideal_gas_limit(eos) -> None:
+    """As P→0, Z→1 and ln φ→0 through the Python bindings."""
+    tc, pc, w = N_PENTANE["tc"], N_PENTANE["pc"], N_PENTANE["omega"]
+    z = e.eos_z_factor(eos, 400.0, 1e-3, tc, pc, w, "vapor")
+    assert z == pytest.approx(1.0, abs=1e-4)
+    lnphi = e.eos_ln_phi_pure(eos, 400.0, 1e-3, tc, pc, w, "vapor")
+    assert abs(lnphi) < 1e-4
+
+
+@pytest.mark.parametrize("eos", THREE_PARAM)
+def test_three_param_entropy_consistency(eos) -> None:
+    """S^R/R = H^R/RT − ln φ (Lewis-Randall) through the bindings."""
+    args = (eos, 400.0, 500.0, N_PENTANE["tc"], N_PENTANE["pc"], N_PENTANE["omega"], "vapor")
+    s = e.eos_s_departure_r(*args)
+    h = e.eos_h_departure_rt(*args)
+    g = e.eos_ln_phi_pure(*args)
+    assert math.isfinite(s) and s == pytest.approx(h - g, abs=1e-9)
+
+
+def test_schmidt_wenzel_tr1_entropy_finite() -> None:
+    """Faithful + guarded: SW entropy at Tr=1 is finite (legacy gave NaN)."""
+    tc, pc, w = N_PENTANE["tc"], N_PENTANE["pc"], N_PENTANE["omega"]
+    s = e.eos_s_departure_r(e.CubicEos.SchmidtWenzel, tc, 500.0, tc, pc, w, "vapor")
+    assert math.isfinite(s)
+
+
+def test_chao_seader_pure_fugacity() -> None:
+    """Chao-Seader ln(ν) is finite for each coefficient set + matched component."""
+    ln_normal = e.chao_seader_ln_phi(
+        0.7 * N_PENTANE["tc"], 500.0, N_PENTANE["tc"], N_PENTANE["pc"], N_PENTANE["omega"],
+        e.ChaoSeaderSpecies.Normal,
+    )
+    assert math.isfinite(ln_normal) and abs(ln_normal) < 50.0
+    ln_methane = e.chao_seader_ln_phi(
+        0.7 * METHANE["tc"], 500.0, METHANE["tc"], METHANE["pc"], METHANE["omega"],
+        e.ChaoSeaderSpecies.Methane,
+    )
+    ln_hydrogen = e.chao_seader_ln_phi(
+        0.7 * 33.2, 500.0, 33.2, 1300.0, -0.216, e.ChaoSeaderSpecies.Hydrogen,
+    )
+    assert math.isfinite(ln_methane) and math.isfinite(ln_hydrogen)
+
+
+# =============================================================================
+# M7.4 — advanced saturation models + OL-family α (binding layer).
+# Ref (4): Da Silva & Báez (1989); OL family: Olivera et al. (1998).
+# =============================================================================
+
+# n-pentane with the saturation data the M7.4 models need.
+PENTANE_SAT = dict(tc=469.7, pc=3370.0, omega=0.252, tb=309.2)
+PENTANE_ANTOINE = [6.738, 3165.0, 0.0]  # reduced Antoine ln(P/Pc)=a1−a2/(a3+T)
+CORRELATIONS = [e.SatPressureModel.Riedel, e.SatPressureModel.Muller, e.SatPressureModel.RPM]
+OL_FAMILY = [e.CubicEos.VdWOL1998, e.CubicEos.RKOL1998, e.CubicEos.PROL1998]
+
+
+@pytest.mark.parametrize("model", CORRELATIONS)
+def test_sat_correlations_subcritical(model) -> None:
+    ps = e.sat_psat(model, 350.0, PENTANE_SAT["tc"], PENTANE_SAT["pc"], PENTANE_SAT["omega"], PENTANE_SAT["tb"])
+    assert 0.0 < ps < PENTANE_SAT["pc"]
+    pr = e.sat_reduced_psat(model, 350.0, PENTANE_SAT["tc"], PENTANE_SAT["pc"], PENTANE_SAT["omega"], PENTANE_SAT["tb"])
+    assert 0.0 < pr < 1.0
+
+
+@pytest.mark.parametrize("model", CORRELATIONS)
+def test_sat_correlations_hit_one_atm_at_tb(model) -> None:
+    ps = e.sat_psat(model, PENTANE_SAT["tb"], PENTANE_SAT["tc"], PENTANE_SAT["pc"], PENTANE_SAT["omega"], PENTANE_SAT["tb"])
+    assert abs(ps - 101.325) / 101.325 < 0.05
+
+
+def test_sat_maxwell_and_boiling_point() -> None:
+    pm = e.sat_maxwell(e.CubicEos.PR1976, 350.0, PENTANE_SAT["tc"], PENTANE_SAT["pc"], PENTANE_SAT["omega"], PENTANE_ANTOINE)
+    assert math.isfinite(pm) and pm > 0.0
+    # Antoine boiling-point round trip: Psat(Tb(P)) == P.
+    p = 200.0
+    tb = e.boiling_temperature(e.SatPressureModel.Antoine, p, PENTANE_SAT["tc"], PENTANE_SAT["pc"], 0.0, 0.0, PENTANE_ANTOINE)
+    assert abs(e.antoine_psat(tb, PENTANE_SAT["pc"], PENTANE_ANTOINE) - p) / p < 1e-6
+
+
+def test_poynting_factor() -> None:
+    assert e.poynting_factor(500.0, 500.0, 350.0, 116.0) == pytest.approx(1.0, abs=1e-12)
+    assert e.poynting_factor(2000.0, 500.0, 350.0, 116.0) > 1.0
+
+
+@pytest.mark.parametrize("eos", OL_FAMILY)
+def test_ol_alpha_finite_and_unity_band(eos) -> None:
+    """OL α via the dedicated binding (needs saturation data); finite + positive."""
+    a = e.eos_alpha_ol(eos, 0.8, PENTANE_SAT["tc"], PENTANE_SAT["pc"], PENTANE_SAT["omega"],
+                       e.SatPressureModel.Antoine, 0.0, PENTANE_ANTOINE)
+    assert math.isfinite(a) and a > 0.0
+
+
+@pytest.mark.parametrize("eos", OL_FAMILY)
+def test_ol_d_alpha_matches_numerical(eos) -> None:
+    """Analytical OL dα/dTr (Antoine sat model → analytical) vs central diff."""
+    h = 1e-6
+    args = (PENTANE_SAT["tc"], PENTANE_SAT["pc"], PENTANE_SAT["omega"], e.SatPressureModel.Antoine, 0.0, PENTANE_ANTOINE)
+    tr = 0.8
+    analytical = e.eos_d_alpha_d_tr_ol(eos, tr, *args)
+    numerical = (e.eos_alpha_ol(eos, tr + h, *args) - e.eos_alpha_ol(eos, tr - h, *args)) / (2 * h)
+    assert numerical == pytest.approx(analytical, rel=1e-4)
+
+
+def test_antoine_still_works() -> None:
+    """Positive control: the M7.1 Antoine binding is unchanged."""
+    assert e.antoine_psat(300.0, 4599.0, [9.0, 1500.0, -30.0]) > 0

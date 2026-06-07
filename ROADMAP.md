@@ -167,29 +167,28 @@ validation cases actually use; the rest land in subsequent releases.
   pressure (`clsQbicsPure.cls:268`), so it is coupled to the saturation layer and
   lands alongside the non-Antoine saturation models in M7.4.
 
-### Milestone 7.3 — Three-Parameter EOS + Chao-Seader (planned v0.5.0)
-*Will exercise `notebooks/02c_three_param_eos.ipynb` once shipped.*
+### Milestone 7.3 — Three-Parameter EOS + Chao-Seader (shipped in v0.5.0)
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
-- [ ] Schmidt-Wenzel 3-parameter EOS (per-component k₁/k₂ via Beta(ω)) (4)
-- [ ] Patel-Teja and Patel-Teja USB (component-specific Zc, two mixing variants) (4)
-- [ ] C-parameter mixing rules for 3-param EOS (mole-fraction + √B-weighted)
-- [ ] Chao-Seader liquid fugacity correlation with H₂ / methane special cases (4)
-- [ ] Z-factor + fugacity + departure functions across all three 3-param EOS
-- [ ] Rename `02c_three_param_eos.ipynb` placeholder → live
+- [x] Schmidt-Wenzel 3-parameter EOS (β(ω) third parameter, piecewise m(Tr), guarded Tr=1 kink) (4)
+- [x] Patel-Teja and Patel-Teja USB (fitted ξc(ω), Ωa/Ωb/Ωc; USB differs only in mixture C-rule) (4)
+- [x] C-parameter mixing rules for 3-param EOS (mole-fraction + √B / √A-weighted) — `mixing::c_mix`
+- [x] Chao-Seader liquid fugacity correlation with H₂ / methane special cases (4)
+- [x] Z-factor + fugacity + departure across all three 3-param EOS — unified (U, W) form, verified vs the legacy cubics
+- [x] `02c_three_param_eos.ipynb` now live (Schmidt-Wenzel/Patel-Teja/Chao-Seader, executes top-to-bottom)
 
-### Milestone 7.4 — Advanced Saturation + Maxwell (planned v0.6.0)
-*Will exercise `notebooks/02d_advanced_saturation.ipynb` once shipped.*
+### Milestone 7.4 — Advanced Saturation + Maxwell (shipped in v0.6.0)
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
-- [ ] OL-family α (VdWOL1998, RKOL1998, PROL1998) — `Tr·(1 + Σ hₖ·…)` from
-      `legacy/vb6/clsQbicsPure.cls:268` (`SumHk`); needs the reduced saturation
-      pressure, hence grouped here with the saturation layer (re-scoped from M7.2)
-- [ ] Riedel, Müller, RPM, polynomial saturation correlations (4) + VB6
-- [ ] PseudoAntoine helper (converts other models to Antoine equivalent)
-- [ ] Analytical dPsat/dT where tractable; numerical fallback elsewhere
-- [ ] Maxwell equal-area construction (iterative, uses Brent + cubic EOS)
-- [ ] Boiling-point calculation (`TEbullicion` from Pascal, `SatTemperature` from VB6)
-- [ ] Poynting correction factor `exp((P − Psat)·V_l / (R·T·10))`
-- [ ] Rename `02d_advanced_saturation.ipynb` placeholder → live
+- [x] OL-family α (VdWOL1998, RKOL1998, PROL1998) — `Tr·(1 + SumHk)` with the
+      per-family h-tables; reads the reduced saturation pressure via the new
+      `Component.sat_model`, with an **analytical** dα/dTr (chain rule through dPsat/dT)
+- [x] Riedel, Müller, RPM, polynomial saturation correlations (4) — unit-normalized to kPa
+- [x] PseudoAntoine helper + generic `d_psat_dt` (analytical Antoine, numerical otherwise)
+- [x] Maxwell equal-area construction (successive substitution on equal fugacity over the cubic isotherm)
+- [x] Boiling-point calculation (closed form for Antoine, Brent for the others)
+- [x] Poynting correction factor `exp[V_L·(P − Psat)/(R·T)]` (canonical kPa units)
+- [x] `02d_advanced_saturation.ipynb` now live (executes top-to-bottom)
 
 ## Milestone 8: Mixture Models
 **Goal**: Activity models, mixing rules, and multicomponent EOS working.

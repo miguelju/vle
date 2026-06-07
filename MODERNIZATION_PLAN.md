@@ -404,7 +404,7 @@ vle/
 - Brent's method and Illinois algorithm root finders — replace legacy Regula Falsi (from `clsSatPressureSolver.cls`) — see §C
 - Utility functions: `SumFrac`, `Norm`, convergence checks
 
-### Phase 7: Pure Component EOS *(Milestone 7 — split: 7.1 / 7.2 done, 7.3 deferred; OL-family α → 7.4)*
+### Phase 7: Pure Component EOS *(Milestone 7 — split: 7.1 / 7.2 / 7.3 done; OL-family α → 7.4)*
 
 **M7.1 — shipped in v0.3.0** (Claude Opus 4.7, 1M context):
 - `family_constants(eos)` for all 22 variants (from `McommonFunctions.bas:273`) (5)
@@ -426,30 +426,34 @@ vle/
   saturation pressure, making α a function of the saturation correlation rather than of
   `(Tr, ω)` alone. They land with the M7.4 saturation layer.
 
-**M7.3 — planned v0.5.0** (3-parameter EOS + Chao-Seader, **Pascal-origin** Ref (4) from `TERMOII.PAS`):
-- Schmidt-Wenzel: per-component k₁/k₂ via Beta(ω) and a special C-parameter mixing rule
-- Patel-Teja: component-specific Zc, two C-parameter mixing variants (`PatelT`, `PatelTUSB`)
-- Chao-Seader liquid fugacity correlation with H₂ / methane special cases
-- Z-factor + fugacity + departure functions for all three 3-param EOS
+**M7.3 — shipped in v0.5.0** (Claude Opus 4.8, 1M context — 3-parameter EOS + Chao-Seader, **Pascal-origin** Ref (4) from `TERMOII.PAS`):
+- Schmidt-Wenzel: β(ω) third parameter, piecewise m(Tr) with a **guarded** Tr=1 derivative kink (one-sided analytical dα/dTr → finite entropy, vs the legacy NaN)
+- Patel-Teja + Patel-Teja USB: fitted ξc(ω), Ωa/Ωb, dimensionless C=(1−3ξc)Pr/Tr; the USB variant shares the pure-component α (differs only in the M8 mixture C-rule)
+- Chao-Seader liquid fugacity (`chao_seader_ln_phi` + `ChaoSeaderSpecies`) with the H₂ / methane special coefficient sets
+- Z-factor + fugacity + departure for all three via a **unified general (U, W) cubic form** (U=uP/RT, W=w'(P/RT)²) that reuses the two-parameter algebra; verified to reproduce the legacy Patel-Teja and Schmidt-Wenzel cubics coefficient-for-coefficient
+- C-parameter mixing rules (`mixing::c_mix`: mole-fraction, √B-weighted, √A-weighted) ready for M8
+- `02c_three_param_eos.ipynb` live (`scripts/build_notebook_m73.py`)
 
 **Key source files:** `legacy/vb6/clsQbicsPure.cls`, `legacy/pascal/TERMOII.PAS`
 
-### Phase 8: Saturation Pressure *(Milestone 7 — split: Antoine done, others deferred)*
+### Phase 8: Saturation Pressure *(Milestone 7 — Antoine in M7.1, advanced models in M7.4; done)*
 
 **M7.1 — shipped in v0.3.0**:
 - **Antoine** correlation (4): `ln(P/Pc) = a1 − a2/(a3+T)` from `legacy/pascal/TERMOI.PAS`
 - Analytical `dPsat/dT = Psat · a2 / (a3+T)²`
 
-**M7.4 — planned v0.6.0** (the rest of the saturation layer):
-- OL-family α (VdWOL1998, RKOL1998, PROL1998) — `Tr·(1 + SumHk)` with the family-table
-  h-coefficients (`clsQbicsPure.cls:268`); evaluated against the reduced saturation
-  pressure, hence grouped with the saturation work (re-scoped from M7.2)
-- Riedel, Müller, RPM correlations (VB6 `clsSatPressureSolver.cls:146`, Pascal `TERMOI.PAS:154`)
-- Database polynomial evaluation (VB6-only `P = exp(A + B/T + C·ln(T) + D·T^E)`)
-- `PseudoAntoine` helper that converts other models to Antoine equivalents
-- Boiling-point calculation (`TEbullicion` / `SatTemperature`)
-- Poynting correction `exp((P − Psat)·V_l / (R·T·10))`
-- Maxwell equal-area construction (iterative — uses Brent + cubic-EOS isotherm)
+**M7.4 — shipped in v0.6.0** (Claude Opus 4.8, 1M context — the rest of the saturation layer):
+- OL-family α (VdWOL1998, RKOL1998, PROL1998) — `Tr·(1 + SumHk)` with the per-family
+  h-tables (`clsQbicsPure.cls:268`); reads the reduced saturation pressure via the new
+  `Component.sat_model` field, with an **analytical** dα/dTr (chain rule through dPsat/dT)
+- Riedel, Müller, RPM correlations — unit-normalized to kPa (the legacy `ln(Pc/1.0135 bar)`
+  reference becomes `ln(Pc/101.325 kPa)`); each reproduces ~1 atm at Tb
+- Polynomial (DIPPR-101-style) evaluation `ln P = c0 + c1/T + c2·ln(T) + c3·T^c4`
+- `pseudo_antoine` helper + generic `d_psat_dt` (analytical Antoine, central-difference else)
+- Boiling-point calculation (closed-form Antoine, Brent for the others)
+- Poynting correction `exp[V_L·(P − Psat)/(R·T)]` (canonical kPa units)
+- Maxwell equal-area construction — successive substitution on equal fugacity over the cubic isotherm
+- 8 new PyO3 bindings + `02d_advanced_saturation.ipynb` live (`scripts/build_notebook_m74.py`)
 
 **Key source files:** `legacy/vb6/clsSatPressureSolver.cls`, `legacy/pascal/TERMOI.PAS`
 

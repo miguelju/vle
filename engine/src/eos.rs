@@ -239,7 +239,8 @@ pub struct FamilyConstants {
 /// Return the 2-parameter family constants for the given EOS.
 ///
 /// Source: `legacy/vb6/McommonFunctions.bas:273` (`GeneralConstantsEOS`).
-/// 3-parameter EOS (Schmidt-Wenzel, Patel-Teja) are M7.3 — they return
+/// 3-parameter EOS (Schmidt-Wenzel, Patel-Teja) don't use this table — their
+/// Ω_a/Ω_b and the cubic are built in `three_param_aubw`; they return
 /// zeros here so callers can still pattern-match without an early panic;
 /// the per-component override happens inside their own EOS code path.
 pub fn family_constants(eos: CubicEos) -> FamilyConstants {
@@ -270,9 +271,9 @@ pub fn family_constants(eos: CubicEos) -> FamilyConstants {
             om_a: 27.0 / 64.0,
             om_b: 1.0 / 8.0,
         },
-        // 3-parameter EOS — M7.3 deferred. Returning zeros lets callers
-        // pattern-match without an early panic; the EOS-specific code
-        // path is the one that should detect and refuse.
+        // 3-parameter EOS: the (Ω_a, Ω_b, cubic) are built per-component in
+        // `three_param_aubw`, not from this table. Return zeros so a caller
+        // that pattern-matches this function doesn't get an early panic.
         SchmidtWenzel | PatelTeja | PatelTejaUSB => FamilyConstants {
             k1: 0.0,
             k2: 0.0,
@@ -280,6 +281,162 @@ pub fn family_constants(eos: CubicEos) -> FamilyConstants {
             om_b: 0.0,
         },
     }
+}
+
+// ===========================================================================
+// Three-parameter EOS constant helpers (M7.3) — Ref (4): Da Silva & Báez
+// (1989), legacy/pascal/TERMOII.PAS. Each helper is a pure ω→constant
+// correlation; the α functions keep the convention α(Tr=1)=1 by folding the
+// EOS-specific prefactor into Ω_a (see `three_param_aubw`).
+// ===========================================================================
+
+/// Patel-Teja α-shape parameter F(ω). TERMOII.PAS:175 (`Numi`).
+fn pt_f(w: f64) -> f64 {
+    0.452413 + 1.30982 * w - 0.295937 * w * w
+}
+/// Patel-Teja fitted critical compressibility ξc(ω). TERMOII.PAS:176 (`ZZc`).
+fn pt_xi_c(w: f64) -> f64 {
+    0.329032 - 0.076799 * w + 0.0211947 * w * w
+}
+/// Patel-Teja Ω_b(ω). TERMOII.PAS:177 (`Num2i`).
+fn pt_om_b(w: f64) -> f64 {
+    0.08517138 - 0.02640592 * w + 0.00788769 * w * w
+}
+/// Patel-Teja Ω_a(ω) = 3ξc² + 3(1−2ξc)Ω_b + Ω_b² + 1 − 3ξc. TERMOII.PAS:178 (`FactorPT`).
+fn pt_om_a(w: f64) -> f64 {
+    let xc = pt_xi_c(w);
+    let ob = pt_om_b(w);
+    3.0 * xc * xc + 3.0 * (1.0 - 2.0 * xc) * ob + ob * ob + 1.0 - 3.0 * xc
+}
+
+/// Schmidt-Wenzel β(ω) third-parameter coefficient. TERMOII.PAS:167 (`Num2i`).
+fn sw_beta(w: f64) -> f64 {
+    0.25988221 - 0.02142913 * w + 0.00337143 * w * w
+}
+/// Schmidt-Wenzel base m₀(ω). TERMOII.PAS:168.
+fn sw_m0(w: f64) -> f64 {
+    0.465 + 1.347 * w - 0.528 * w * w
+}
+/// Schmidt-Wenzel m(Tr) — **piecewise** (TERMOII.PAS:169-170). The two
+/// branches agree in value at Tr=1 but **not in slope** (a documented kink;
+/// see `sw_dm_dtr`).
+fn sw_m(w: f64, tr: f64) -> f64 {
+    let m0 = sw_m0(w);
+    if tr <= 1.0 {
+        let g = 5.0 * tr - 3.0 * m0 - 1.0;
+        m0 + g * g / 70.0
+    } else {
+        let g = 4.0 - 3.0 * m0;
+        m0 + g * g / 70.0
+    }
+}
+/// dm/dTr for Schmidt-Wenzel — the one-sided derivative of the active branch.
+/// Faithful + guarded: the Tr>1 branch has m constant (m'=0); the Tr≤1 branch
+/// is quadratic. The slope is discontinuous at Tr=1 — callers at exactly Tr=1
+/// get the Tr≤1 (left) derivative, which keeps the entropy departure finite
+/// (the legacy returned NaN there; TERMOII.PAS:492).
+fn sw_dm_dtr(w: f64, tr: f64) -> f64 {
+    if tr <= 1.0 {
+        let m0 = sw_m0(w);
+        let g = 5.0 * tr - 3.0 * m0 - 1.0;
+        2.0 * g * 5.0 / 70.0
+    } else {
+        0.0
+    }
+}
+/// Schmidt-Wenzel Ω_b(ω) = β / (3(1+βω)). TERMOII.PAS:195.
+fn sw_om_b(w: f64) -> f64 {
+    let b = sw_beta(w);
+    b / (3.0 * (1.0 + b * w))
+}
+/// Schmidt-Wenzel Ω_a(ω) = [1 − (1−β)/(3(1+βω))]³ — the constant prefactor
+/// folded out of α so that α(Tr=1)=1. TERMOII.PAS:173.
+fn sw_om_a(w: f64) -> f64 {
+    let b = sw_beta(w);
+    let inner = 1.0 - (1.0 - b) / (3.0 * (1.0 + b * w));
+    inner * inner * inner
+}
+
+// ===========================================================================
+// OL-family α (M7.4) — Olivera et al. (1998), legacy/vb6/clsQbicsPure.cls:268.
+// α = Tr·(1 + SumHk), where SumHk reads the component's *reduced saturation
+// pressure* (via comp.sat_model), so these variants are coupled to the
+// saturation layer. The OL EOS themselves use the standard 2-parameter
+// family constants (VdWOL1998→VdW, RKOL1998→RKS, PROL1998→PR).
+// ===========================================================================
+
+/// Per-family SumHk coefficient table `(h[1..10], E)`.
+fn ol_coeffs(eos: CubicEos) -> ([f64; 10], f64) {
+    use CubicEos::*;
+    match eos {
+        VdWOL1998 => (
+            [
+                0.33333333, 0.35112597, 0.011287433, -0.0038485685, 0.00064261934,
+                -0.000067252383, 0.0000045962725, -0.00000019990875, 5.0318465e-09, -5.5827084e-11,
+            ],
+            -1.02,
+        ),
+        RKOL1998 => (
+            [
+                0.32748, 0.34376954, 0.010596403, -0.0037538497, 0.00063257197, -0.000066481,
+                0.0000045517956, -0.00000019796921, 4.9748592e-09, -5.5024228e-11,
+            ],
+            -1.014,
+        ),
+        PROL1998 => (
+            [
+                0.29803582, 0.015003698, -0.0047527103, 0.0008036716, -0.000089548695,
+                0.0000068691611, -0.00000036067317, 0.000000012409205, -2.5222671e-10, 2.2955503e-12,
+            ],
+            -0.00041,
+        ),
+        _ => unreachable!("ol_coeffs called for non-OL EOS {eos:?}"),
+    }
+}
+
+/// OL SumHk(Tr) = (1 − L)^E · Σ hₖ·(−L)^k, L = ln(P_sat,r / Tr). Returns `None`
+/// if the component's saturation model can't evaluate (e.g. missing coeffs).
+fn ol_sumhk(eos: CubicEos, tr: f64, comp: &Component) -> Option<f64> {
+    let (h, e_exp) = ol_coeffs(eos);
+    let t = tr * comp.tc;
+    let pr = crate::saturation::reduced_psat(comp.sat_model, comp, t).ok()?;
+    let arg = -(pr / tr).ln(); // −L
+    let mut sum = 0.0;
+    let mut argk = 1.0; // arg^0
+    for hk in h {
+        argk *= arg; // arg^k
+        sum += hk * argk;
+    }
+    Some((1.0 + arg).powf(e_exp) * sum)
+}
+
+/// OL (SumHk, dSumHk/dTr). dα/dTr is analytical given dP_sat/dT (which is
+/// analytical for the Antoine sat model, numerical otherwise).
+fn ol_sumhk_and_deriv(eos: CubicEos, tr: f64, comp: &Component) -> Option<(f64, f64)> {
+    let (h, e_exp) = ol_coeffs(eos);
+    let t = tr * comp.tc;
+    let pr = crate::saturation::reduced_psat(comp.sat_model, comp, t).ok()?;
+    let dpsat_dt = crate::saturation::d_psat_dt(comp.sat_model, comp, t).ok()?;
+    // arg = −L = ln(Tr) − ln(P_sat,r); d(arg)/dTr = 1/Tr − (dP_sat,r/dTr)/P_sat,r,
+    // P_sat,r = Psat/Pc, dP_sat,r/dTr = (Tc/Pc)·dPsat/dT.
+    let dpr_dtr = (dpsat_dt / comp.pc) * comp.tc;
+    let arg = -(pr / tr).ln();
+    let darg_dtr = 1.0 / tr - dpr_dtr / pr;
+    // P_sum = Σ hₖ argᵏ; dP_sum/darg = Σ k·hₖ arg^(k−1).
+    let mut psum = 0.0;
+    let mut dpsum = 0.0;
+    let mut argk_minus1 = 1.0; // arg^(k−1)
+    for (i, hk) in h.iter().enumerate() {
+        let k = (i + 1) as f64;
+        psum += hk * argk_minus1 * arg;
+        dpsum += hk * k * argk_minus1;
+        argk_minus1 *= arg;
+    }
+    let base = (1.0 + arg).powf(e_exp);
+    let dbase = e_exp * (1.0 + arg).powf(e_exp - 1.0);
+    let s = base * psum;
+    let ds_dtr = (dbase * psum + base * dpsum) * darg_dtr;
+    Some((s, ds_dtr))
 }
 
 /// α(Tr) — the temperature-dependent multiplier on the attractive term.
@@ -296,11 +453,10 @@ pub fn family_constants(eos: CubicEos) -> FamilyConstants {
 /// # Returns
 /// α evaluated at `tr`, **dimensionless**.
 ///
-/// # Panics
-/// Calls `unimplemented!` for the EOS variants not yet ported — the OL
-/// family (M7.4, saturation-coupled) and the 3-param Pascal EOS (M7.3).
-/// The panic message includes the variant name and a pointer to the legacy
-/// source line so a future port can pick up where this left off.
+/// All 22 variants are implemented. The OL family (saturation-coupled) reads
+/// the component's `sat_model`; if that model can't evaluate (e.g. missing
+/// coefficients) the OL α returns `NaN` rather than panicking, so a downstream
+/// `z_factor` then fails cleanly instead of producing a bogus root.
 pub fn alpha(eos: CubicEos, tr: f64, comp: &Component) -> f64 {
     use CubicEos::*;
     let w = comp.omega;
@@ -417,18 +573,27 @@ pub fn alpha(eos: CubicEos, tr: f64, comp: &Component) -> f64 {
         // to the saturation layer and lands with M7.4 alongside the
         // non-Antoine saturation models.
         VdWOL1998 | RKOL1998 | PROL1998 => {
-            unimplemented!(
-                "M7.4 deferred: OL-family α({:?}) depends on reduced saturation pressure \
-                 (SumHk, legacy/vb6/clsQbicsPure.cls:268) — lands with the M7.4 saturation layer",
-                eos
-            )
+            // OL-family: α = Tr·(1 + SumHk); SumHk reads the reduced saturation
+            // pressure via comp.sat_model. NaN if that model can't evaluate
+            // (e.g. missing coeffs) — downstream z_factor then errors cleanly.
+            ol_sumhk(eos, tr, comp).map(|s| tr * (1.0 + s)).unwrap_or(f64::NAN)
         }
-        // ----- Deferred: 3-param Pascal EOS → M7.3 -----
-        SchmidtWenzel | PatelTeja | PatelTejaUSB => {
-            unimplemented!(
-                "M7.3 deferred: 3-param EOS {:?} not yet ported — see legacy/pascal/TERMOII.PAS",
-                eos
-            )
+        // ----- M7.3: 3-parameter Pascal EOS (Ref (4), TERMOII.PAS) -----
+        // α is the pure temperature function (α(Tr=1)=1); the EOS-specific
+        // constant prefactors live in `three_param_aubw` (Ω_a/Ω_b).
+        SchmidtWenzel => {
+            // α = [1 + m(Tr)·(1 − √Tr)]², m piecewise. TERMOII.PAS:171-173.
+            let s = 1.0 - tr.sqrt();
+            let m = sw_m(w, tr);
+            (1.0 + m * s).powi(2)
+        }
+        PatelTeja | PatelTejaUSB => {
+            // Soave-shaped: α = [1 + F·(1 − √Tr)]². PatelTeja and the USB
+            // variant share the same pure-component α; they differ only in
+            // the mixture C-parameter rule (M8). TERMOII.PAS:179.
+            let f = pt_f(w);
+            let s = 1.0 - tr.sqrt();
+            (1.0 + f * s).powi(2)
         }
     }
 }
@@ -545,16 +710,31 @@ pub fn d_alpha_d_tr(eos: CubicEos, tr: f64, comp: &Component) -> f64 {
             2.0 * inner * dinner
         }
 
-        // ----- Deferred: OL family → M7.4 (saturation-coupled α) -----
+        // ----- OL family (M7.4, saturation-coupled α) -----
         VdWOL1998 | RKOL1998 | PROL1998 => {
-            unimplemented!(
-                "M7.4 deferred: OL-family dα/dTr({:?}) depends on reduced saturation pressure \
-                 (SumHk, legacy/vb6/clsQbicsPure.cls:268) — lands with the M7.4 saturation layer",
-                eos
-            )
+            // α = Tr·(1 + S) → dα/dTr = (1 + S) + Tr·dS/dTr.
+            ol_sumhk_and_deriv(eos, tr, comp)
+                .map(|(s, ds)| (1.0 + s) + tr * ds)
+                .unwrap_or(f64::NAN)
         }
-        SchmidtWenzel | PatelTeja | PatelTejaUSB => {
-            unimplemented!("M7.3 deferred: 3-param EOS {:?} not yet ported", eos)
+        // ----- M7.3: 3-parameter Pascal EOS (Ref (4), TERMOII.PAS) -----
+        SchmidtWenzel => {
+            // α = (1 + m·s)², s = 1 − √Tr, m = m(Tr) piecewise.
+            // dα/dTr = 2(1 + m·s)(m'·s + m·s'), s' = −1/(2√Tr).
+            // m' is the one-sided derivative of the active branch (see
+            // `sw_dm_dtr`); the slope is discontinuous at Tr=1 (documented).
+            let r = tr.sqrt();
+            let s = 1.0 - r;
+            let m = sw_m(w, tr);
+            let dm = sw_dm_dtr(w, tr);
+            let ds = -0.5 / r;
+            2.0 * (1.0 + m * s) * (dm * s + m * ds)
+        }
+        PatelTeja | PatelTejaUSB => {
+            // Soave form: α = (1 + F·s)² → dα/dTr = −F(1 + F·s)/√Tr.
+            let f = pt_f(w);
+            let s = 1.0 - tr.sqrt();
+            -f * (1.0 + f * s) / tr.sqrt()
         }
     }
 }
@@ -601,7 +781,7 @@ pub fn z_factor(
     phase: PhaseId,
 ) -> Result<f64, EosError> {
     if eos.is_three_parameter() {
-        return Err(EosError::NotImplemented(eos));
+        return z_factor_3p(eos, t, p, comp, phase);
     }
     let fc = family_constants(eos);
     let (big_a, big_b) = ab_dimensionless(eos, t, p, comp);
@@ -668,7 +848,7 @@ pub fn ln_phi_pure(
     phase: PhaseId,
 ) -> Result<f64, EosError> {
     if eos.is_three_parameter() {
-        return Err(EosError::NotImplemented(eos));
+        return ln_phi_pure_3p(eos, t, p, comp, phase);
     }
     let fc = family_constants(eos);
     let (big_a, big_b) = ab_dimensionless(eos, t, p, comp);
@@ -700,7 +880,7 @@ pub fn h_departure_rt(
     phase: PhaseId,
 ) -> Result<f64, EosError> {
     if eos.is_three_parameter() {
-        return Err(EosError::NotImplemented(eos));
+        return h_departure_rt_3p(eos, t, p, comp, phase);
     }
     let fc = family_constants(eos);
     let (big_a, big_b) = ab_dimensionless(eos, t, p, comp);
@@ -727,12 +907,177 @@ pub fn s_departure_r(
     comp: &Component,
     phase: PhaseId,
 ) -> Result<f64, EosError> {
-    if eos.is_three_parameter() {
-        return Err(EosError::NotImplemented(eos));
-    }
+    // No 3-parameter guard needed: ln_phi_pure and h_departure_rt each route
+    // to their 3-parameter implementations, so the Lewis-Randall identity holds
+    // for every EOS.
     let g_dep = ln_phi_pure(eos, t, p, comp, phase)?;
     let h_dep = h_departure_rt(eos, t, p, comp, phase)?;
     Ok(h_dep - g_dep)
+}
+
+// ===========================================================================
+// Three-parameter EOS code path (M7.3) — Ref (4): Da Silva & Báez (1989),
+// legacy/pascal/TERMOII.PAS. The attractive denominator is V² + uV + w'; in
+// dimensionless groups U = uP/(RT), W = w'(P/RT)². The cubic and the
+// fugacity/departure algebra are the SAME as the two-parameter case (which is
+// the special case U = k1·B, W = k2·B²), so we reuse those closed forms. The
+// (U, W) values were verified to reproduce the legacy Patel-Teja and
+// Schmidt-Wenzel cubics coefficient-for-coefficient.
+// ===========================================================================
+
+/// Dimensionless `(A, B, U, W)` for a three-parameter cubic EOS.
+fn three_param_aubw(eos: CubicEos, t: f64, p: f64, comp: &Component) -> (f64, f64, f64, f64) {
+    use CubicEos::*;
+    let tr = t / comp.tc;
+    let pr = p / comp.pc;
+    let w = comp.omega;
+    let a_val = alpha(eos, tr, comp);
+    match eos {
+        PatelTeja | PatelTejaUSB => {
+            let big_a = pt_om_a(w) * a_val * pr / (tr * tr);
+            let big_b = pt_om_b(w) * pr / tr;
+            // c-parameter (dimensionless) C = cP/(RT) = (1 − 3ξc)·Pr/Tr.
+            // Denominator V² + (b+c)V − bc → U = B + C, W = −B·C.
+            let big_c = (1.0 - 3.0 * pt_xi_c(w)) * pr / tr;
+            (big_a, big_b, big_b + big_c, -big_b * big_c)
+        }
+        SchmidtWenzel => {
+            let big_a = sw_om_a(w) * a_val * pr / (tr * tr);
+            let big_b = sw_om_b(w) * pr / tr;
+            // Denominator V² + (1+3ω)bV − 3ω b² → U = (1+3ω)B, W = −3ω B².
+            (big_a, big_b, (1.0 + 3.0 * w) * big_b, -3.0 * w * big_b * big_b)
+        }
+        _ => unreachable!("three_param_aubw called for 2-parameter EOS {eos:?}"),
+    }
+}
+
+/// Generalized attractive term `g = (A/Δ)·ln[(2Z+U+Δ)/(2Z+U−Δ)]`, Δ=√(U²−4W).
+/// Equals `(A/B)·F` of the two-parameter form, so `ln φ` and the departures
+/// share the same expressions.
+fn attractive_term_uw(z: f64, big_a: f64, u: f64, w: f64) -> f64 {
+    let delta = (u * u - 4.0 * w).sqrt();
+    (big_a / delta) * ((2.0 * z + u + delta) / (2.0 * z + u - delta)).ln()
+}
+
+/// Z for a three-parameter EOS — general cubic
+/// `Z³ + (U−B−1)Z² + (A+W−U−B·U)Z − (A·B+W+B·W) = 0`.
+fn z_factor_3p(
+    eos: CubicEos,
+    t: f64,
+    p: f64,
+    comp: &Component,
+    phase: PhaseId,
+) -> Result<f64, EosError> {
+    let (big_a, big_b, u, w) = three_param_aubw(eos, t, p, comp);
+    let a2 = u - big_b - 1.0;
+    let a1 = big_a + w - u - big_b * u;
+    let a0 = -(big_a * big_b + w + big_b * w);
+    let roots = solve_real(1.0, a2, a1, a0)?;
+    let mut physical: Vec<f64> = roots.into_iter().filter(|&z| z > big_b).collect();
+    if physical.is_empty() {
+        return Err(EosError::NoRootForPhase { phase, big_b });
+    }
+    physical.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    Ok(match phase {
+        PhaseId::Liquid => *physical.first().unwrap(),
+        PhaseId::Vapor => *physical.last().unwrap(),
+    })
+}
+
+/// ln(φ) for a three-parameter EOS.
+fn ln_phi_pure_3p(
+    eos: CubicEos,
+    t: f64,
+    p: f64,
+    comp: &Component,
+    phase: PhaseId,
+) -> Result<f64, EosError> {
+    let (big_a, big_b, u, w) = three_param_aubw(eos, t, p, comp);
+    let z = z_factor_3p(eos, t, p, comp, phase)?;
+    let g = attractive_term_uw(z, big_a, u, w);
+    Ok(z - 1.0 - (z - big_b).ln() - g)
+}
+
+/// H^R/(RT) for a three-parameter EOS.
+fn h_departure_rt_3p(
+    eos: CubicEos,
+    t: f64,
+    p: f64,
+    comp: &Component,
+    phase: PhaseId,
+) -> Result<f64, EosError> {
+    let (big_a, _big_b, u, w) = three_param_aubw(eos, t, p, comp);
+    let z = z_factor_3p(eos, t, p, comp, phase)?;
+    let tr = t / comp.tc;
+    let a_val = alpha(eos, tr, comp);
+    let da_val = d_alpha_d_tr(eos, tr, comp);
+    let g = attractive_term_uw(z, big_a, u, w);
+    Ok((z - 1.0) + g * (tr * da_val / a_val - 1.0))
+}
+
+/// Chao-Seader species selector — hydrogen and methane use distinct
+/// coefficient sets from the normal-fluid correlation. Ref (4), TERMOII.PAS:386.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "python", pyo3::pyclass(eq, eq_int))]
+#[repr(i32)]
+pub enum ChaoSeaderSpecies {
+    /// Normal fluids (the default coefficient set).
+    Normal = 0,
+    /// Hydrogen-specific coefficients.
+    Hydrogen = 1,
+    /// Methane-specific coefficients.
+    Methane = 2,
+}
+
+/// Chao-Seader pure-liquid fugacity coefficient, returned as **ln(ν)** (the
+/// natural log of the liquid fugacity coefficient ν = f_L/(xP)).
+///
+/// Ref (4): Da Silva & Báez (1989), legacy/pascal/TERMOII.PAS:386-405. The
+/// legacy returns ν = 10^(ν⁰ + ω·ν¹); we return the natural log to match
+/// [`ln_phi_pure`]. ν⁰ is the regular-solution + reduced-pressure polynomial;
+/// ν¹ is the acentric correction. Hydrogen and methane use special
+/// coefficient sets (`ChaoSeaderSpecies`).
+///
+/// # Arguments
+/// * `t` — Temperature in **K**.
+/// * `p` — Pressure in **kPa absolute**.
+/// * `comp` — Component (uses `tc`, `pc`, `omega`).
+/// * `species` — coefficient set selector.
+///
+/// # Returns
+/// ln of the Chao-Seader liquid fugacity coefficient, **dimensionless**.
+pub fn chao_seader_ln_phi(
+    t: f64,
+    p: f64,
+    comp: &Component,
+    species: ChaoSeaderSpecies,
+) -> f64 {
+    let tr = t / comp.tc;
+    let pr = p / comp.pc;
+    // ν⁰ coefficients A0..A9 (regular-solution + reduced-pressure polynomial).
+    let a: [f64; 10] = match species {
+        ChaoSeaderSpecies::Normal => [
+            2.05135, -2.10899, 0.0, -0.19396, 0.02282, 0.08852, 0.0, -0.00872, -0.00353, 0.00203,
+        ],
+        ChaoSeaderSpecies::Hydrogen => {
+            [1.50709, 2.74283, -0.02110, 0.00011, 0.0, 0.008585, 0.0, 0.0, 0.0, 0.0]
+        }
+        ChaoSeaderSpecies::Methane => {
+            [1.36822, -1.54831, 0.0, 0.02889, -0.01076, 0.10486, -0.02529, 0.0, 0.0, 0.0]
+        }
+    };
+    // ν¹ acentric-correction coefficients A10..A14 (shared by all species).
+    let q = [-4.23893, 8.65808, -1.22060, -3.15224, -0.025];
+    // ν⁰ = A0 + A1/Tr + A2·Tr + A3·Tr² + A4·Tr³
+    //      + (A5 + A6·Tr + A7·Tr²)·Pr + (A8 + A9·Tr)·Pr² − log10(Pr).
+    let nu0 = a[0] + a[1] / tr + a[2] * tr + a[3] * tr * tr + a[4] * tr * tr * tr
+        + (a[5] + a[6] * tr + a[7] * tr * tr) * pr
+        + (a[8] + a[9] * tr) * pr * pr
+        - pr.log10();
+    // ν¹ = A10 + A11·Tr + A12/Tr + A13·Tr³ + A14·(Pr − 0.6).
+    let nu1 = q[0] + q[1] * tr + q[2] / tr + q[3] * tr * tr * tr + q[4] * (pr - 0.6);
+    // log10(ν) = ν⁰ + ω·ν¹ → ln(ν) = ln(10)·log10(ν).
+    (nu0 + comp.omega * nu1) * std::f64::consts::LN_10
 }
 
 // #[cfg(test)] is a conditional compilation attribute. It tells the Rust
@@ -943,31 +1288,180 @@ mod tests {
         }
     }
 
+    // -----------------------------------------------------------------
+    // M7.3 — three-parameter EOS (Schmidt-Wenzel, Patel-Teja, PT-USB) and
+    // Chao-Seader. Ref (4): Da Silva & Báez (1989), legacy/pascal/TERMOII.PAS.
+    // -----------------------------------------------------------------
+
+    const THREE_PARAM: [CubicEos; 3] = [
+        CubicEos::SchmidtWenzel,
+        CubicEos::PatelTeja,
+        CubicEos::PatelTejaUSB,
+    ];
+
     #[test]
-    fn three_parameter_eos_errors_cleanly() {
-        // Schmidt-Wenzel and Patel-Teja must error, not panic, at the
-        // z_factor / ln_phi / departure layer. Their α functions panic
-        // (M7.3 deferred) but the higher-level functions short-circuit
-        // via EosError::NotImplemented before reaching α.
-        let c = methane();
-        for eos in [
-            CubicEos::SchmidtWenzel,
-            CubicEos::PatelTeja,
-            CubicEos::PatelTejaUSB,
-        ] {
-            let err = z_factor(eos, 300.0, 1000.0, &c, PhaseId::Vapor).unwrap_err();
-            assert!(matches!(err, EosError::NotImplemented(_)));
+    fn three_parameter_alpha_unity_at_critical() {
+        // α(Tr=1)=1 for every 3-param EOS — the EOS-specific prefactor is
+        // folded into Ω_a, keeping the same convention as the 2-param zoo.
+        let c = n_pentane();
+        for eos in THREE_PARAM {
+            assert!((alpha(eos, 1.0, &c) - 1.0).abs() < 1e-12, "{eos:?}");
         }
     }
 
     #[test]
-    #[should_panic(expected = "M7.4 deferred")]
-    fn deferred_alpha_panics_with_marker() {
-        // The OL family is now the M7.4-deferred bucket (its α is coupled
-        // to the reduced saturation pressure) — verify the panic message
-        // names the variant and the porting milestone.
-        let c = methane();
-        let _ = alpha(CubicEos::RKOL1998, 1.0, &c);
+    fn three_parameter_d_alpha_matches_numerical() {
+        // Analytical dα/dTr vs a central-difference oracle, sampled away from
+        // the Schmidt-Wenzel Tr=1 slope kink (the ±h windows stay on one branch).
+        let c = n_pentane();
+        for eos in THREE_PARAM {
+            for tr in [0.5_f64, 0.7, 0.9, 1.2, 1.5, 2.0] {
+                let analytical = d_alpha_d_tr(eos, tr, &c);
+                let numerical = d_alpha_numerical(eos, tr, &c, 1e-6);
+                let rel = if analytical.abs() < 1e-10 {
+                    (analytical - numerical).abs()
+                } else {
+                    ((analytical - numerical) / analytical).abs()
+                };
+                assert!(rel < 1e-5, "{eos:?} Tr={tr} a={analytical} n={numerical} rel={rel}");
+            }
+        }
+    }
+
+    #[test]
+    fn three_parameter_ideal_gas_limit() {
+        // As P→0, Z→1 and ln φ→0 for every 3-param EOS.
+        let c = n_pentane();
+        for eos in THREE_PARAM {
+            let z = z_factor(eos, 400.0, 1e-3, &c, PhaseId::Vapor).unwrap();
+            assert!((z - 1.0).abs() < 1e-4, "{eos:?} Z={z}");
+            let lnphi = ln_phi_pure(eos, 400.0, 1e-3, &c, PhaseId::Vapor).unwrap();
+            assert!(lnphi.abs() < 1e-4, "{eos:?} lnphi={lnphi}");
+        }
+    }
+
+    #[test]
+    fn three_parameter_roots_and_fugacity_sane() {
+        let c = n_pentane();
+        for eos in THREE_PARAM {
+            let zv = z_factor(eos, 400.0, 50.0, &c, PhaseId::Vapor).unwrap();
+            assert!(zv > 0.0 && zv < 1.1, "{eos:?} Zv={zv}");
+            let zl = z_factor(eos, 300.0, 2000.0, &c, PhaseId::Liquid).unwrap();
+            assert!(zl.is_finite() && zl > 0.0 && zl < zv, "{eos:?} Zl={zl} Zv={zv}");
+            let lnphi = ln_phi_pure(eos, 400.0, 50.0, &c, PhaseId::Vapor).unwrap();
+            assert!(lnphi.is_finite(), "{eos:?} lnphi={lnphi}");
+        }
+    }
+
+    #[test]
+    fn three_parameter_entropy_consistency() {
+        // S^R/R = H^R/RT − ln φ (Lewis-Randall) and all finite.
+        let c = n_pentane();
+        for eos in THREE_PARAM {
+            let s = s_departure_r(eos, 400.0, 500.0, &c, PhaseId::Vapor).unwrap();
+            let h = h_departure_rt(eos, 400.0, 500.0, &c, PhaseId::Vapor).unwrap();
+            let g = ln_phi_pure(eos, 400.0, 500.0, &c, PhaseId::Vapor).unwrap();
+            assert!(s.is_finite() && (s - (h - g)).abs() < 1e-9, "{eos:?} s={s}");
+        }
+    }
+
+    #[test]
+    fn schmidt_wenzel_tr1_entropy_finite() {
+        // Faithful + guarded: the SW dα/dTr kink at Tr=1 must NOT yield a NaN
+        // entropy (the legacy returned NaN there — TERMOII.PAS:492).
+        let c = n_pentane();
+        let s = s_departure_r(CubicEos::SchmidtWenzel, c.tc, 500.0, &c, PhaseId::Vapor).unwrap();
+        assert!(s.is_finite(), "SW entropy at Tr=1 not finite: {s}");
+    }
+
+    #[test]
+    fn chao_seader_pure_fugacity_sane() {
+        // Pair each coefficient set with a representative component (applying,
+        // say, the H₂ set to n-pentane is physically meaningless). Each Tr=0.7.
+        let hydrogen = Component {
+            tc: 33.2,
+            pc: 1300.0,
+            omega: -0.216,
+            ..Component::default()
+        };
+        let cases = [
+            (ChaoSeaderSpecies::Normal, n_pentane()),
+            (ChaoSeaderSpecies::Methane, methane()),
+            (ChaoSeaderSpecies::Hydrogen, hydrogen),
+        ];
+        for (species, c) in cases {
+            let lnphi = chao_seader_ln_phi(0.7 * c.tc, 500.0, &c, species);
+            assert!(lnphi.is_finite(), "{species:?} lnphi not finite: {lnphi}");
+            assert!(lnphi.abs() < 50.0, "{species:?} lnphi out of band: {lnphi}");
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // M7.4 — OL-family α (saturation-coupled). Ref (4)/Olivera (1998).
+    // -----------------------------------------------------------------
+
+    const OL_FAMILY: [CubicEos; 3] =
+        [CubicEos::VdWOL1998, CubicEos::RKOL1998, CubicEos::PROL1998];
+
+    /// n-pentane with the data the OL α + saturation models need: a reduced
+    /// Antoine fit (ln(P/Pc)=a1−a2/(a3+T)), a normal boiling point, and a
+    /// liquid molar volume.
+    fn pentane_full() -> Component {
+        Component {
+            name: "n-pentane".into(),
+            tc: 469.7,
+            pc: 3370.0,
+            omega: 0.252,
+            tb: 309.2,
+            psat_coeffs: vec![6.738, 3165.0, 0.0],
+            liquid_volume: 116.0,
+            ..Component::default()
+        }
+    }
+
+    #[test]
+    fn ol_alpha_finite_and_positive() {
+        let c = pentane_full();
+        for eos in OL_FAMILY {
+            for tr in [0.6_f64, 0.8, 0.95] {
+                let a = alpha(eos, tr, &c);
+                assert!(a.is_finite() && a > 0.0, "{eos:?} Tr={tr} α={a}");
+            }
+        }
+    }
+
+    #[test]
+    fn ol_d_alpha_matches_numerical() {
+        // With the Antoine sat model the OL dα/dTr is fully analytical
+        // (analytical dPsat/dT through the chain rule) — match the oracle.
+        let c = pentane_full();
+        for eos in OL_FAMILY {
+            for tr in [0.6_f64, 0.75, 0.9] {
+                let analytical = d_alpha_d_tr(eos, tr, &c);
+                let numerical = d_alpha_numerical(eos, tr, &c, 1e-6);
+                let rel = ((analytical - numerical) / analytical).abs();
+                assert!(rel < 1e-4, "{eos:?} Tr={tr} a={analytical} n={numerical} rel={rel}");
+            }
+        }
+    }
+
+    #[test]
+    fn ol_z_factor_and_entropy_finite() {
+        let c = pentane_full();
+        for eos in OL_FAMILY {
+            let zv = z_factor(eos, 400.0, 100.0, &c, PhaseId::Vapor).unwrap();
+            assert!(zv.is_finite() && zv > 0.0 && zv < 1.1, "{eos:?} Zv={zv}");
+            let s = s_departure_r(eos, 400.0, 100.0, &c, PhaseId::Vapor).unwrap();
+            assert!(s.is_finite(), "{eos:?} S^R/R={s}");
+        }
+    }
+
+    #[test]
+    fn ol_alpha_nan_without_sat_data() {
+        // No Antoine coeffs → reduced_psat fails → α is NaN (downstream
+        // z_factor then errors cleanly rather than returning a bogus root).
+        let c = n_pentane();
+        assert!(alpha(CubicEos::RKOL1998, 0.8, &c).is_nan());
     }
 
     // -----------------------------------------------------------------

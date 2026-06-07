@@ -102,12 +102,32 @@ API docs: <https://docs.rs/vle-thermo>. See [engine/README.md](engine/README.md)
 
 ---
 
-**Want to work through the notebooks?** Install `vle-thermo` and open the
-[`notebooks/`](notebooks/) folder in your own Jupyter — see
-[deploy/NOTEBOOKS.md](deploy/NOTEBOOKS.md). Distribution channels (PyPI,
-crates.io, notebooks) are summarized in [deploy/README.md](deploy/README.md).
-Educators can stand up a shared JupyterHub of these notebooks with any
-standard hub + a per-user image that `pip install`s `vle-thermo`.
+### Work through the notebooks
+
+Install the library, grab the notebooks, and open them in your own Jupyter —
+**no need to clone the whole repo**:
+
+```sh
+pip install "vle-thermo[plot]" jupyterlab
+
+# Option 1 — just the notebooks/ folder (sparse, blobless git checkout):
+git clone --depth 1 --filter=blob:none --sparse https://github.com/miguelju/vle.git
+cd vle && git sparse-checkout set notebooks
+
+# Option 2 — a single notebook, straight from GitHub raw:
+curl -O https://raw.githubusercontent.com/miguelju/vle/main/notebooks/02_pure_component.ipynb
+
+# Option 3 — the folder with no git history (needs Node):
+npx degit miguelju/vle/notebooks vle-notebooks
+
+jupyter lab notebooks/        # or the file/folder you fetched
+```
+
+The notebooks use the standard `python3` kernel, so any Jupyter on a Python
+3.10+ environment with `vle-thermo` installed runs them. Full prerequisites and
+the notebook catalogue are in [deploy/NOTEBOOKS.md](deploy/NOTEBOOKS.md); all
+distribution channels (PyPI, crates.io, notebooks) are summarized in
+[deploy/README.md](deploy/README.md).
 
 Release process and registry maintenance: [PUBLISHING.md](PUBLISHING.md).
 
@@ -189,7 +209,7 @@ Each milestone records which AI model was used (e.g., `Claude Opus 4.6 (1M conte
 
 ## Getting Started
 
-> **Status**: Milestones 0–6 complete, **M7.1 (Pure Component Models — Deployable Core) shipped in v0.3.0**, and **M7.2 (α-Function Zoo) shipped in v0.4.0**. M7.1 gave PR / RKS / RK / VdW cubic EOS with analytical α + dα/dTr + Z-factor + ln(φ) + departure H/S, Antoine vapor pressure with analytical dPsat/dT, and the full truncated virial equation (pure + multicomponent). M7.2 adds the **12 remaining two-parameter α variants** (Berthelot, VdWAda1984, RKSGD1978, RKSL1997, RP1978, PRL1997, VdWVald1989, RKSmn1980, RKSATmn1995, PRATmng1997, PRMmn1989, PRSV1986), each with an analytical dα/dTr and `eos_alpha_ex` bindings for the polar/fitted parameters, and the now-live `02b_alpha_zoo` notebook. Two placeholder notebooks remain (`02c_three_param_eos`, `02d_advanced_saturation`) for M7.3 / M7.4 (v0.5.0 / v0.6.0); the OL-family α is re-scoped into M7.4 (it needs the saturation layer). Milestones 8–11 (mixture models, mixing rules, flash, parameter regression, full validation) not yet started.
+> **Status**: Milestones 0–6 complete, **M7.1 (Pure Component Models — Deployable Core) shipped in v0.3.0**, and **M7.2 (α-Function Zoo) shipped in v0.4.0**. M7.1 gave PR / RKS / RK / VdW cubic EOS with analytical α + dα/dTr + Z-factor + ln(φ) + departure H/S, Antoine vapor pressure with analytical dPsat/dT, and the full truncated virial equation (pure + multicomponent). M7.2 adds the **12 remaining two-parameter α variants** (Berthelot, VdWAda1984, RKSGD1978, RKSL1997, RP1978, PRL1997, VdWVald1989, RKSmn1980, RKSATmn1995, PRATmng1997, PRMmn1989, PRSV1986), each with an analytical dα/dTr and `eos_alpha_ex` bindings for the polar/fitted parameters, and the now-live `02b_alpha_zoo` notebook. **M7.3 (Three-Parameter EOS + Chao-Seader) shipped in v0.5.0**: Schmidt-Wenzel, Patel-Teja, and Patel-Teja USB (handled through a unified general (U, W) cubic form that reuses the two-parameter fugacity/departure algebra), the Chao-Seader liquid-fugacity correlation with its H₂ / methane special cases, the `mixing::c_mix` C-parameter rules, and the live `02c_three_param_eos` notebook. **M7.4 (Advanced Saturation) shipped in v0.6.0**, completing Milestone 7: the Riedel / Müller / RPM / polynomial saturation correlations, the Maxwell equal-area construction, boiling-point inversion and the Poynting factor, and the OL-family α (VdWOL/RKOL/PROL — saturation-coupled, with an analytical dα/dTr), plus the live `02d_advanced_saturation` notebook. Milestones 8–11 (mixture models, mixing rules, flash, parameter regression, full validation) not yet started.
 
 ### Prerequisites
 - Python 3.10+ (for the component database and future Python wrapper)

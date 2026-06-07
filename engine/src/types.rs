@@ -128,6 +128,13 @@ pub struct Component {
     pub g_polar: f64,
     /// PRSV K₁ parameter. Component-specific constant for the PRSV1986 EOS variant.
     pub prsv_k1: f64,
+
+    // --- Saturation model selection (M7.4) ---
+    /// Which saturation-pressure correlation to use for this component. Read by
+    /// the **OL-family** α functions (VdWOL1998/RKOL1998/PROL1998), whose α
+    /// depends on the reduced saturation pressure, and available to callers that
+    /// want a non-Antoine `psat`. Defaults to [`SatPressureModel::Antoine`].
+    pub sat_model: crate::saturation::SatPressureModel,
 }
 
 // `impl Default for Component` provides a default constructor, so you
@@ -158,6 +165,7 @@ impl Default for Component {
             n_polar: 0.0,
             g_polar: 0.0,
             prsv_k1: 0.0,
+            sat_model: crate::saturation::SatPressureModel::Antoine,
         }
     }
 }

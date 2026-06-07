@@ -101,12 +101,3 @@ deploy/
     ├── publish-crate.sh   cargo publish (vle-units then vle-thermo)
     └── publish-pypi.sh    maturin build + publish to PyPI
 ```
-
-## Hosting a teaching hub?
-
-A multi-user JupyterHub deployment of these notebooks is **not** part of this
-repository — it's operator-specific infrastructure maintained privately
-(an Ansible role in the operator's homelab-iac repo). Most users should just
-`pip install vle-thermo` (above). If you want to stand up a shared hub for a
-class, any standard JupyterHub + a per-user image that `pip install`s
-`vle-thermo` and mounts `notebooks/` will do.

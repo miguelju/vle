@@ -45,10 +45,15 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
 use crate::eos::{
-    CubicEos, EosError, PhaseId, alpha as eos_alpha_rs, d_alpha_d_tr as eos_d_alpha_rs,
-    family_constants, h_departure_rt, ln_phi_pure, s_departure_r, z_factor,
+    ChaoSeaderSpecies, CubicEos, EosError, PhaseId, alpha as eos_alpha_rs,
+    chao_seader_ln_phi as chao_seader_ln_phi_rs, d_alpha_d_tr as eos_d_alpha_rs, family_constants,
+    h_departure_rt, ln_phi_pure, s_departure_r, z_factor,
 };
-use crate::saturation::{SatError, d_psat_dt_antoine, psat_antoine};
+use crate::saturation::{
+    SatError, SatPressureModel, boiling_temperature as boiling_temperature_rs,
+    d_psat_dt as d_psat_dt_rs, d_psat_dt_antoine, poynting_factor as poynting_factor_rs, psat as psat_rs,
+    psat_antoine, psat_maxwell as psat_maxwell_rs, reduced_psat as reduced_psat_rs,
+};
 use crate::types::Component;
 use crate::virial::{
     b_mix as virial_b_mix, h_departure_rt_virial, ln_phi_mix_virial, ln_phi_pure_virial, pitzer_b,
@@ -515,6 +520,24 @@ fn eos_s_departure_r(
     s_departure_r(eos, t, p, &comp, phase).map_err(map_eos_err)
 }
 
+/// Chao-Seader pure-liquid fugacity coefficient as **ln(ν)** (M7.3).
+///
+/// `species` selects the coefficient set (`ChaoSeaderSpecies.Normal`,
+/// `.Hydrogen`, or `.Methane`). T in **K**, P in **kPa absolute**.
+/// Ref (4): Da Silva & Báez (1989), legacy/pascal/TERMOII.PAS.
+#[pyfunction]
+fn chao_seader_ln_phi(
+    t: f64,
+    p: f64,
+    tc: f64,
+    pc: f64,
+    omega: f64,
+    species: ChaoSeaderSpecies,
+) -> f64 {
+    let comp = comp_for_eos(tc, pc, omega);
+    chao_seader_ln_phi_rs(t, p, &comp, species)
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // M7.5 — Antoine saturation bindings.
 // ──────────────────────────────────────────────────────────────────────
@@ -526,6 +549,19 @@ fn map_sat_err(e: SatError) -> PyErr {
         }
         SatError::BadCoefficients { .. } => PyValueError::new_err(e.to_string()),
         SatError::OutOfRange(_) => PyValueError::new_err(e.to_string()),
+        SatError::Maxwell(_) => PyRuntimeError::new_err(e.to_string()),
+    }
+}
+
+/// Build a Component carrying the fields the saturation layer reads.
+fn comp_for_sat(tc: f64, pc: f64, omega: f64, tb: f64, coeffs: Vec<f64>) -> Component {
+    Component {
+        tc,
+        pc,
+        omega,
+        tb,
+        psat_coeffs: coeffs,
+        ..Component::default()
     }
 }
 
@@ -551,6 +587,139 @@ fn antoine_d_psat_dt(t: f64, pc: f64, coeffs: Vec<f64>) -> PyResult<f64> {
         ..Component::default()
     };
     d_psat_dt_antoine(&comp, t).map_err(map_sat_err)
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// M7.4 — advanced saturation models + OL-family α.
+// ──────────────────────────────────────────────────────────────────────
+
+/// Saturation pressure for any non-Maxwell model. Returns Psat in **kPa**.
+/// `coeffs` are the Antoine `[a1,a2,a3]` (or DIPPR `[c0..c4]` for `Polynomial`);
+/// the corresponding-states models (Riedel/Müller/RPM) read `tc`, `pc`, `omega`, `tb`.
+#[pyfunction]
+#[pyo3(signature = (model, t, tc, pc, omega=0.0, tb=0.0, coeffs=vec![]))]
+fn sat_psat(
+    model: SatPressureModel,
+    t: f64,
+    tc: f64,
+    pc: f64,
+    omega: f64,
+    tb: f64,
+    coeffs: Vec<f64>,
+) -> PyResult<f64> {
+    psat_rs(model, &comp_for_sat(tc, pc, omega, tb, coeffs), t).map_err(map_sat_err)
+}
+
+/// `dPsat/dT` (kPa/K) for any non-Maxwell model — analytical for Antoine,
+/// central-difference otherwise.
+#[pyfunction]
+#[pyo3(signature = (model, t, tc, pc, omega=0.0, tb=0.0, coeffs=vec![]))]
+fn sat_d_psat_dt(
+    model: SatPressureModel,
+    t: f64,
+    tc: f64,
+    pc: f64,
+    omega: f64,
+    tb: f64,
+    coeffs: Vec<f64>,
+) -> PyResult<f64> {
+    d_psat_dt_rs(model, &comp_for_sat(tc, pc, omega, tb, coeffs), t).map_err(map_sat_err)
+}
+
+/// Reduced saturation pressure `Psat/Pc` (dimensionless) for a non-Maxwell model.
+#[pyfunction]
+#[pyo3(signature = (model, t, tc, pc, omega=0.0, tb=0.0, coeffs=vec![]))]
+fn sat_reduced_psat(
+    model: SatPressureModel,
+    t: f64,
+    tc: f64,
+    pc: f64,
+    omega: f64,
+    tb: f64,
+    coeffs: Vec<f64>,
+) -> PyResult<f64> {
+    reduced_psat_rs(model, &comp_for_sat(tc, pc, omega, tb, coeffs), t).map_err(map_sat_err)
+}
+
+/// Maxwell equal-area saturation pressure for a cubic EOS at temperature `t`.
+/// Returns Psat in **kPa**. `coeffs` seed the initial guess (Antoine if length 3).
+#[pyfunction]
+#[pyo3(signature = (eos, t, tc, pc, omega=0.0, coeffs=vec![]))]
+fn sat_maxwell(
+    eos: CubicEos,
+    t: f64,
+    tc: f64,
+    pc: f64,
+    omega: f64,
+    coeffs: Vec<f64>,
+) -> PyResult<f64> {
+    psat_maxwell_rs(eos, &comp_for_sat(tc, pc, omega, 0.0, coeffs), t).map_err(map_sat_err)
+}
+
+/// Boiling temperature (**K**): invert `Psat(T)=P` for the given model.
+#[pyfunction]
+#[pyo3(signature = (model, p, tc, pc, omega=0.0, tb=0.0, coeffs=vec![]))]
+fn boiling_temperature(
+    model: SatPressureModel,
+    p: f64,
+    tc: f64,
+    pc: f64,
+    omega: f64,
+    tb: f64,
+    coeffs: Vec<f64>,
+) -> PyResult<f64> {
+    boiling_temperature_rs(model, &comp_for_sat(tc, pc, omega, tb, coeffs), p).map_err(map_sat_err)
+}
+
+/// Poynting factor `exp[V_L·(P − Psat)/(R·T)]` (dimensionless). `liquid_volume`
+/// in **cm³/mol**; `p`, `psat` in **kPa**; `t` in **K**.
+#[pyfunction]
+fn poynting_factor(p: f64, psat: f64, t: f64, liquid_volume: f64) -> f64 {
+    let comp = Component {
+        liquid_volume,
+        ..Component::default()
+    };
+    poynting_factor_rs(&comp, p, psat, t)
+}
+
+/// OL-family α(Tr) — needs the component's saturation data. `sat_model` selects
+/// the reduced-saturation-pressure source; pass Antoine `coeffs=[a1,a2,a3]` (or
+/// `tb` for the corresponding-states models).
+#[pyfunction]
+#[pyo3(signature = (eos, tr, tc, pc, omega, sat_model, tb=0.0, coeffs=vec![]))]
+#[allow(clippy::too_many_arguments)]
+fn eos_alpha_ol(
+    eos: CubicEos,
+    tr: f64,
+    tc: f64,
+    pc: f64,
+    omega: f64,
+    sat_model: SatPressureModel,
+    tb: f64,
+    coeffs: Vec<f64>,
+) -> f64 {
+    let mut comp = comp_for_sat(tc, pc, omega, tb, coeffs);
+    comp.sat_model = sat_model;
+    eos_alpha_rs(eos, tr, &comp)
+}
+
+/// Analytical dα/dTr for the OL family (companion to [`eos_alpha_ol`]).
+#[pyfunction]
+#[pyo3(signature = (eos, tr, tc, pc, omega, sat_model, tb=0.0, coeffs=vec![]))]
+#[allow(clippy::too_many_arguments)]
+fn eos_d_alpha_d_tr_ol(
+    eos: CubicEos,
+    tr: f64,
+    tc: f64,
+    pc: f64,
+    omega: f64,
+    sat_model: SatPressureModel,
+    tb: f64,
+    coeffs: Vec<f64>,
+) -> f64 {
+    let mut comp = comp_for_sat(tc, pc, omega, tb, coeffs);
+    comp.sat_model = sat_model;
+    eos_d_alpha_rs(eos, tr, &comp)
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -683,6 +852,7 @@ fn _engine(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::mixing::MixingRule>()?;
     m.add_class::<crate::saturation::SatPressureModel>()?;
     m.add_class::<crate::eos::PhaseId>()?;
+    m.add_class::<crate::eos::ChaoSeaderSpecies>()?;
 
     // M7.1 cubic-EOS bindings.
     m.add_function(wrap_pyfunction!(eos_alpha, m)?)?;
@@ -695,10 +865,21 @@ fn _engine(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(eos_ln_phi_pure, m)?)?;
     m.add_function(wrap_pyfunction!(eos_h_departure_rt, m)?)?;
     m.add_function(wrap_pyfunction!(eos_s_departure_r, m)?)?;
+    m.add_function(wrap_pyfunction!(chao_seader_ln_phi, m)?)?;
 
     // M7.5 Antoine saturation bindings.
     m.add_function(wrap_pyfunction!(antoine_psat, m)?)?;
     m.add_function(wrap_pyfunction!(antoine_d_psat_dt, m)?)?;
+
+    // M7.4 advanced saturation models + OL-family α.
+    m.add_function(wrap_pyfunction!(sat_psat, m)?)?;
+    m.add_function(wrap_pyfunction!(sat_d_psat_dt, m)?)?;
+    m.add_function(wrap_pyfunction!(sat_reduced_psat, m)?)?;
+    m.add_function(wrap_pyfunction!(sat_maxwell, m)?)?;
+    m.add_function(wrap_pyfunction!(boiling_temperature, m)?)?;
+    m.add_function(wrap_pyfunction!(poynting_factor, m)?)?;
+    m.add_function(wrap_pyfunction!(eos_alpha_ol, m)?)?;
+    m.add_function(wrap_pyfunction!(eos_d_alpha_d_tr_ol, m)?)?;
 
     // M7.6 Virial bindings.
     m.add_function(wrap_pyfunction!(virial_pitzer_b0, m)?)?;

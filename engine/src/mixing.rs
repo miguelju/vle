@@ -67,6 +67,45 @@ pub enum MixingRule {
     SchmidtWenzelC = 36,
 }
 
+/// Combine per-component third parameters into the mixture `c_mix` for a
+/// three-parameter cubic EOS.
+///
+/// Ref (4): Da Silva & Báez (1989), legacy/pascal/TERMOII.PAS:234-262.
+///
+/// # Arguments
+/// * `rule` — a C-parameter variant (`PatelTejaC`, `PatelTejaUSBC`,
+///   `SchmidtWenzelC`); any a/b rule returns `None`.
+/// * `x` — mole fractions.
+/// * `c` — per-component third parameter `cᵢ` (for `SchmidtWenzelC`, pass ωᵢ —
+///   the legacy uses the acentric factor as the SW third parameter).
+/// * `weight` — per-component weight: `√Bᵢ` for `PatelTejaUSBC`, `√Aᵢ` for
+///   `SchmidtWenzelC`; ignored for `PatelTejaC` (pass `&[]`).
+///
+/// # Returns
+/// `Some(c_mix)` for the three C-parameter rules, `None` otherwise. Units of
+/// `c_mix` match the units the caller passes in `c`.
+pub fn c_mix(rule: MixingRule, x: &[f64], c: &[f64], weight: &[f64]) -> Option<f64> {
+    match rule {
+        // c_mix = Σ xᵢ·cᵢ.
+        MixingRule::PatelTejaC => Some(x.iter().zip(c).map(|(xi, ci)| xi * ci).sum()),
+        // c_mix = Σ(xᵢ·wᵢ·cᵢ) / Σ(xᵢ·wᵢ), wᵢ = √Bᵢ (USB) or √Aᵢ (SW).
+        MixingRule::PatelTejaUSBC | MixingRule::SchmidtWenzelC => {
+            let mut num = 0.0;
+            let mut den = 0.0;
+            for ((xi, ci), wi) in x.iter().zip(c).zip(weight) {
+                num += xi * wi * ci;
+                den += xi * wi;
+            }
+            if den.abs() < f64::EPSILON {
+                None
+            } else {
+                Some(num / den)
+            }
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     // `super` refers to the parent module (the code above this `mod tests`
@@ -84,5 +123,28 @@ mod tests {
     fn vb6_mixing_rules_start_at_26() {
         assert_eq!(MixingRule::WongSandler as i32, 26);
         assert_eq!(MixingRule::Classical as i32, 33);
+    }
+
+    #[test]
+    fn c_mix_patel_teja_is_mole_fraction_average() {
+        let x = [0.4, 0.6];
+        let c = [0.1, 0.2];
+        let cm = c_mix(MixingRule::PatelTejaC, &x, &c, &[]).unwrap();
+        assert!((cm - (0.4 * 0.1 + 0.6 * 0.2)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn c_mix_usb_is_weighted_average() {
+        let x = [0.5, 0.5];
+        let c = [0.1, 0.3];
+        let w = [1.0, 3.0]; // √B weights
+        let cm = c_mix(MixingRule::PatelTejaUSBC, &x, &c, &w).unwrap();
+        let expected = (0.5 * 1.0 * 0.1 + 0.5 * 3.0 * 0.3) / (0.5 * 1.0 + 0.5 * 3.0);
+        assert!((cm - expected).abs() < 1e-12);
+    }
+
+    #[test]
+    fn c_mix_returns_none_for_ab_rules() {
+        assert!(c_mix(MixingRule::Classical, &[1.0], &[0.1], &[]).is_none());
     }
 }
