@@ -16,10 +16,8 @@ This runner exists solely to **build wheels and run Rust tests** for vle CI
 (`_build.yml` / `ci.yml`, jobs tagged `self-hosted, linux, x64`). It no longer
 participates in any deploy step — the JupyterHub deployment moved to the
 `homelab-iac` repo, which uses its own runner. So this LXC needs only outbound
-HTTPS; **Tailscale, `--network host`, and the old `tag:vle-deploy` ACL grant
-are no longer required.** The Tailscale-related steps later in this doc are kept
-only for operators who repurpose this LXC for tailnet work — skip them for a
-pure build runner.
+HTTPS; it has **no Tailscale, no `--network host`, and no deploy access** to any
+lab host.
 
 ## Why ephemeral?
 
@@ -42,9 +40,6 @@ The host LXC still needs occasional updates (Docker, kernel), but the
   disk per concurrent runner (more if you want to run 2–3 in parallel).
 - A network segment that allows outbound HTTPS to `github.com`,
   `pypi.org`, and `crates.io`. Inbound is not needed.
-- *(Optional — only if you repurpose this LXC for tailnet work; not needed
-  for vle builds)* a **Tailscale auth-key** tagged `tag:vle-runner` and any
-  ACL/DNS grants its workloads require.
 - A **GitHub Personal Access Token (classic)** with the `repo` scope.
   (Long-term, prefer a GitHub App token for finer-grained permissions;
   short-term, a PAT is simpler.) The PAT is used by the runner image
@@ -66,17 +61,16 @@ In the Proxmox web UI:
 6. **Memory**: 8192 MB.
 7. **Network**: pick the lab VLAN (the one with internet egress but
    restricted access to your other lab services).
-8. **DNS**: leave blank — tailscaled will manage `/etc/resolv.conf`
-   once joined. (See gotcha #2 below for the bootstrap workaround.)
+8. **DNS**: set a working resolver (your lab DNS, or `1.1.1.1`). The
+   container needs outbound name resolution for `apt`, `curl`, and the
+   GitHub/PyPI/crates endpoints.
 9. **Confirm**, but **do not start yet**.
 
 Edit `/etc/pve/lxc/<vmid>.conf` on the Proxmox host and append all
-**five** lines below:
+**three** lines below:
 
 ```
 features: nesting=1,keyctl=1
-lxc.cgroup2.devices.allow: c 10:200 rwm
-lxc.mount.entry: /dev/net/tun dev/net/tun none bind,create=file
 lxc.apparmor.profile: unconfined
 lxc.mount.entry: /dev/null sys/module/apparmor/parameters/enabled none bind,create=file 0 0
 ```
@@ -85,14 +79,10 @@ What each line is for, in order:
 
 1. `features: nesting=1,keyctl=1` — lets dockerd set up cgroups and
    apt's gnupg work inside the LXC.
-2. `lxc.cgroup2.devices.allow: c 10:200 rwm` + the `/dev/net/tun`
-   mount entry — exposes the TUN device so tailscaled can create its
-   virtual network interface. **Privileged LXC does not auto-expose
-   this**; without it, tailscaled refuses to start.
-3. `lxc.apparmor.profile: unconfined` — strips the host's
+2. `lxc.apparmor.profile: unconfined` — strips the host's
    `lxc-container-default-cgns` AppArmor profile from the LXC so the
    container's userspace isn't fighting the host's AppArmor namespace.
-4. `lxc.mount.entry: /dev/null sys/module/apparmor/parameters/enabled
+3. `lxc.mount.entry: /dev/null sys/module/apparmor/parameters/enabled
    ... 0 0` — bind-mounts `/dev/null` over the AppArmor-enabled flag
    that Docker reads. Without this, modern `runc` (1.2.7+/1.3.2+)
    tries to load the `docker-default` AppArmor profile, fails because
@@ -105,44 +95,14 @@ What each line is for, in order:
 
 Start the container after the edit.
 
-### Bootstrap quirks on Ubuntu 24.04
+### Bootstrap quirk on Ubuntu 24.04
 
-Two minor surprises before you can run anything inside the CT:
+One surprise before you can run anything inside the CT:
 
-1. **The Ubuntu 24.04 LXC template ships without `curl`.** The
-   Tailscale and Docker installers both rely on curl. Run
-   `apt install -y curl` first.
-2. **`/etc/resolv.conf` is empty on first boot** (because we left DNS
-   blank in the wizard). `apt update` and curl will both hang on
-   DNS. Write a temporary resolver before installing anything:
-   ```sh
-   echo 'nameserver 1.1.1.1' > /etc/resolv.conf
-   apt update
-   apt install -y curl
-   ```
-   tailscaled overwrites `/etc/resolv.conf` to point at MagicDNS once
-   you run `tailscale up`, so the temp value only needs to survive the
-   bootstrap.
-
-## Install Tailscale and join the tailnet
-
-```sh
-curl -fsSL https://tailscale.com/install.sh | sh
-tailscale up --auth-key=tskey-auth-xxxxxxxx
-```
-
-Use the auth-key minted in **Prerequisites** with `tag:vle-runner`.
-Verify the tag landed and the node is signed:
-
-```sh
-tailscale status --json | jq '.Self.Tags, .Self.KeyExpiry'
-# Expect: ["tag:vle-runner"]  and  null   (null = no key expiry, tagged)
-```
-
-If your tailnet has **tailnet lock** enabled, a tagged auth-key
-generally signs the new node directly (`SigKind: direct` in
-`tailscale lock status`) without manual signing from a signing node.
-If it doesn't, sign from one of your tailnet-lock signers.
+- **The Ubuntu 24.04 LXC template ships without `curl`.** The Docker
+  installer relies on curl. With DNS set at creation (step 8 of
+  *Create the LXC*), `apt` resolves fine, so just run
+  `apt install -y curl` first.
 
 ## Install Docker inside the LXC
 
@@ -173,7 +133,6 @@ launch the image. Replace `<PAT>` with the token from
 ```sh
 docker run -d --restart=unless-stopped \
     --name vle-runner-01 \
-    --network host \
     -e RUNNER_NAME=vle-runner-01 \
     -e REPO_URL=https://github.com/miguelju/vle \
     -e ACCESS_TOKEN=<PAT> \
@@ -189,10 +148,9 @@ register the runner, wait for one job, run it, then deregister and
 exit. Combined with `--restart=unless-stopped`, docker immediately
 spawns a fresh container that registers again, ready for the next job.
 
-`--network host` makes the container share the LXC's network stack
-(including the `tailscale0` interface), so jobs can reach
-tailnet-only hosts like `oracle-vps.owl-rankine.ts.net`. Drop this
-flag if your workflows never touch the tailnet.
+This build-only runner uses Docker's default bridge network — it needs
+only outbound HTTPS to GitHub/PyPI/crates and makes no inbound or deploy
+connections to lab hosts.
 
 `/var/run/docker.sock` is mounted so cibuildwheel can spawn the
 manylinux container during the wheel build. This is the main attack
@@ -206,7 +164,6 @@ Run more containers with different `RUNNER_NAME`s:
 for n in 02 03; do
   docker run -d --restart=unless-stopped \
       --name vle-runner-$n \
-      --network host \
       -e RUNNER_NAME=vle-runner-$n \
       -e REPO_URL=https://github.com/miguelju/vle \
       -e ACCESS_TOKEN=<PAT> \
@@ -231,14 +188,12 @@ disk pressure.
    ```sh
    gh api repos/<owner>/<repo>/actions/runners --jq '.runners[] | {name, status, labels: [.labels[].name]}'
    ```
-2. **(Build-only — no tailnet test needed.)** This runner doesn't deploy,
-   so there's nothing to smoke-test over the tailnet. Skip to the next step.
-3. **Trigger a test workflow**: from a branch, push a small commit
+2. **Trigger a test workflow**: from a branch, push a small commit
    touching any file. The `lint-rust` job runs on a hosted runner;
    `test-rust` and `build` (Linux x86_64) should land on your
    self-hosted container. Watch the Actions UI — the runner name
    appears in the job's "Set up job" step.
-4. **After the job finishes**, the runner disappears from the Runners
+3. **After the job finishes**, the runner disappears from the Runners
    tab for a few seconds while the ephemeral container is recreated,
    then reappears as "Idle". This is normal.
 
@@ -281,8 +236,6 @@ disk pressure.
   itself once a month. After a kernel update on the Proxmox host,
   re-check that all five `/etc/pve/lxc/<vmid>.conf` lines are still
   in place — a `pct restore` from backup can drop them.
-- **Tailscale**: `tailscale update` once a quarter (or rely on the
-  apt-installed package's normal channel updates).
 - **No log rotation needed** — ephemeral containers don't accumulate
   logs locally; GitHub holds the run logs.
 
@@ -293,15 +246,10 @@ disk pressure.
   taking effect. Re-check that both lines are present and stop/start
   the CT from the Proxmox host (`pct stop <vmid> && pct start <vmid>`).
   A reboot from inside the CT is not enough.
-- **`tailscaled: tun module not found`** or `failed to start
-  tailscaled`: the `/dev/net/tun` passthrough config lines are
-  missing or didn't take effect. Verify with
-  `ls -la /dev/net/tun` inside the CT — should be a character device
-  with major 10, minor 200.
 - **`apt update` hangs on DNS at first boot**: `/etc/resolv.conf` is
-  empty because no DNS was configured at LXC creation and tailscaled
-  hasn't been installed yet. Write `nameserver 1.1.1.1` to
-  `/etc/resolv.conf` temporarily; tailscaled overwrites it later.
+  empty because no DNS was configured at LXC creation. Set a resolver
+  in the CT's network config (step 8 of *Create the LXC*), or write
+  `nameserver 1.1.1.1` to `/etc/resolv.conf`.
 - **`curl: command not found`** right after LXC creation: the Ubuntu
   24.04 template doesn't include curl. `apt install -y curl` first.
 - **Runner shows offline in GitHub**: `docker ps -a | grep github-runner`
