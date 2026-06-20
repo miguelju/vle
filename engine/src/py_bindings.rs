@@ -44,11 +44,16 @@ use std::cell::RefCell;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
+use crate::activity::{
+    ActivityModel, excess_enthalpy as excess_enthalpy_rs, excess_entropy as excess_entropy_rs,
+    excess_gibbs as excess_gibbs_rs, ln_gamma as ln_gamma_rs,
+};
 use crate::eos::{
     ChaoSeaderSpecies, CubicEos, EosError, PhaseId, alpha as eos_alpha_rs,
     chao_seader_ln_phi as chao_seader_ln_phi_rs, d_alpha_d_tr as eos_d_alpha_rs, family_constants,
     h_departure_rt, ln_phi_pure, s_departure_r, z_factor,
 };
+use crate::liquid_volume::{VolumeModel, liquid_molar_volume as liquid_molar_volume_rs};
 use crate::saturation::{
     SatError, SatPressureModel, boiling_temperature as boiling_temperature_rs,
     d_psat_dt as d_psat_dt_rs, d_psat_dt_antoine, poynting_factor as poynting_factor_rs, psat as psat_rs,
@@ -823,6 +828,98 @@ fn virial_ln_phi_mix(
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// M8.1 — liquid molar volume + activity-coefficient models.
+// ──────────────────────────────────────────────────────────────────────
+
+/// Saturated-liquid molar volume Vᴸ for one component.
+///
+/// `model` is [`VolumeModel::Rackett`] (uses `zra`) or
+/// [`VolumeModel::Thomson`] (uses `vstar` = V* in cm³/mol and `omega_srk`).
+/// `tc` in K, `pc` in kPa, `t` in K. Returns cm³/mol.
+#[pyfunction]
+#[pyo3(signature = (model, tc, pc, t, zra=0.0, vstar=0.0, omega_srk=0.0))]
+fn liquid_molar_volume(
+    model: VolumeModel,
+    tc: f64,
+    pc: f64,
+    t: f64,
+    zra: f64,
+    vstar: f64,
+    omega_srk: f64,
+) -> f64 {
+    let comp = Component {
+        tc,
+        pc,
+        zra,
+        liquid_volume: vstar,
+        omega_srk,
+        ..Component::default()
+    };
+    liquid_molar_volume_rs(model, &comp, t)
+}
+
+/// ln(γᵢ) for component `i`. See the Rust [`crate::activity::ln_gamma`] for the
+/// per-model `aij` convention; `vl` (cm³/mol) and `delta` ((cal/cm³)^0.5) may be
+/// empty lists for models that don't use them. `t` in K.
+#[pyfunction]
+#[pyo3(signature = (model, i, x, aij, vl=vec![], delta=vec![], t=298.15))]
+fn activity_ln_gamma(
+    model: ActivityModel,
+    i: usize,
+    x: Vec<f64>,
+    aij: Vec<Vec<f64>>,
+    vl: Vec<f64>,
+    delta: Vec<f64>,
+    t: f64,
+) -> f64 {
+    ln_gamma_rs(model, i, &x, &aij, &vl, &delta, t)
+}
+
+/// Excess Gibbs energy Gᴱ = RT Σ xᵢ ln γᵢ, in kJ/kmol. Args as in
+/// [`activity_ln_gamma`] (minus the component index).
+#[pyfunction]
+#[pyo3(signature = (model, x, aij, vl=vec![], delta=vec![], t=298.15))]
+fn activity_excess_gibbs(
+    model: ActivityModel,
+    x: Vec<f64>,
+    aij: Vec<Vec<f64>>,
+    vl: Vec<f64>,
+    delta: Vec<f64>,
+    t: f64,
+) -> f64 {
+    excess_gibbs_rs(model, &x, &aij, &vl, &delta, t)
+}
+
+/// Excess enthalpy Hᴱ (analytical), in kJ/kmol. Args as in [`activity_excess_gibbs`].
+#[pyfunction]
+#[pyo3(signature = (model, x, aij, vl=vec![], delta=vec![], t=298.15))]
+fn activity_excess_enthalpy(
+    model: ActivityModel,
+    x: Vec<f64>,
+    aij: Vec<Vec<f64>>,
+    vl: Vec<f64>,
+    delta: Vec<f64>,
+    t: f64,
+) -> f64 {
+    excess_enthalpy_rs(model, &x, &aij, &vl, &delta, t)
+}
+
+/// Excess entropy Sᴱ = (Hᴱ − Gᴱ)/T, in kJ/(kmol·K). Args as in
+/// [`activity_excess_gibbs`].
+#[pyfunction]
+#[pyo3(signature = (model, x, aij, vl=vec![], delta=vec![], t=298.15))]
+fn activity_excess_entropy(
+    model: ActivityModel,
+    x: Vec<f64>,
+    aij: Vec<Vec<f64>>,
+    vl: Vec<f64>,
+    delta: Vec<f64>,
+    t: f64,
+) -> f64 {
+    excess_entropy_rs(model, &x, &aij, &vl, &delta, t)
+}
+
 /// PyO3 module entry point.
 ///
 /// Maturin builds this into `vle/_engine.<platform>.<ext>` and Python
@@ -892,6 +989,14 @@ fn _engine(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(virial_s_dep_r, m)?)?;
     m.add_function(wrap_pyfunction!(virial_b_mix_py, m)?)?;
     m.add_function(wrap_pyfunction!(virial_ln_phi_mix, m)?)?;
+
+    // M8.1 liquid molar volume + activity-coefficient models.
+    m.add_class::<crate::liquid_volume::VolumeModel>()?;
+    m.add_function(wrap_pyfunction!(liquid_molar_volume, m)?)?;
+    m.add_function(wrap_pyfunction!(activity_ln_gamma, m)?)?;
+    m.add_function(wrap_pyfunction!(activity_excess_gibbs, m)?)?;
+    m.add_function(wrap_pyfunction!(activity_excess_enthalpy, m)?)?;
+    m.add_function(wrap_pyfunction!(activity_excess_entropy, m)?)?;
 
     Ok(())
 }

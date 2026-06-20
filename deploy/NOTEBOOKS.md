@@ -68,7 +68,7 @@ of the research paper's Chapter IV validation cases.
 | `02b_alpha_zoo.ipynb`                               | 7.2       | 12 more 2-param α variants + analytical dα/dTr, PRSV K₁ demo |
 | `02c_three_param_eos.ipynb`                         | 7.3       | Schmidt-Wenzel, Patel-Teja (+USB), Chao-Seader liquid fugacity |
 | `02d_advanced_saturation.ipynb`                     | 7.4       | Riedel/Müller/RPM + Maxwell, boiling point/Poynting, OL-family α |
-| `03_activity_models.ipynb`                          | 8         | Activity coefficient models, excess Gibbs plots |
+| `03_activity_models.ipynb`                          | 8.1       | 5 activity models + Rackett/Thomson volume, γ-vs-x & excess Gibbs/enthalpy plots |
 | `04_bubble_dew_point.ipynb`                         | 9         | Reproduce Tables 4.6–4.9                        |
 | `05_flash_calculations.ipynb`                       | 9         | Reproduce Tables 4.3–4.4, 4.10                  |
 | `06_critical_points.ipynb`                          | 9         | Reproduce Tables 4.1–4.2                        |

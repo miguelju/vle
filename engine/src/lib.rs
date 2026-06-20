@@ -82,6 +82,7 @@
 //    the module would only be usable within this crate.
 pub mod activity;
 pub mod eos;
+pub mod liquid_volume;
 pub mod mixing;
 pub mod numerics;
 pub mod saturation;

@@ -188,14 +188,29 @@ Split into four sub-milestones; M7.1 ships in v0.3.0, the rest follow.
 
 ## Milestone 8: Mixture Models
 
-- [ ] **Implement 5 activity models** (~4–6h) — Ideal, Margules, van Laar, Wilson, Scatchard-Hildebrand, each with analytical excess enthalpy
-- [ ] **Implement liquid volume models** (~1–2h) — Rackett, Thomson/COSTALD (18)
+Like Milestone 7, this milestone is split into sub-milestones (8.1–8.3), each
+independently shippable with its own tests, notebook contribution, and version
+bump. The single planned notebook (`03_activity_models.ipynb`) ships with 8.1.
+
+### Milestone 8.1 — Activity Models + Liquid Volume (in progress)
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
+
+- [x] **Implement 5 activity models** (~4–6h) — Ideal, Margules, van Laar, Wilson, Scatchard-Hildebrand in `engine/src/activity.rs`, formulas from research-paper Table 2.3; each with analytical excess enthalpy (Wilson closed-form; the legacy `Hᴱ = Gᴱ` convention for Margules/van Laar/Scatchard) (4)
+- [x] **Implement liquid volume models** (~1–2h) — Rackett (Spencer-Danner) + Thomson/COSTALD (18) in `engine/src/liquid_volume.rs`
+- [x] **PyO3 bindings** — `liquid_molar_volume`, `activity_ln_gamma`, `activity_excess_{gibbs,enthalpy,entropy}`, and the `VolumeModel` enum (M5+ binding rule)
+- [x] **Rust + Python tests** — closed-form checks vs Table 2.3, a numerical-derivative oracle for the analytical Wilson Hᴱ, Gibbs-Duhem consistency
+- [ ] **Create milestone notebook** (~2–3h) — `notebooks/03_activity_models.ipynb` per CLAUDE.md *Notebook Conventions*: Chapter II §2.2 snippets, gamma vs. composition plots, excess Gibbs energy, ≥2 user exercises
+- [ ] **Update the notebook catalogue** (~0.3h) — add to `deploy/NOTEBOOKS.md` + version bump
+
+### Milestone 8.2 — Mixing Rules + Multicomponent Fugacity (not started)
+
 - [ ] **Implement 8+ mixing rules** (~6–8h) — IVDW, IIVDW, WS (21), HOV, HVS, MHV1, MHV2, Clasica_I, plus Schmidt-Wenzel/Patel-Teja C-parameter mixing (4)
 - [ ] **Implement multicomponent fugacity** (~4–6h) — partial fugacity coefficients for all mixing rules (9), 3-param EOS (4), Chao-Seader multicomp (4)
+
+### Milestone 8.3 — Mixture Energy Properties + Validation (not started)
+
 - [ ] **Implement enthalpy/entropy** (~3–4h) — ideal Cp integration, departure functions (9), condensation enthalpy (4), reference state handling
 - [ ] **Write mixture model tests** (~3–4h) — compare against VB6/Pascal outputs — validation tests pass
-- [ ] **Create milestone notebook** (~2–3h) — `notebooks/03_activity_models.ipynb` per CLAUDE.md *Notebook Conventions*: Chapter II §2.4–2.5 snippets, gamma vs. composition plots, excess Gibbs energy, mixing-rule comparison, ≥2 user exercises
-- [ ] **Update the notebook catalogue** (~0.3h) — add to `deploy/NOTEBOOKS.md`; touch `deploy/README.md` only if a distribution channel changed
 - [ ] **Refresh the hosted hub** (~0.3h) — operator-side: run `deploy-vle` in `homelab-iac`, verify the new notebook
 
 ## Milestone 9: Flash & Regression
@@ -253,7 +268,7 @@ Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone i
 | 5. CI/CD + Auto-Deploy | ~16–22h | **Done** |
 | 6. Numerics | ~16–20h | **Done** |
 | 7. Pure Component Models | ~28–37h | **Done** (7.1–7.4 shipped; v0.3.0–v0.6.0) |
-| 8. Mixture Models | ~25–35h | Not started |
+| 8. Mixture Models | ~25–35h | In progress (8.1 engine + bindings + tests done; notebook/version pending) |
 | 9. Flash & Regression | ~38–52h | Not started |
 | 10. Python Bindings & Wrapper | ~19–27h | Not started |
 | 11. Ch. IV Walkthrough & Final Deploy | ~7–11h | Not started |
