@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+#
+# vle pre-push hook — local CI lint gate.
+#
+# Mirrors the first step of the CI `lint (fmt + clippy)` job so a formatting
+# slip is caught here instead of going red in GitHub Actions (where a fmt
+# failure also skips clippy entirely). Runs `cargo fmt --check` over the whole
+# workspace and blocks the push on any diff.
+#
+# Note: clippy is NOT run here. The local rustc trips a pyo3 `E0133` across
+# every #[pyfunction] under `clippy -D warnings` (a toolchain/pyo3 mismatch, not
+# our code); clippy still runs against CI's pinned toolchain. fmt is the lint
+# gate we can — and therefore do — enforce locally.
+#
+# Activate with:  git config core.hooksPath hooks
+# Bypass (discouraged) with:  git push --no-verify
+
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+# No Rust toolchain on this machine → skip rather than block (e.g. a docs-only
+# clone). CI is still authoritative.
+if ! command -v cargo >/dev/null 2>&1; then
+    echo "pre-push: cargo not found — skipping fmt check (CI will still enforce it)." >&2
+    exit 0
+fi
+
+echo "pre-push: cargo fmt --check ..." >&2
+if ! cargo fmt --check >/dev/null 2>&1; then
+    echo >&2
+    echo "ABORT: 'cargo fmt --check' found unformatted code." >&2
+    echo "       Run 'cargo fmt' to fix it, commit, then push again." >&2
+    echo "       (The CI lint job runs the same check and would fail.)" >&2
+    echo >&2
+    echo "Offending diff:" >&2
+    cargo fmt --check >&2 || true
+    exit 1
+fi
+
+echo "pre-push: fmt clean." >&2
+exit 0

@@ -30,6 +30,15 @@ git diff --cached origin/main -- ':!deploy/local' ':!deploy/.env' \
 
 If the grep hits anything, stop and move the offending content under `deploy/local/` or replace it with an `${ENV_VAR}` / `example.com` placeholder before pushing.
 
+**Pre-push formatting gate (`hooks/pre-push`)**: the repo ships a versioned git
+pre-push hook that runs `cargo fmt --check` and **blocks the push on any diff** —
+mirroring the first step of the CI `lint (fmt + clippy)` job, where a fmt failure
+also skips clippy. Activate it once per clone with `git config core.hooksPath hooks`
+(it's a local setting, not committed). clippy is intentionally *not* in the hook:
+the local rustc trips a pyo3 `E0133` across every `#[pyfunction]` (a toolchain/pyo3
+mismatch, not our code), so clippy is enforced only in CI. **Always run
+`cargo fmt --check` before pushing** even if the hook is active — never `--no-verify`.
+
 Note: addresses on `migueljackson.dev` (e.g. `admin@migueljackson.dev`, `git@migueljackson.dev`) are Miguel's intentional public / professional identity and are safe to include in committed files — `Cargo.toml` / `pyproject.toml` `authors`, git commit author fields, READMEs, etc. They are **not** covered by this gate. The JupyterHub deployment now lives in the private `homelab-iac` repo, so no deployment hostnames, IPs, or Cloudflare Access team names should appear in this repo's committed files at all — use `example.com` / `${VAR}` placeholders (see the rule list below).
 
 ## Phase / Milestone Synchronization Rules
