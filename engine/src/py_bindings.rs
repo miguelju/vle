@@ -56,8 +56,9 @@ use crate::eos::{
 use crate::liquid_volume::{VolumeModel, liquid_molar_volume as liquid_molar_volume_rs};
 use crate::saturation::{
     SatError, SatPressureModel, boiling_temperature as boiling_temperature_rs,
-    d_psat_dt as d_psat_dt_rs, d_psat_dt_antoine, poynting_factor as poynting_factor_rs, psat as psat_rs,
-    psat_antoine, psat_maxwell as psat_maxwell_rs, reduced_psat as reduced_psat_rs,
+    d_psat_dt as d_psat_dt_rs, d_psat_dt_antoine, poynting_factor as poynting_factor_rs,
+    psat as psat_rs, psat_antoine, psat_maxwell as psat_maxwell_rs,
+    reduced_psat as reduced_psat_rs,
 };
 use crate::types::Component;
 use crate::virial::{

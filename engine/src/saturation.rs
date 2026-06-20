@@ -295,7 +295,11 @@ pub fn boiling_temperature(
                 got: comp.psat_coeffs.len(),
             });
         }
-        let (a1, a2, a3) = (comp.psat_coeffs[0], comp.psat_coeffs[1], comp.psat_coeffs[2]);
+        let (a1, a2, a3) = (
+            comp.psat_coeffs[0],
+            comp.psat_coeffs[1],
+            comp.psat_coeffs[2],
+        );
         let denom = a1 - (p / comp.pc).ln();
         if denom.abs() < 1e-300 {
             return Err(SatError::OutOfRange(p));
@@ -404,7 +408,10 @@ mod tests {
         let c = pentane();
         for model in CORRELATIONS {
             let ps = psat(model, &c, c.tb).unwrap();
-            assert!((ps - ATM_KPA).abs() / ATM_KPA < 0.05, "{model:?} ps@Tb={ps}");
+            assert!(
+                (ps - ATM_KPA).abs() / ATM_KPA < 0.05,
+                "{model:?} ps@Tb={ps}"
+            );
         }
     }
 
@@ -420,8 +427,12 @@ mod tests {
         ] {
             let analytical = d_psat_dt(model, &c, t).unwrap();
             let h = 1e-2;
-            let num = (psat(model, &c, t + h).unwrap() - psat(model, &c, t - h).unwrap()) / (2.0 * h);
-            assert!(((analytical - num) / analytical).abs() < 1e-3, "{model:?} a={analytical} n={num}");
+            let num =
+                (psat(model, &c, t + h).unwrap() - psat(model, &c, t - h).unwrap()) / (2.0 * h);
+            assert!(
+                ((analytical - num) / analytical).abs() < 1e-3,
+                "{model:?} a={analytical} n={num}"
+            );
         }
     }
 

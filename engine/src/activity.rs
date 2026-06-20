@@ -148,11 +148,14 @@ pub fn ln_gamma(
 
         ActivityModel::Wilson => {
             // ln γᵢ = 1 − ln(Σⱼ xⱼΛᵢⱼ) − Σₖ [xₖΛₖᵢ / Σⱼ(xⱼΛₖⱼ)].
-            let denom_i: f64 = (0..n).map(|j| x[j] * wilson_lambda(i, j, aij, vl, temperature)).sum();
+            let denom_i: f64 = (0..n)
+                .map(|j| x[j] * wilson_lambda(i, j, aij, vl, temperature))
+                .sum();
             let nested: f64 = (0..n)
                 .map(|k| {
-                    let dk: f64 =
-                        (0..n).map(|j| x[j] * wilson_lambda(k, j, aij, vl, temperature)).sum();
+                    let dk: f64 = (0..n)
+                        .map(|j| x[j] * wilson_lambda(k, j, aij, vl, temperature))
+                        .sum();
                     x[k] * wilson_lambda(k, i, aij, vl, temperature) / dk
                 })
                 .sum();
@@ -297,10 +300,19 @@ mod tests {
         let x = [0.4, 0.6];
         let aij = zeros(2);
         for i in 0..2 {
-            assert_eq!(ln_gamma(ActivityModel::IdealSolution, i, &x, &aij, &[], &[], 300.0), 0.0);
+            assert_eq!(
+                ln_gamma(ActivityModel::IdealSolution, i, &x, &aij, &[], &[], 300.0),
+                0.0
+            );
         }
-        assert_eq!(excess_gibbs(ActivityModel::IdealSolution, &x, &aij, &[], &[], 300.0), 0.0);
-        assert_eq!(excess_enthalpy(ActivityModel::IdealSolution, &x, &aij, &[], &[], 300.0), 0.0);
+        assert_eq!(
+            excess_gibbs(ActivityModel::IdealSolution, &x, &aij, &[], &[], 300.0),
+            0.0
+        );
+        assert_eq!(
+            excess_enthalpy(ActivityModel::IdealSolution, &x, &aij, &[], &[], 300.0),
+            0.0
+        );
     }
 
     #[test]
@@ -353,7 +365,15 @@ mod tests {
         let vl = [75.0, 110.0];
         let delta = [9.0, 9.0];
         for i in 0..2 {
-            let g = ln_gamma(ActivityModel::ScatchardHildebrand, i, &x, &zeros(2), &vl, &delta, 300.0);
+            let g = ln_gamma(
+                ActivityModel::ScatchardHildebrand,
+                i,
+                &x,
+                &zeros(2),
+                &vl,
+                &delta,
+                300.0,
+            );
             assert!(g.abs() < 1e-12, "got {g}");
         }
     }

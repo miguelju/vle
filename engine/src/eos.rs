@@ -371,22 +371,46 @@ fn ol_coeffs(eos: CubicEos) -> ([f64; 10], f64) {
     match eos {
         VdWOL1998 => (
             [
-                0.33333333, 0.35112597, 0.011287433, -0.0038485685, 0.00064261934,
-                -0.000067252383, 0.0000045962725, -0.00000019990875, 5.0318465e-09, -5.5827084e-11,
+                0.33333333,
+                0.35112597,
+                0.011287433,
+                -0.0038485685,
+                0.00064261934,
+                -0.000067252383,
+                0.0000045962725,
+                -0.00000019990875,
+                5.0318465e-09,
+                -5.5827084e-11,
             ],
             -1.02,
         ),
         RKOL1998 => (
             [
-                0.32748, 0.34376954, 0.010596403, -0.0037538497, 0.00063257197, -0.000066481,
-                0.0000045517956, -0.00000019796921, 4.9748592e-09, -5.5024228e-11,
+                0.32748,
+                0.34376954,
+                0.010596403,
+                -0.0037538497,
+                0.00063257197,
+                -0.000066481,
+                0.0000045517956,
+                -0.00000019796921,
+                4.9748592e-09,
+                -5.5024228e-11,
             ],
             -1.014,
         ),
         PROL1998 => (
             [
-                0.29803582, 0.015003698, -0.0047527103, 0.0008036716, -0.000089548695,
-                0.0000068691611, -0.00000036067317, 0.000000012409205, -2.5222671e-10, 2.2955503e-12,
+                0.29803582,
+                0.015003698,
+                -0.0047527103,
+                0.0008036716,
+                -0.000089548695,
+                0.0000068691611,
+                -0.00000036067317,
+                0.000000012409205,
+                -2.5222671e-10,
+                2.2955503e-12,
             ],
             -0.00041,
         ),
@@ -576,7 +600,9 @@ pub fn alpha(eos: CubicEos, tr: f64, comp: &Component) -> f64 {
             // OL-family: α = Tr·(1 + SumHk); SumHk reads the reduced saturation
             // pressure via comp.sat_model. NaN if that model can't evaluate
             // (e.g. missing coeffs) — downstream z_factor then errors cleanly.
-            ol_sumhk(eos, tr, comp).map(|s| tr * (1.0 + s)).unwrap_or(f64::NAN)
+            ol_sumhk(eos, tr, comp)
+                .map(|s| tr * (1.0 + s))
+                .unwrap_or(f64::NAN)
         }
         // ----- M7.3: 3-parameter Pascal EOS (Ref (4), TERMOII.PAS) -----
         // α is the pure temperature function (α(Tr=1)=1); the EOS-specific
@@ -945,7 +971,12 @@ fn three_param_aubw(eos: CubicEos, t: f64, p: f64, comp: &Component) -> (f64, f6
             let big_a = sw_om_a(w) * a_val * pr / (tr * tr);
             let big_b = sw_om_b(w) * pr / tr;
             // Denominator V² + (1+3ω)bV − 3ω b² → U = (1+3ω)B, W = −3ω B².
-            (big_a, big_b, (1.0 + 3.0 * w) * big_b, -3.0 * w * big_b * big_b)
+            (
+                big_a,
+                big_b,
+                (1.0 + 3.0 * w) * big_b,
+                -3.0 * w * big_b * big_b,
+            )
         }
         _ => unreachable!("three_param_aubw called for 2-parameter EOS {eos:?}"),
     }
@@ -1046,12 +1077,7 @@ pub enum ChaoSeaderSpecies {
 ///
 /// # Returns
 /// ln of the Chao-Seader liquid fugacity coefficient, **dimensionless**.
-pub fn chao_seader_ln_phi(
-    t: f64,
-    p: f64,
-    comp: &Component,
-    species: ChaoSeaderSpecies,
-) -> f64 {
+pub fn chao_seader_ln_phi(t: f64, p: f64, comp: &Component, species: ChaoSeaderSpecies) -> f64 {
     let tr = t / comp.tc;
     let pr = p / comp.pc;
     // ν⁰ coefficients A0..A9 (regular-solution + reduced-pressure polynomial).
@@ -1059,18 +1085,22 @@ pub fn chao_seader_ln_phi(
         ChaoSeaderSpecies::Normal => [
             2.05135, -2.10899, 0.0, -0.19396, 0.02282, 0.08852, 0.0, -0.00872, -0.00353, 0.00203,
         ],
-        ChaoSeaderSpecies::Hydrogen => {
-            [1.50709, 2.74283, -0.02110, 0.00011, 0.0, 0.008585, 0.0, 0.0, 0.0, 0.0]
-        }
-        ChaoSeaderSpecies::Methane => {
-            [1.36822, -1.54831, 0.0, 0.02889, -0.01076, 0.10486, -0.02529, 0.0, 0.0, 0.0]
-        }
+        ChaoSeaderSpecies::Hydrogen => [
+            1.50709, 2.74283, -0.02110, 0.00011, 0.0, 0.008585, 0.0, 0.0, 0.0, 0.0,
+        ],
+        ChaoSeaderSpecies::Methane => [
+            1.36822, -1.54831, 0.0, 0.02889, -0.01076, 0.10486, -0.02529, 0.0, 0.0, 0.0,
+        ],
     };
     // ν¹ acentric-correction coefficients A10..A14 (shared by all species).
     let q = [-4.23893, 8.65808, -1.22060, -3.15224, -0.025];
     // ν⁰ = A0 + A1/Tr + A2·Tr + A3·Tr² + A4·Tr³
     //      + (A5 + A6·Tr + A7·Tr²)·Pr + (A8 + A9·Tr)·Pr² − log10(Pr).
-    let nu0 = a[0] + a[1] / tr + a[2] * tr + a[3] * tr * tr + a[4] * tr * tr * tr
+    let nu0 = a[0]
+        + a[1] / tr
+        + a[2] * tr
+        + a[3] * tr * tr
+        + a[4] * tr * tr * tr
         + (a[5] + a[6] * tr + a[7] * tr * tr) * pr
         + (a[8] + a[9] * tr) * pr * pr
         - pr.log10();
@@ -1323,7 +1353,10 @@ mod tests {
                 } else {
                     ((analytical - numerical) / analytical).abs()
                 };
-                assert!(rel < 1e-5, "{eos:?} Tr={tr} a={analytical} n={numerical} rel={rel}");
+                assert!(
+                    rel < 1e-5,
+                    "{eos:?} Tr={tr} a={analytical} n={numerical} rel={rel}"
+                );
             }
         }
     }
@@ -1347,7 +1380,10 @@ mod tests {
             let zv = z_factor(eos, 400.0, 50.0, &c, PhaseId::Vapor).unwrap();
             assert!(zv > 0.0 && zv < 1.1, "{eos:?} Zv={zv}");
             let zl = z_factor(eos, 300.0, 2000.0, &c, PhaseId::Liquid).unwrap();
-            assert!(zl.is_finite() && zl > 0.0 && zl < zv, "{eos:?} Zl={zl} Zv={zv}");
+            assert!(
+                zl.is_finite() && zl > 0.0 && zl < zv,
+                "{eos:?} Zl={zl} Zv={zv}"
+            );
             let lnphi = ln_phi_pure(eos, 400.0, 50.0, &c, PhaseId::Vapor).unwrap();
             assert!(lnphi.is_finite(), "{eos:?} lnphi={lnphi}");
         }
@@ -1400,8 +1436,7 @@ mod tests {
     // M7.4 — OL-family α (saturation-coupled). Ref (4)/Olivera (1998).
     // -----------------------------------------------------------------
 
-    const OL_FAMILY: [CubicEos; 3] =
-        [CubicEos::VdWOL1998, CubicEos::RKOL1998, CubicEos::PROL1998];
+    const OL_FAMILY: [CubicEos; 3] = [CubicEos::VdWOL1998, CubicEos::RKOL1998, CubicEos::PROL1998];
 
     /// n-pentane with the data the OL α + saturation models need: a reduced
     /// Antoine fit (ln(P/Pc)=a1−a2/(a3+T)), a normal boiling point, and a
@@ -1440,7 +1475,10 @@ mod tests {
                 let analytical = d_alpha_d_tr(eos, tr, &c);
                 let numerical = d_alpha_numerical(eos, tr, &c, 1e-6);
                 let rel = ((analytical - numerical) / analytical).abs();
-                assert!(rel < 1e-4, "{eos:?} Tr={tr} a={analytical} n={numerical} rel={rel}");
+                assert!(
+                    rel < 1e-4,
+                    "{eos:?} Tr={tr} a={analytical} n={numerical} rel={rel}"
+                );
             }
         }
     }
