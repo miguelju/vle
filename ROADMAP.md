@@ -197,14 +197,14 @@ validation cases actually use; the rest land in subsequent releases.
 Split into sub-milestones (8.1–8.3) mirroring Milestone 7, each independently
 shippable with its own tests and version bump.
 
-### Milestone 8.1 — Activity Models + Liquid Volume (in progress)
+### Milestone 8.1 — Activity Models + Liquid Volume (complete)
 *Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
 - [x] 5 activity coefficient models (Ideal, Margules, van Laar, Wilson, Scatchard-Hildebrand) with analytical excess enthalpy (§E)
 - [x] Rackett and Thomson/COSTALD (18) liquid molar volume
 - [x] PyO3 bindings + Rust/Python tests (closed-form vs Table 2.3, numerical-oracle for analytical Wilson Hᴱ)
-- [ ] Create milestone notebook (`notebooks/03_activity_models.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: Chapter II §2.2 (activity models) snippets, gamma-vs-composition plots, excess Gibbs energy, ≥2 user exercises
-- [ ] Update the notebook catalogue (`deploy/NOTEBOOKS.md`); touch `deploy/README.md` only if a distribution channel changed
+- [x] Create milestone notebook (`notebooks/03_activity_models.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: Chapter II §2.2 (activity models) snippets, gamma-vs-composition plots, excess Gibbs energy, ≥2 user exercises
+- [x] Update the notebook catalogue (`deploy/NOTEBOOKS.md`); touch `deploy/README.md` only if a distribution channel changed
 
 ### Milestone 8.2 — Mixing Rules + Multicomponent Fugacity (not started)
 
