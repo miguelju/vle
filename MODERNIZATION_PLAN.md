@@ -66,6 +66,22 @@ Similarly, when implementing an algorithm from a specific paper below, cite the 
 
 (22) Smith, J. M.; Van Ness, H. C.; Abbott, M. M. *Introduction to Chemical Engineering Thermodynamics*, 5th ed.; McGraw-Hill, 1996.
 
+*References (23)–(29) were added 2026-07-01 with the performance/algorithm modernization plan ([PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md)); they support the modern flash algorithms (§F, §I–§M below) that supersede the legacy iteration schemes.*
+
+(23) Leibovici, C. F.; Neoschil, J. A New Look at the Rachford-Rice Equation. *Fluid Phase Equilib.* **1992**, *74*, 303–308.
+
+(24) Michelsen, M. L. Calculation of Phase Envelopes and Critical Points for Multicomponent Mixtures. *Fluid Phase Equilib.* **1980**, *4*, 1–10.
+
+(25) Crowe, C. M.; Nishio, M. Convergence Promotion in the Simulation of Chemical Processes — the General Dominant Eigenvalue Method. *AIChE J.* **1975**, *21* (3), 528–533.
+
+(26) Michelsen, M. L.; Mollerup, J. M. *Thermodynamic Models: Fundamentals and Computational Aspects*, 2nd ed.; Tie-Line Publications: Holte, 2007.
+
+(27) Rehner, P.; Bauer, G. Application of Generalized (Hyper-) Dual Numbers in Equation of State Modeling. *Front. Chem. Eng.* **2021**, *3*, 758090.
+
+(28) Michelsen, M. L. State Function Based Flash Specifications. *Fluid Phase Equilib.* **1999**, *158–160*, 617–626.
+
+(29) Wilson, G. M. A Modified Redlich-Kwong Equation of State, Application to General Physical Data Calculations. Paper 15c, 65th National AIChE Meeting, Cleveland, OH, 1969.
+
 ---
 
 ## Reference-to-Code Mapping
@@ -78,10 +94,10 @@ Similarly, when implementing an algorithm from a specific paper below, cite the 
 | **(4) Da Silva & Báez (1989)** | **Pascal codebase origin**: parabolic interpolation for bubble/dew, adiabatic flash, kij golden section, K-value estimates, 3-param EOS (Schmidt-Wenzel, Patel-Teja), Chao-Seader, Antoine, Aij regression with analytical Jacobian, analytical dα/dT, analytical excess enthalpy | `flash/*`, `eos/three_param.rs`, `eos/chao_seader.rs`, `eos/alpha.rs`, `saturation/pressure.rs`, `flash/aij_regression.rs`, `activity/models.rs` |
 | (5) Abbott (1979) | General cubic EOS form: k1, k2, k3 parameterization (Table 2.1 of thesis) | `eos/cubic_params.rs` |
 | (6) Fotouh & Shukla (1996) | Numerical problems near critical point | Context only (not implemented) |
-| (7) Michelsen (1982) Part I | Gibbs energy minimization / stability analysis | Future work (not implemented) |
+| (7) Michelsen (1982) Part I | Tangent-plane-distance stability analysis — pre-test before every flash (§I) | `flash/stability.rs` |
 | (8) Eubank et al. (1992) | Area method for phase equilibria | Future work (not implemented) |
 | (9) Müller et al. (1989) | General multicomponent fugacity coefficients and residual properties from cubic EOS (Eqs 2.28–2.34 of thesis) | `eos/multicomp.rs` |
-| (10) Stockfleth & Dohrn (1998) | Numerical compositional derivatives for fugacity; numerical Jacobian for 2n+4 flash system | `numerics/newton_raphson.rs` |
+| (10) Stockfleth & Dohrn (1998) | Numerical compositional derivatives for fugacity — legacy approach; superseded by analytic derivatives + dual-number AD (§L), retained only as a test oracle | Test oracles only |
 | (11) Null (1970) | Fugacity equality as necessary but not sufficient condition for equilibrium | Design consideration |
 | (12) Poling & Prausnitz (1981) | Avoiding trivial roots and spurious derivatives; root selection logic in cubic solver | `eos/cubic_solver.rs` |
 | (13) Gurdensen (1982) | Numerical aspects of cubic EOS in flash; volume root selection | `eos/cubic_solver.rs` |
@@ -94,6 +110,13 @@ Similarly, when implementing an algorithm from a specific paper below, cite the 
 | (20) Anderson & Prausnitz (1980) | High-pressure VLE; 2nd stage of bubble/dew algorithm (Fig 2.7 of thesis) | `flash/bubble.rs`, `flash/dew.rs` |
 | (21) Orbey & Sandler (1998) | Wong-Sandler, Huron-Vidal, and advanced mixing rules; validation data for bubble point | `mixing/rules.rs` |
 | (22) Smith, Van Ness & Abbott (1996) | Dew point validation data (Tables 4.7–4.8) | `python/tests/test_validation.py` |
+| (23) Leibovici & Neoschil (1992) | Rachford-Rice bracketing window — guaranteed convergence + negative flash (§F) | `flash/isothermal.rs` |
+| (24) Michelsen (1980) | Phase-envelope continuation (predictor-corrector through the critical point) (§K) | `flash/envelope.rs` |
+| (25) Crowe & Nishio (1975) | GDEM acceleration of successive substitution (§J) | `flash/isothermal.rs` |
+| (26) Michelsen & Mollerup (2007) | Generalized EOS core architecture; analytic composition derivatives; flash methodology (§J, §K, §L) | `eos/multicomp.rs`, `flash/*` |
+| (27) Rehner & Bauer (2021) | Dual-number automatic differentiation for exotic mixing-rule derivatives (§L) | `mixing/rules.rs` (generic scalar type) |
+| (28) Michelsen (1999) | State-function-based flash specifications (PH flash) (§M) | `flash/adiabatic.rs` |
+| (29) Wilson (1969) | Wilson K-value correlation for flash/bubble/dew initialization (§I) | `flash/init.rs` |
 
 ---
 
@@ -101,12 +124,21 @@ Similarly, when implementing an algorithm from a specific paper below, cite the 
 
 The modernized Rust code improves on several legacy numerical methods. Each subsection describes the legacy approach, the proposed improvement, and the justification.
 
+> **2026-07-01 update**: sections §I–§M were added (and §F upgraded) as part of the
+> performance/algorithm modernization plan — see [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md)
+> for the full rationale. They replace the thesis-era flash iteration schemes with the
+> modern (largely Michelsen-derived) methodology: stability-tested, acceleration-boosted,
+> Newton-finished, with exact derivatives everywhere. The companion engineering work
+> (allocation-free hot paths, batch numpy API, benchmarks) lives in the *Performance
+> Engineering* section below.
+
 ### A. Newton-Raphson Jacobian (`numerics/newton_raphson.rs`)
 
 - **Legacy**: VB6 `clsLVE.cls` `NR_JacobianMatrix` computes the full Jacobian numerically via a 5-point stencil, requiring (m+1) function evaluations per Newton-Raphson iteration for the 2n+4 flash system (10).
 - **Improvement**: Broyden's quasi-Newton rank-1 update after the first iteration (1 function evaluation per step). Full numerical Jacobian refresh every K=5 steps or when convergence stalls. This is a standard approach for large nonlinear systems where the Jacobian is expensive to compute.
 - **Justification**: For a 10-component mixture (m=24), this reduces evaluations from ~25/step to ~1 for most steps. The 2n+4 system evaluation is the dominant cost in flash calculations.
 - **Risk mitigation**: Broyden can diverge if the initial Jacobian is poor. The periodic refresh (every K steps) and automatic fallback to full Jacobian on stalled convergence mitigate this.
+- **2026-07 note**: once §L (analytic composition derivatives) lands, full Newton with an exact Jacobian becomes the primary flash driver and Broyden is demoted to the fallback for residuals whose Jacobian is not cheaply available. Implementation fix regardless of role: stop cloning + re-factorizing J every iteration (Sherman–Morrison inverse update, O(n²)/iter — see Performance Engineering §C4 in PERFORMANCE_PROPOSAL.md).
 
 ### B. Golden Section to Brent's Method (`flash/kij_regression.rs`)
 
@@ -133,25 +165,83 @@ The modernized Rust code improves on several legacy numerical methods. Each subs
 - **Improvement**: Analytical dGE/dT for all 5 activity models. Known closed forms: Ideal (zero), Margules (HE = GE since GE/T cancels), van Laar (HE = GE since parameters scale as 1/T), Wilson (temperature-dependent Lambda yields explicit dGE/dT), Scatchard-Hildebrand (depends on dVl/dT).
 - **Justification**: Eliminates numerical cancellation errors that plague finite differences when GE varies slowly with T (common at moderate pressures). Also saves 2 evaluations per HE calculation.
 
-### F. Halley's Method for Rachford-Rice (`flash/isothermal.rs`)
+### F. Halley's Method for Rachford-Rice, inside the Leibovici–Neoschil Window (`flash/isothermal.rs`)
 
 - **Legacy**: Both VB6 and Pascal use Newton-Raphson on the scalar Rachford-Rice equation f(β) = Σ zi(Ki-1)/(1+β(Ki-1)) = 0 (quadratic convergence) (19).
-- **Improvement**: Halley's method (cubic convergence). For the Rachford-Rice equation, f, f', and f'' are all computed from the same summation loop with trivial additional arithmetic per component:
+- **Improvement**: Halley's method (cubic convergence) **solved inside the Leibovici–Neoschil window** β ∈ (1/(1−K_max), 1/(1−K_min)) (23), started at the window midpoint with a bisection safeguard. For the Rachford-Rice equation, f, f', and f'' are all computed from the same summation loop with trivial additional arithmetic per component:
   - f' = -Σ zi(Ki-1)²/(1+β(Ki-1))²
   - f'' = 2Σ zi(Ki-1)³/(1+β(Ki-1))³
-- **Justification**: Cubic convergence at negligible extra cost (one additional multiply-accumulate per component in the sum). Also consider the Leibovici & Neoschil negative flash formulation for robustness when β is near 0 or 1.
+- **Justification**: Cubic convergence at negligible extra cost (one additional multiply-accumulate per component in the sum). Inside the L-N window the RR function is monotonic and pole-free, so the safeguarded iteration **cannot diverge** — typically 2–4 iterations to machine precision. Solving over the full window (not just β ∈ [0, 1]) gives *negative flash* for free, which the stability layer (§I) and near-boundary flashes rely on.
 
 ### G. Analytical Helmholtz Derivatives for Critical Point (`flash/critical.rs`)
 
 - **Legacy**: VB6 `clsLVE.cls` Heidemann algorithm (16) uses numerical 2nd and 3rd derivatives of Helmholtz free energy via finite differences (many function evaluations per iteration).
 - **Improvement**: Analytical 2nd and 3rd derivatives of Helmholtz free energy for standard 2-parameter cubic EOS with classical mixing rules. These are well-known expressions that depend on a, b, and their compositional derivatives. Reserve numerical derivatives only for exotic mixing rules (Wong-Sandler, MHV1, MHV2) where analytical forms are prohibitively complex.
-- **Justification**: The Heidemann inner loop repeatedly evaluates these derivatives. Analytical forms eliminate the dominant cost for the common case (classical mixing with PR or RKS).
+- **Justification**: The Heidemann inner loop repeatedly evaluates these derivatives. Analytical forms eliminate the dominant cost for the common case (classical mixing with PR or RKS). The thesis itself flags the numerical-derivative version as "rather slow" (Ch. IV §4.1).
+- **2026-07 note**: these derivatives fall out of the §L derivative architecture (analytic for classical mixing, dual-number AD for exotic rules) — §G no longer needs a bespoke numerical fallback.
 
 ### H. Cardano Cubic Solver Robustness (`eos/cubic_solver.rs`)
 
 - **Legacy**: Already optimal (Cardano's analytical closed form). Both programs implement the same discriminant-based approach with trigonometric solution for three real roots.
 - **Improvement**: Keep Cardano's method. Add robust handling for near-degenerate cases (discriminant ≈ 0) using the approach from (12) (Poling & Prausnitz) to avoid trivial roots and spurious derivatives. Apply (13) (Gurdensen) for volume root selection in flash contexts (choose correct phase root based on Gibbs energy comparison).
 - **Justification**: Near the critical point, the cubic discriminant approaches zero and standard implementations suffer floating-point cancellation. This is a robustness improvement, not a speed improvement.
+
+### I. Stability Analysis + Wilson Initialization (`flash/stability.rs`, `flash/init.rs`)
+
+- **Legacy**: Neither program tests phase stability. Successive substitution runs with trivial-solution *guards* (VB6 `Compara`, `FranctionsEquals`) that detect convergence to identical compositions after the fact, then fall back to a second-stage Newton-Raphson. The thesis flags near-critical trivial solutions as its main robustness weakness (Ch. 2 §2.1.1, §2.3.3) and *describes* Michelsen's stability test without implementing it (Ch. 2 §2.3.2).
+- **Improvement**: (1) initialize K-values with the Wilson correlation (29) — needs only Tc, Pc, ω, all in `Component`; (2) run a tangent-plane-distance (TPD) stability analysis (7) before every flash: it answers "is there actually a second phase?" and supplies non-trivial K estimates when there is.
+- **Justification**: This is the *structural* fix for the trivial-solution problem — the guards become unnecessary rather than better. Stability analysis is the entry point of every modern flash implementation (26). Cost is a handful of cheap SS iterations on the tangent-plane function; benefit is eliminating an entire class of convergence failures plus wasted flash attempts on single-phase feeds.
+
+### J. GDEM-Accelerated Successive Substitution → Newton Switch (`flash/isothermal.rs`)
+
+- **Legacy**: Plain successive substitution on K-values to composition tolerance (linear convergence; the rate → 1 near the critical point, where SS stalls for hundreds of iterations).
+- **Improvement**: Michelsen's composite scheme (19),(26): SS with General Dominant Eigenvalue Method extrapolation (25) every ~5 iterations, then switch to full Newton on ln Kᵢ (analytic Jacobian from §L) once the residual drops below ~10⁻³.
+- **Justification**: GDEM turns 200 stalled SS iterations into ~20 essentially for free (it reuses stored residuals). The Newton finish gives quadratic terminal convergence, and switching only when close means Newton always starts inside its basin — each stage covers the other's weakness. This is the canonical structure of every serious modern flash code.
+
+### K. Log-Variable Newton for Bubble/Dew + Phase-Envelope Continuation (`flash/bubble.rs`, `flash/dew.rs`, `flash/envelope.rs`)
+
+- **Legacy**: SS inner loop + parabolic extrapolation on the outer T/P variable (4), with a second-stage NR fallback using numerical Jacobians (14); envelope traversal by differential dP/dT stepping (thesis eq. 2.51–2.52), which cannot pass the critical point.
+- **Improvement**: Wilson-initialized SS for 3–5 iterations, then full Newton on the (n+1)-variable system {ln K₁..ln Kₙ, ln T or ln P} with the §L analytic Jacobian. For traversal: Michelsen's phase-envelope continuation (24) — parameterize by the most sensitive variable, predictor-corrector with adaptive step control.
+- **Justification**: Log variables keep iterates positive by construction and make the Jacobian well-scaled, removing a class of line-search failures. Envelope continuation walks *through* the critical point smoothly — directly fixing the thesis's flagged near-critical weakness. The thesis two-stage scheme is retained as a test oracle only.
+
+### L. Exact Composition Derivatives: Analytic + Dual-Number AD (`eos/multicomp.rs`, `mixing/rules.rs`)
+
+- **Legacy**: All compositional fugacity derivatives (flash Jacobians, Heidemann–Khalil) computed by finite differences (10), chosen for generality across arbitrary EOS × mixing-rule combinations. The thesis names this as its main speed regret (Ch. IV §4.1).
+- **Improvement**: Two-tier exact derivatives. (1) **Analytic ∂ln φ̂ᵢ/∂nⱼ** for cubic EOS + classical/vdW mixing — standard closed forms (26), written once against the generalized (A, B, U, W) mixture core. (2) For exotic mixing rules (Wong-Sandler, MHV1/2): **forward-mode automatic differentiation with dual numbers** (`num-dual` crate (27)) — the rule is written once as a function generic over the scalar type; dual evaluation yields derivatives exact to machine precision at ~2× the cost of one function evaluation.
+- **Justification**: Newton flash/bubble/dew/critical-point iterations cost **one** residual evaluation instead of n+1 (finite differences), with no FD truncation noise degrading convergence near the solution — for a 10-component system that is ~10× less work per iteration *and* fewer iterations. AD keeps the legacy's "any model combination" generality without its cost, and eliminates FD step-size tuning entirely. **Sequencing rule: this architecture must exist before any flash code is written** (it is the foundation §I–§K and §G consume) — hence it lands with the mixing rules in Milestone 8.3, not with flash in Milestone 9.
+
+### M. Warm-Started / State-Function PH Flash (`flash/adiabatic.rs`)
+
+- **Legacy**: Nested loops — outer iteration on T (Brent), full isothermal flash from cold at every trial T.
+- **Improvement**: Keep the nested structure but warm-start every inner flash with the previous T's converged K-values (1–3 inner iterations instead of a full solve). If benchmarks justify it, upgrade to Michelsen's state-function-based simultaneous Newton on (T, ln K) (28), sharing the §K Jacobian machinery.
+- **Justification**: Warm starting is nearly free and cuts the dominant cost (repeated inner flashes) by ~5×. The simultaneous formulation converges quadratically but adds complexity — measure first.
+
+---
+
+## Performance Engineering
+
+Companion engineering tracks to §A–§M, adopted 2026-07-01 — full rationale and audit
+evidence in [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md). The language question was
+re-examined and settled: **the engine stays in Rust** (identical LLVM codegen to C/C++/
+Fortran for this workload; every measured cost is architectural, not linguistic).
+
+- **Benchmarks first (Track E, Milestone 8.2)**: criterion micro/meso benches (α dispatch,
+  Z-factor, ln φ, mixture ln φ̂, Rachford-Rice, full flash as they land) + a Python-side
+  boundary benchmark. Informational CI job reports deltas. Later: external comparison vs
+  `thermo` / CoolProp.
+- **Zero-allocation hot path (Track C, Milestone 8.2)**: `solve_real` returns
+  `([f64; 3], usize)` (no `Vec` per Z evaluation); a per-(T, P, composition) `EosState`
+  struct caches αᵢ, dαᵢ/dT, aᵢ, bᵢ, a_mix, b_mix, A, B, U, W (+ the Wilson Λ and virial
+  B matrices) so nothing is computed twice; stack-allocated composition arrays for n ≤ 8;
+  Broyden updates its factorization in place.
+- **Build profile (Track C, Milestone 8.2)**: `[profile.release]` with `lto = "fat"`,
+  `codegen-units = 1` (not `panic = "abort"` — PyO3 needs unwinding); drop the unused
+  `ndarray` dependency; wheels stay baseline-portable.
+- **Batch numpy API (Track D, Milestone 10)**: array-in/array-out bindings via
+  **rust-numpy** (one FFI crossing per array, zero-copy); `Python::allow_threads` +
+  **rayon** parallelism over state points; a persistent `System` `#[pyclass]` handle
+  (no per-call `Component` reconstruction); warm-start plumbing across batch points.
+  This is the layer that makes the library behave like "numpy for thermo".
 
 ---
 
@@ -166,6 +256,8 @@ The modernized Rust code improves on several legacy numerical methods. Each subs
 - maturin handles wheel building/distribution trivially.
 - `nalgebra` crate replaces hand-rolled Gauss elimination; `ndarray` available for array ops.
 - Compiles to native code with LLVM optimizations -- critical for the Newton-Raphson inner loop which evaluates the full system (2n+4) times per iteration.
+
+**2026-07-01 re-evaluation (language question re-opened and settled)**: with M0–M8.1 shipped, the choice was re-examined against C++/Fortran, Julia, and GPU offload as part of [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md). Conclusion: **stay in Rust** — every measured cost is architectural (allocations, redundant recomputation, scalar-only FFI, default build flags), not linguistic; Rust's LLVM codegen is equivalent to C++/Fortran for this workload, and a rewrite would discard ~6,000 lines of validated code. Three dependencies join the stack as the plan executes: **`num-dual`** (dual-number AD for exotic mixing-rule derivatives, §L), **rust-numpy** (the `numpy` crate — zero-copy numpy array bindings for the batch API), and **`rayon`** (data-parallel batch kernels). `ndarray` is dropped until the batch API actually needs it.
 
 ---
 
@@ -213,6 +305,7 @@ vle/
 │   └── tests/
 ├── engine/                          # Rust crate (core computation)
 │   ├── Cargo.toml
+│   ├── benches/                     # criterion benchmarks (Track E): alpha, Z, ln phi, RR, flash
 │   └── src/
 │       ├── lib.rs                   # Crate root, re-exports
 │       ├── constants.rs             # R=8.31451, Pi, universal constants
@@ -245,13 +338,16 @@ vle/
 │       │   └── pressure.rs          # Antoine (from Pascal), Riedel, Muller, RPM, polynomial, Maxwell
 │       ├── flash/
 │       │   ├── mod.rs
-│       │   ├── bubble.rs            # Bubble point (T and P)
-│       │   ├── dew.rs               # Dew point (T and P)
-│       │   ├── isothermal.rs        # Isothermal flash
-│       │   ├── adiabatic.rs         # Adiabatic flash
+│       │   ├── init.rs              # Wilson K-value initialization (29)
+│       │   ├── stability.rs         # Tangent-plane-distance stability analysis (7) — §I
+│       │   ├── bubble.rs            # Bubble point (T and P) — log-variable Newton (§K)
+│       │   ├── dew.rs               # Dew point (T and P) — log-variable Newton (§K)
+│       │   ├── envelope.rs          # Phase-envelope continuation (24) — §K
+│       │   ├── isothermal.rs        # Isothermal flash — GDEM-SS → Newton (§J), L-N windowed Halley RR (§F)
+│       │   ├── adiabatic.rs         # Adiabatic (PH) flash — warm-started nested / state-function (§M)
 │       │   ├── critical.rs          # Mixture critical point (Heidemann + Pascal ZCriticoMezcla)
-│       │   ├── kij_regression.rs    # Binary interaction parameter fitting (golden section from both)
-│       │   └── aij_regression.rs    # Activity model Aij regression (from Pascal, NR + analytical Jacobian)
+│       │   ├── kij_regression.rs    # Binary interaction parameter fitting (Brent, §B)
+│       │   └── aij_regression.rs    # Activity model Aij regression (Levenberg-Marquardt + analytical Jacobian)
 │       ├── thermo/
 │       │   ├── mod.rs
 │       │   ├── enthalpy.rs          # Cp integration, departure functions
@@ -463,7 +559,7 @@ vle/
 - Multicomponent: quadratic Lewis-Randall mixing for `B_mix(T, x)`; partial fugacity coefficients `ln(φ̂_i)`
 - **Key source files:** `legacy/vb6/clsVirial.cls`, `legacy/vb6/clsVirialMulticomp.cls`
 
-### Phase 10: Activity Coefficient Models *(Milestone 8)*
+### Phase 10: Activity Coefficient Models *(Milestone 8.1 — shipped in v0.7.0)*
 - Ideal, Margules, van Laar, Wilson, Scatchard-Hildebrand (identical in both programs)
 - Excess Gibbs energy, excess enthalpy/entropy — implement analytical dGE/dT for ALL models (Pascal (4) has analytical for Wilson; extend to all) — see §E
 - Rackett and Thomson (18) liquid molar volume (VB6)
@@ -471,21 +567,37 @@ vle/
 - Wilson binary parameter calculation from infinite-dilution activity coefficients: `CalcParBinWilson` (4) (from Pascal `TERMOIII.PAS:342`, Newton-Raphson)
 - **Key source files:** `legacy/vb6/clsActivityMulticomp.cls`, `legacy/pascal/TERMOIII.PAS`
 
-### Phase 11: Mixing Rules *(Milestone 8)*
+### Phase 11: Performance Foundation *(Milestone 8.2)*
+
+*Added 2026-07-01 — Tracks C + E of [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md). Pure speed and measurement work; no thermodynamic behavior change, gated by the existing test suite.*
+
+- criterion benchmark suite (`engine/benches/`): α dispatch, Z-factor, pure ln φ, saturation, activity γ; extended as mixture fugacity / RR / flash land in later phases
+- Python-side boundary benchmark (scalar-loop vs future batch) to quantify FFI overhead
+- Informational CI bench job (report deltas, non-blocking)
+- `[profile.release]`: `lto = "fat"`, `codegen-units = 1` (keep `panic = "unwind"` — PyO3 converts panics to Python exceptions)
+- Allocation-free cubic/Z path: `solve_real` → `([f64; 3], usize)`, root selection without filter/collect/sort
+- `EosState` cache struct — α, dα/dTr, a, b, A, B, U, W computed once per (T, P, composition) and shared across Z/fugacity/departure calls; Wilson Λ and virial B matrices cached alongside
+- Stack-allocated composition arrays for n ≤ 8 components
+- Broyden: in-place factorization update (Sherman–Morrison), no per-iteration `clone().lu()`
+- Drop the unused `ndarray` dependency
+
+### Phase 12: Mixing Rules + Derivative Core *(Milestone 8.3)*
 - Classical (IVDW, IIVDW) with kij (IVDW identical in both programs)
 - Wong-Sandler, Huron-Vidal (original + simplified), MHV1, MHV2 (21) (VB6)
 - Schmidt-Wenzel C-parameter mixing (4): C = F/E weighted average using acentric factors (from Pascal `TERMOII.PAS:234`)
 - Patel-Teja C-parameter mixing (4): two variants -- linear (PatelT) and square-root-weighted (PatelTUSB) (from Pascal `TERMOII.PAS:243`)
+- **Derivative architecture (§L)**: mixing rules written once against the generalized (A, B, U, W) mixture core; classical rules carry hand-derived analytic composition derivatives; exotic rules (WS, MHV1/2) are generic over the scalar type and differentiated with `num-dual` (27) — finite differences retained only as test oracles
 - **Key source files:** `legacy/vb6/clsQbicsMulticomp.cls:395`, `legacy/pascal/TERMOII.PAS:211`
 
-### Phase 12: Multicomponent EOS *(Milestone 8)*
-- Partial fugacity coefficients in solution for all mixing rules (9) (Müller et al. general expressions, Eqs 2.28–2.34)
+### Phase 13: Multicomponent EOS *(Milestone 8.3)*
+- Partial fugacity coefficients in solution for all mixing rules (9) (Müller et al. general expressions, Eqs 2.28–2.34), written once against the generalized (A, B, U, W) mixture form (26)
+- Analytic ∂ln φ̂ᵢ/∂nⱼ for cubic EOS + classical mixing (§L) — the Jacobian building block for Phases 15's Newton loops and §G's critical point
 - Mixture Z-factor calculation
 - 3-parameter EOS fugacity coefficients (4): Schmidt-Wenzel and Patel-Teja partial fugacity with u,w,delta,g auxiliary variables (from Pascal `TERMOII.PAS:317`, significantly more complex than 2-parameter EOS)
 - Chao-Seader liquid fugacity for multicomponent mixtures (4) (from Pascal `TERMOII.PAS:386`)
 - **Key source files:** `legacy/vb6/clsQbicsMulticomp.cls`, `legacy/pascal/TERMOII.PAS`
 
-### Phase 13: Enthalpy & Entropy *(Milestone 8)*
+### Phase 14: Enthalpy & Entropy *(Milestone 8.4)*
 - Ideal gas Cp integration (polynomial, identical in both programs)
 - Departure functions for cubic EOS (9) and virial
 - Departure functions for 3-parameter EOS (4): Schmidt-Wenzel (note: marked as discontinuous in Pascal, returns NaN) and Patel-Teja (from Pascal `TERMOII.PAS:471`)
@@ -495,36 +607,43 @@ vle/
 - Reference state handling (LiqSat, VapSat, IdealGas)
 - **Key source files:** `legacy/pascal/TERMOII.PAS`, `legacy/pascal/TERMOIII.PAS`
 
-### Phase 14: Flash Calculations *(Milestone 9)*
-- Raoult's law initial estimates (4) (identical in both: Ki = Psat_i/P)
-- Newton-Raphson solver with Broyden quasi-Newton Jacobian (10) (2n+4 equation system) — replaces VB6's full numerical Jacobian — see §A
-- Bubble point (T and P), Dew point (T and P) (4),(14),(17),(20) — same algorithm in both programs (parabolic interpolation on ln(sum), low-pressure and high-pressure paths via Asselineau/Anderson-Prausnitz 2nd stage)
-- Isothermal flash with Halley's method for Rachford-Rice (19) — replaces NR on scalar equation — see §F
-- Adiabatic flash (nested T-loop with enthalpy balance, identical in both) (4),(17)
-- Critical point calculation (15),(16): Heidemann algorithm (VB6) with analytical Helmholtz derivatives for 2-param EOS (see §G) + `ZCriticoMezcla` quick estimate (4) (Pascal `TERMOIV.PAS:136`, iterates on Ac/Bc matching)
-- kij regression via Brent's method (4) — replaces golden section (L=0.618034) — see §B
+### Phase 15: Flash Calculations *(Milestone 9)*
+
+*Rewritten 2026-07-01 — Track A of [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md). The thesis-era iteration schemes are replaced by the modern (Michelsen-derived) methodology; the legacy two-stage bubble/dew scheme is retained only as a test oracle. All Newton loops consume the Phase 12–13 analytic/AD Jacobians (§L).*
+
+- Wilson K-value correlation initial estimates (29) (§I) — supersedes Raoult-only initialization; Raoult retained for the γ-φ path
+- Tangent-plane-distance stability analysis (7) (§I) before every flash — supplies "is there a second phase?" + non-trivial K estimates; structurally eliminates the thesis's trivial-solution failure mode
+- Isothermal flash (19),(26): GDEM-accelerated successive substitution (25) → Newton on ln Kᵢ with analytic Jacobian (§J); Rachford-Rice inner solve via Halley inside the Leibovici–Neoschil window (23) with bisection safeguard (§F) — guaranteed convergence + negative flash
+- Bubble point (T and P), Dew point (T and P) (§K): Wilson-initialized SS warm-up, then full Newton on {ln K, ln T or ln P} with analytic Jacobian; legacy parabolic/Asselineau two-stage scheme (4),(14),(17),(20) kept as a validation oracle
+- Phase-envelope continuation (24) (§K): predictor-corrector traversal through the critical point — replaces the thesis's differential dP/dT stepping
+- Adiabatic (PH) flash (§M): warm-started nested T-loop (Brent outer, K-seeded inner flash); optional upgrade to simultaneous state-function Newton (28) if benches justify
+- Critical point calculation (15),(16): Heidemann algorithm with analytical Helmholtz derivatives from the §L core (see §G) + `ZCriticoMezcla` quick estimate (4) (Pascal `TERMOIV.PAS:136`, iterates on Ac/Bc matching)
+- kij regression via Brent's method (4) — replaces golden section (L=0.618034) — see §B; warm-start each data point's bubble-P solve from its neighbor
 - **Aij regression** (4) for activity model binary parameters (Pascal-only, `TERMOV.PAS:297`):
-  - Newton-Raphson with analytical Jacobian for Margules, Van Laar, Wilson
+  - Levenberg-Marquardt with the analytical Jacobian for Margules, Van Laar, Wilson (supersedes plain Newton-Raphson — same per-iteration cost, graceful far-from-optimum behavior)
   - Calculates experimental gamma from VLE data (accounting for vapor non-ideality, Poynting, Chao-Seader options)
   - Second derivatives (DGamiDA12, DGamiDA21) computed analytically per model
   - Correlation factor analysis for quality of initial estimates
+- Extend the criterion bench suite (Phase 11) with RR, isothermal flash, bubble/dew, and envelope benches
 - **Key source files:** `legacy/vb6/clsLVE.cls`, `legacy/pascal/TERMOIV.PAS`, `legacy/pascal/TERMOV.PAS`, `legacy/pascal/TERMOVI.PAS`
 
-### Phase 15: PyO3 Bindings *(Milestone 10)*
+### Phase 16: PyO3 Bindings *(Milestone 10)*
 - Expose core types as `#[pyclass]`
 - Expose calculation functions as `#[pyfunction]`
 - Main `VleEngine` Python class with methods for each calculation type
 
-### Phase 16: Python Wrapper Library *(Milestone 10)*
-- High-level `System` class for configuring VLE problems
-- Result dataclasses (`FlashResult`, `BubbleResult`, `DewResult`)
+### Phase 17: Python Wrapper Library + Batch API *(Milestone 10)*
+- High-level `System` class for configuring VLE problems — backed by a persistent `#[pyclass]` handle holding components, model selections, and cached T-independent data (no per-call `Component` reconstruction)
+- **Batch numpy API (Track D)**: array-in/array-out entry points for every property and flash via rust-numpy (zero-copy, one FFI crossing per array); `Python::allow_threads` + rayon parallelism over state points; warm-start plumbing across batch points (each flash seeded from its neighbor's converged K); scalar convenience methods become batch-of-one
+- Result dataclasses (`FlashResult`, `BubbleResult`, `DewResult`) + batch result arrays
 - Component database (JSON) with built-in common substances
-- Plotting helpers (Pxy, Txy diagrams via matplotlib)
+- Plotting helpers (Pxy, Txy diagrams via matplotlib) — driven by the batch API
 - Convenience API: `system.bubble_point_T()`, `system.flash_isothermal()`, etc.
+- Boundary benchmark rerun (Phase 11 baseline vs batch API) + external comparison benches vs `thermo` / CoolProp
 
-### Phase 17: Chapter IV Walkthrough & Final Deployment *(Milestone 11)*
+### Phase 18: Chapter IV Walkthrough & Final Deployment *(Milestone 11)*
 
-Notebooks 01–08 are produced by the milestone that builds the underlying feature (see table below), each following CLAUDE.md *Notebook Conventions*. Phase 17 is the capstone that adds the Chapter IV walkthrough notebook and performs a final clean-state redeployment:
+Notebooks 01–08 are produced by the milestone that builds the underlying feature (see table below), each following CLAUDE.md *Notebook Conventions*. Phase 18 is the capstone that adds the Chapter IV walkthrough notebook and performs a final clean-state redeployment:
 
 - **09_chapter4_validation_walkthrough**: Single end-to-end notebook that narrates every section of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md). For each of §4.1–§4.7 it quotes the research-paper text, runs the `vle` library against the referenced table (4.1–4.12), reports absolute and percent error against published values, and presents ≥2 user exercises (e.g. "repeat the kij regression for a different binary pair").
 - **Final hub refresh**: run the `deploy-vle` workflow in `homelab-iac` with `mode=full` (rebuilds the engine-from-source image and restarts the stack on both hub hosts), then verify every notebook listed in [`deploy/NOTEBOOKS.md`](../deploy/NOTEBOOKS.md) opens and Runs-All without error on the hub.

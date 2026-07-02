@@ -10,9 +10,9 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Analyze legacy VB6 codebase (~15,000 lines)
 - [x] Analyze legacy Pascal codebase (~2,500 lines)
 - [x] Create Pascal vs VB6 comparison document
-- [x] Create modernization plan with 17 implementation phases
-- [x] Map algorithms to 22 academic references (ACS format)
-- [x] Propose 8 algorithm performance improvements (A–H)
+- [x] Create modernization plan with 18 implementation phases *(originally 17; Phase 11 — Performance Foundation — added 2026-07-01)*
+- [x] Map algorithms to 29 academic references (ACS format) *(originally 22; (23)–(29) added 2026-07-01 with PERFORMANCE_PROPOSAL.md)*
+- [x] Propose 8 algorithm performance improvements (A–H) *(extended to §A–§M + Performance Engineering tracks 2026-07-01 — see [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md))*
 - [x] Initialize git repository
 - [x] Create README, LICENSE (MIT), .gitignore
 - [x] Reorganize repo structure (legacy/, docs/en/, docs/es/)
@@ -190,12 +190,16 @@ validation cases actually use; the rest land in subsequent releases.
 - [x] Poynting correction factor `exp[V_L·(P − Psat)/(R·T)]` (canonical kPa units)
 - [x] `02d_advanced_saturation.ipynb` now live (executes top-to-bottom)
 
-## Milestone 8: Mixture Models
-**Goal**: Activity models, mixing rules, and multicomponent EOS working.
-*Phases 10–13 of MODERNIZATION_PLAN.md*
+## Milestone 8: Mixture Models + Performance Foundation
+**Goal**: Activity models, mixing rules with an exact-derivative core, multicomponent EOS, and a measured, allocation-free engine.
+*Phases 10–14 of MODERNIZATION_PLAN.md*
 
-Split into sub-milestones (8.1–8.3) mirroring Milestone 7, each independently
-shippable with its own tests and version bump.
+Split into sub-milestones (8.1–8.4) mirroring Milestone 7, each independently
+shippable with its own tests and version bump. Sub-milestones 8.2–8.4 were
+restructured 2026-07-01 per [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md):
+benchmarks + engine mechanics land first (8.2), then the mixing rules arrive
+together with the analytic/AD derivative architecture (8.3) that Milestone 9's
+Newton loops depend on.
 
 ### Milestone 8.1 — Activity Models + Liquid Volume (complete)
 *Executed by Claude Code using Claude Opus 4.8 (1M context)*
@@ -206,29 +210,45 @@ shippable with its own tests and version bump.
 - [x] Create milestone notebook (`notebooks/03_activity_models.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: Chapter II §2.2 (activity models) snippets, gamma-vs-composition plots, excess Gibbs energy, ≥2 user exercises
 - [x] Update the notebook catalogue (`deploy/NOTEBOOKS.md`); touch `deploy/README.md` only if a distribution channel changed
 
-### Milestone 8.2 — Mixing Rules + Multicomponent Fugacity (not started)
+### Milestone 8.2 — Performance Foundation (not started)
+*Tracks C + E of PERFORMANCE_PROPOSAL.md — measure first, then the free wins. No thermodynamic behavior change.*
 
-- [ ] 8+ mixing rules including Wong-Sandler (21)
+- [ ] criterion benchmark suite (`engine/benches/`) + Python-side FFI boundary benchmark — the baseline every later claim is measured against
+- [ ] Informational CI bench job (reports deltas, non-blocking)
+- [ ] `[profile.release]` (`lto = "fat"`, `codegen-units = 1`); drop unused `ndarray` dep
+- [ ] Allocation-free cubic solver / Z-factor path (`([f64; 3], usize)` instead of `Vec`)
+- [ ] `EosState` caching struct (α, dα/dTr, A, B, U, W computed once per state; Wilson Λ + virial B matrices cached)
+- [ ] Stack-allocated composition arrays (n ≤ 8); Broyden in-place factorization update
+
+### Milestone 8.3 — Mixing Rules + Multicomponent Fugacity + Derivative Core (not started)
+
+- [ ] 8+ mixing rules including Wong-Sandler (21), written once against the generalized (A, B, U, W) mixture core (26)
 - [ ] Multicomponent fugacity coefficients (9)
+- [ ] Analytic ∂ln φ̂ᵢ/∂nⱼ for classical mixing; `num-dual` dual-number AD (27) for Wong-Sandler/MHV1/MHV2 (§L) — **must land before any Milestone 9 flash code**
 - [ ] 3-parameter EOS mixture fugacity (4)
 
-### Milestone 8.3 — Mixture Energy Properties + Validation (not started)
+### Milestone 8.4 — Mixture Energy Properties + Validation (not started)
 
 - [ ] Enthalpy and entropy (ideal + departure + excess)
 - [ ] Unit tests for all mixture calculations — validation test passes
 - [ ] Refresh the hosted hub (operator-side: run `deploy-vle` in `homelab-iac`) and verify the new notebook
 
 ## Milestone 9: Flash & Regression
-**Goal**: All flash calculations pass Chapter IV validation.
-*Phase 14 of MODERNIZATION_PLAN.md*
+**Goal**: All flash calculations pass Chapter IV validation, with guaranteed-convergence modern algorithms.
+*Phase 15 of MODERNIZATION_PLAN.md*
 
-- [ ] Bubble point (T and P) with Broyden NR (§A)
-- [ ] Dew point (T and P)
-- [ ] Isothermal flash with Halley's Rachford-Rice (§F)
-- [ ] Adiabatic flash
+Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md)); all Newton loops consume the Milestone 8.3 analytic/AD Jacobians.
+
+- [ ] Wilson K-value initialization (29) + tangent-plane-distance stability analysis (7) (§I)
+- [ ] Isothermal flash — GDEM-accelerated SS → Newton on ln K (§J); Rachford-Rice via Halley inside the Leibovici–Neoschil window (§F, guaranteed convergence + negative flash)
+- [ ] Bubble point (T and P) — log-variable Newton with analytic Jacobian (§K); legacy two-stage scheme kept as test oracle
+- [ ] Dew point (T and P) — same structure (§K)
+- [ ] Phase-envelope continuation through the critical point (24) (§K)
+- [ ] Adiabatic flash — warm-started nested loop (§M)
 - [ ] Critical point — Heidemann with analytical Helmholtz derivatives (§G)
-- [ ] kij regression via Brent's method (§B)
-- [ ] Aij regression with analytical Jacobian (4)
+- [ ] kij regression via Brent's method (§B), warm-started per data point
+- [ ] Aij regression — Levenberg-Marquardt with analytical Jacobian (4)
+- [ ] Extend criterion benches with RR / flash / bubble-dew / envelope
 - [ ] Validate all 8 Chapter IV test cases (<1–5% error) — validation tests pass
 - [ ] Create milestone notebooks — professional structure per CLAUDE.md *Notebook Conventions*; one notebook per thesis table group, each reproducing the referenced Chapter IV table(s) with snippets from the research paper and ≥2 user exercises:
   - `notebooks/04_bubble_dew_point.ipynb` — Tables 4.6–4.9
@@ -239,18 +259,22 @@ shippable with its own tests and version bump.
 - [ ] Update the notebook catalogue (`deploy/NOTEBOOKS.md`); touch `deploy/README.md` only if a distribution channel changed
 - [ ] Refresh the hosted hub (operator-side: run `deploy-vle` in `homelab-iac`) and verify each new notebook
 
-## Milestone 10: Python Bindings & Wrapper
-**Goal**: Python package installable, high-level API usable.
-*Phases 15–16 of MODERNIZATION_PLAN.md*
+## Milestone 10: Python Bindings, Wrapper & Batch API
+**Goal**: Python package installable, high-level API usable, batch numpy API makes it "numpy for thermo".
+*Phases 16–17 of MODERNIZATION_PLAN.md*
 
 > Note: The first `#[pymodule]` shipped in M5. This milestone is the
 > end-user `vle.System` high-level API, plotting helpers, and the
 > introduction notebook — i.e., the *ergonomics* layer over bindings
-> that have been accumulating since M5 under the PyO3 Bindings Rule.
+> that have been accumulating since M5 under the PyO3 Bindings Rule —
+> plus the Track-D batch layer (PERFORMANCE_PROPOSAL.md).
 
 - [ ] PyO3 bindings for core types and calculation functions
-- [ ] Python `System` class (high-level API)
-- [ ] Result dataclasses (FlashResult, BubbleResult, DewResult)
+- [ ] Python `System` class (high-level API) backed by a persistent `#[pyclass]` handle (cached components/model state, no per-call rebuild)
+- [ ] Batch numpy API via rust-numpy — array-in/array-out for every property and flash, zero-copy
+- [ ] GIL release (`allow_threads`) + rayon parallelism in batch kernels; warm-start plumbing across batch points
+- [ ] Boundary benchmark rerun (vs Milestone 8.2 baseline) + external comparison vs `thermo` / CoolProp
+- [ ] Result dataclasses (FlashResult, BubbleResult, DewResult) + batch result arrays
 - [ ] Component database (JSON)
 - [ ] Plotting helpers (Pxy, Txy diagrams via matplotlib)
 - [ ] Python test suite (reproduce Chapter IV validation) — validation tests pass
@@ -261,7 +285,7 @@ shippable with its own tests and version bump.
 
 ## Milestone 11: Chapter IV Walkthrough & Final Deployment
 **Goal**: One cohesive walkthrough of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md) and a final full-stack redeploy of every milestone notebook.
-*Phase 17 of MODERNIZATION_PLAN.md*
+*Phase 18 of MODERNIZATION_PLAN.md*
 
 > Notebooks 01–08 ship incrementally through Milestones 4–10 (each milestone produces the notebook for the feature it built). This milestone is the capstone: it adds the Chapter IV walkthrough and verifies every notebook is still reachable after a fresh deploy.
 

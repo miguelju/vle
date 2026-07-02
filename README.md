@@ -237,13 +237,14 @@ python -c "import vle; print(vle.__version__)"  # Verify
 - [Developer Setup Guide](docs/en/SETUP.md) — Prerequisites, build instructions, and development workflow (Rust, Python/conda, maturin)
 - [Dimensional Analysis](docs/en/units/dimensional-analysis.md) — Units add-on design: SI dimensions, gauge pressure, extensible unit registry
 - [Modernization Plan](MODERNIZATION_PLAN.md) — Full technical plan with academic references, algorithm mapping, and performance improvements
+- [Performance Proposal](PERFORMANCE_PROPOSAL.md) — The speed/convergence plan (2026-07): modern flash algorithms, exact-derivative core, batch numpy API
 - [Pascal vs VB6 Comparison](PASCAL_VB6_COMPARISON.md) — Detailed comparison of the two legacy codebases
 - [Research Paper (English)](docs/en/research-paper/README.md) — Navigatable English translation
 - [Research Paper (Spanish)](docs/es/research-paper/README.md) — Original Spanish text (PDFs)
 
 ## Academic References
 
-The implementation cites 22 academic references (ACS format). Key ones include:
+The implementation cites 29 academic references (ACS format). Key ones include:
 
 - **(4)** Da Silva, F. A.; Báez, L. Thesis, Universidad Simón Bolívar, 1989. — Pascal codebase origin
 - **(5)** Abbott, M. M. In *Equations of State in Engineering and Research*; ACS, 1979. — General cubic EOS form

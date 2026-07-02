@@ -10,6 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 2. **ROADMAP.md** — Check off completed milestones, update in-progress items
 3. **TODO.md** — Check off completed tasks, update time estimates and summary table
 4. **MODERNIZATION_PLAN.md** — Update if architecture or phases changed
+4b. **PERFORMANCE_PROPOSAL.md** — Update if a performance track (A–E) decision changed
 5. **CLAUDE.md** — Update if new conventions, paths, or tools were introduced
 6. **PASCAL_VB6_COMPARISON.md** — Update if new legacy code analysis was done
 7. **docs/en/research-paper/** — Update if translations were completed or links changed
@@ -143,10 +144,11 @@ docs/       — English translations and parameter reference
 ## Key Technical Decisions
 
 - **Rust enums + match** map directly to VB6's `Select Case` dispatch over 22+ EOS variants, 5 activity models, 8 mixing rules
-- **nalgebra** replaces hand-rolled Gauss elimination; **ndarray** for array ops
+- **nalgebra** replaces hand-rolled Gauss elimination (**ndarray** is dropped until the batch API needs it)
 - Implement analytical derivatives for ALL variants (not just the 5 Pascal models) for dα/dT and dGE/dT. Numerical versions retained only as test oracles. See "Algorithm Choices" below.
 - All 5 activity models and 6 flash calculation types are identical in both programs — single implementation each
 - Pascal's 3-parameter EOS (Schmidt-Wenzel, Patel-Teja) require special C-parameter mixing rules not needed by 2-parameter EOS
+- **Performance plan (2026-07, PERFORMANCE_PROPOSAL.md)**: the engine stays in Rust (language question settled); mixture code is written once against the generalized (A, B, U, W) form; composition derivatives are exact (analytic for classical mixing, **`num-dual`** dual-number AD for Wong-Sandler/MHV — never finite differences except as test oracles); the Python surface gains a batch numpy API (**rust-numpy** + **rayon**, GIL released in batch kernels). Hot-path rules: no heap allocation inside iteration loops, T-dependent quantities computed once per state via an `EosState` cache, criterion benches guard regressions.
 
 ## Reference Citation Requirements
 
@@ -162,14 +164,19 @@ This project is based on academic research. Code derived from legacy sources mus
 The modernized code improves on several legacy numerical methods. When implementing these algorithms:
 
 - **Root finding**: Use Brent's method (not Regula Falsi) as the default bracketed root finder in `numerics/root_finding.rs`. Illinois method available as lightweight alternative.
-- **kij optimization**: Use Brent's method (not golden section) in `flash/kij_regression.rs`.
-- **Newton-Raphson Jacobian**: Use Broyden quasi-Newton update after first iteration in `numerics/newton_raphson.rs`, with periodic full Jacobian refresh every K steps.
-- **Rachford-Rice**: Use Halley's method (cubic convergence) in `flash/isothermal.rs`.
+- **kij optimization**: Use Brent's method (not golden section) in `flash/kij_regression.rs`; warm-start each data point's objective from its neighbor.
+- **Flash Jacobians**: Full Newton with the exact Jacobian from the derivative core (below) is the primary driver. Broyden quasi-Newton (`numerics/broyden.rs`) is the fallback for residuals without a cheap Jacobian.
+- **Composition derivatives (∂ln φ̂ᵢ/∂nⱼ)**: Exact, never finite-difference. Analytic closed forms for cubic EOS + classical mixing; `num-dual` dual-number AD for Wong-Sandler/MHV1/MHV2 (mixing rules are written generic over the scalar type). FD survives only as a test oracle.
+- **Rachford-Rice**: Halley's method (cubic convergence) **inside the Leibovici–Neoschil window** with a bisection safeguard in `flash/isothermal.rs` — guaranteed convergence, negative flash included.
+- **Isothermal flash**: Wilson-correlation K init → TPD stability analysis (`flash/stability.rs`) → GDEM-accelerated successive substitution → Newton on ln K once the residual < ~1e-3. Never plain SS with trivial-solution guards.
+- **Bubble/dew**: Log-variable Newton on {ln K, ln T or ln P}. Near-critical traversal via Michelsen phase-envelope continuation (`flash/envelope.rs`), not differential dP/dT stepping. The thesis two-stage scheme exists only as a test oracle.
+- **Adiabatic (PH) flash**: Warm-started nested loop (inner flash seeded with previous T's K-values).
+- **Aij regression**: Levenberg-Marquardt (not plain Newton) with the analytical Jacobian in `flash/aij_regression.rs`.
 - **dα/dT and dGE/dT**: Always implement analytical derivatives. Numerical derivatives exist only as test oracles.
-- **Helmholtz derivatives** (critical point): Analytical for 2-parameter cubic EOS; numerical fallback for exotic mixing rules.
-- **Cubic solver**: Cardano's method (keep as-is). Add (12) Poling & Prausnitz robustness for near-degenerate cases.
+- **Helmholtz derivatives** (critical point): Analytical for 2-parameter cubic EOS; dual-number AD (not FD) for exotic mixing rules.
+- **Cubic solver**: Cardano's method (keep as-is). Add (12) Poling & Prausnitz robustness for near-degenerate cases. Must not heap-allocate (`([f64; 3], usize)` return).
 
-See `MODERNIZATION_PLAN.md` "Algorithm Performance Improvements" for full justifications.
+See `MODERNIZATION_PLAN.md` "Algorithm Performance Improvements" (§A–§M) + "Performance Engineering", and `PERFORMANCE_PROPOSAL.md` for full justifications.
 
 ## PyO3 Bindings Rule (M5+)
 
