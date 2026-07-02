@@ -46,6 +46,7 @@ typically 5–15 minutes (the Mac mini wheel build is the long pole).
    - `ROADMAP.md`, `TODO.md` — check off completed milestones
    - `README.md` — feature list, status notes
    - `MODERNIZATION_PLAN.md` — if architecture changed
+   - `PERFORMANCE_PROPOSAL.md` — if a performance track (A–E) decision changed
 
 3. **Run the pre-push private-data gate** (see `CLAUDE.md`).
 
