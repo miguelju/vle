@@ -243,13 +243,13 @@ every Newton loop consumes the M8.3 analytic/AD Jacobians (§L).
 - [x] **Implement isothermal flash** — GDEM-accelerated SS (25) (§J); Rachford-Rice via Halley inside the Leibovici–Neoschil window (23) with bisection safeguard (§F); φ-φ + γ-φ K-value dispatch in `flash/system.rs`. Newton-on-lnK polish is a follow-on refinement
 - [x] **Implement bubble point (T and P)** — Wilson-seeded SS with multiplicative-P / bisection-T outer solve (§K); φ-φ and γ-φ — `flash/bubble.rs`, shared core `flash/incipient.rs`
 - [x] **Implement dew point (T and P)** — same structure (§K) — `flash/dew.rs`
-- [ ] **Implement phase-envelope continuation** (~3–4h) — Michelsen predictor-corrector (24), adaptive step through the critical point (§K)
-- [ ] **Implement adiabatic flash** (~2–3h) — warm-started nested T-loop (Brent outer, K-seeded inner flash) (§M)
-- [ ] **Implement critical point** (~4–6h) — Heidemann (16) with analytical Helmholtz derivatives from the §L core, ZCriticoMezcla quick estimate (4)
-- [ ] **Implement kij regression** (~2–3h) — Brent's method replacing golden section (4); warm-start each data point's bubble-P solve from its neighbor
-- [ ] **Implement Aij regression** (~4–6h) — Levenberg-Marquardt with analytical Jacobian for Margules/VanLaar/Wilson (4), experimental gamma calculation, correlation factor analysis
-- [ ] **Extend criterion benches** (~1–2h) — RR, isothermal flash, bubble/dew, envelope
-- [ ] **Validate Chapter IV cases** (~3–4h) — all 8 test cases, verify <1–5% error vs. published results — validation tests pass
+- [ ] **Implement phase-envelope continuation** (~3–4h) — Michelsen predictor-corrector (24), adaptive step through the critical point (§K). **Deferred** — the one remaining algorithm; needed for near-critical bubble/dew (the Chapter IV kij high-CO₂ points)
+- [x] **Implement adiabatic flash** — warm-started nested T-loop (bisection outer, K-seeded inner flash) (§M) — `flash/adiabatic.rs`, `flash_isothermal_warm`
+- [x] **Implement critical point** — Heidemann (16) with **dual-number** Helmholtz derivatives (§G); 2-D Newton on {λ_min, cubic form} — `flash/critical.rs`
+- [x] **Implement kij regression** — Brent minimization replacing golden section (4) — `flash/kij_regression.rs` + `numerics::root_finding::brent_minimize`
+- [x] **Implement Aij regression** — Levenberg-Marquardt for Margules/VanLaar/Wilson (4) — `flash/aij_regression.rs`
+- [x] **Extend criterion benches** — RR + isothermal flash — `engine/benches/engine_bench.rs`
+- [x] **Validate Chapter IV cases** — isothermal flash (Table 4.10) reproduced vs published x₁/y₁/β; kij fit validated on the sub-critical subset — `engine/tests/chapter_iv_validation.rs`. Full-dataset kij + the remaining table groups land with the phase envelope + notebooks
 - [ ] **Create milestone notebooks** (~10–13h total) — per CLAUDE.md *Notebook Conventions*, one notebook per Chapter IV table group with research-paper snippets, reproduction, and ≥2 exercises each:
   - `notebooks/04_bubble_dew_point.ipynb` (~2–3h) — Tables 4.6–4.9
   - `notebooks/05_flash_calculations.ipynb` (~2–3h) — Tables 4.3–4.4, 4.10

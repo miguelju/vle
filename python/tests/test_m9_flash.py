@@ -198,3 +198,102 @@ def test_stability_single_phase_stable():
     )
     assert stable
     assert trial_k == []
+
+
+# =============================================================================
+# Critical point / adiabatic / regression (M9 tail)
+# =============================================================================
+
+
+def test_critical_point_pure_recovers_tc_pc():
+    """Pure ethane critical point recovers its Tc, Pc under PR."""
+    tc, pc, vc = e.critical_point_py(
+        e.CubicEos.PR1976, [305.32], [4872.0], [0.0995], [1.0], t_init=305.0,
+    )
+    assert abs(tc - 305.32) < 1.0
+    assert abs(pc - 4872.0) / 4872.0 < 0.02
+    assert vc > 0.0
+
+
+def test_critical_point_binary_between_pures():
+    tc, pc, vc = e.critical_point_py(
+        e.CubicEos.PR1976, [190.564, 305.32], [4599.0, 4872.0],
+        [0.0115, 0.0995], [0.5, 0.5], t_init=250.0,
+    )
+    assert 190.564 < tc < 305.32
+    assert pc > 0.0
+
+
+def test_adiabatic_flash_round_trip():
+    """Compute a stream enthalpy at a known T*, then recover T* from it."""
+    tcs = [469.7, 617.7]
+    pcs = [3370.0, 2110.0]
+    om = [0.252, 0.4884]
+    cp = [[1.5, 4.0e-2, -1.2e-5, 0.0, 0.0], [2.0, 8.0e-2, -2.4e-5, 0.0, 0.0]]
+    z = [0.5, 0.5]
+    p, t_star = 500.0, 450.0
+    # Phase split at T* via isothermal flash, then the weighted stream enthalpy.
+    beta, x, y, k, _, two_phase = e.flash_pt(
+        tcs, pcs, om, z, t_star, p, vapor_kind="cubic", liquid_kind="cubic",
+        vapor_eos=e.CubicEos.PR1976, liquid_eos=e.CubicEos.PR1976,
+    )
+    assert two_phase
+    hL, _ = e.mixture_phase_enthalpy_entropy(
+        e.CubicEos.PR1976, e.MixingRule.Classical, tcs, pcs, om, cp, x, [],
+        t_star, p, "liquid",
+    )
+    hV, _ = e.mixture_phase_enthalpy_entropy(
+        e.CubicEos.PR1976, e.MixingRule.Classical, tcs, pcs, om, cp, y, [],
+        t_star, p, "vapor",
+    )
+    h_feed = beta * hV + (1 - beta) * hL
+    t, betaA, xA, yA, hA = e.flash_adiabatic_py(
+        e.CubicEos.PR1976, tcs, pcs, om, cp, z, p, h_feed, 420.0, 480.0,
+    )
+    assert abs(t - t_star) < 0.1, f"recovered T={t} vs {t_star}"
+
+
+def test_fit_kij_recovers_known_value():
+    """Fit kij to synthetic data generated at k*=0.13 (CO2/n-butane, PR)."""
+    tcs = [304.13, 425.12]
+    pcs = [7377.0, 3796.0]
+    om = [0.2239, 0.200]
+    psat = [[4.86, 1147.0, -8.0], [4.35, 2277.0, -30.0]]
+    k_true = 0.13
+    data = []
+    for x1 in [0.2, 0.4, 0.5, 0.6, 0.8]:
+        p, _, _ = e.bubble_pressure_py(
+            tcs, pcs, om, [x1, 1 - x1], 310.0,
+            vapor_kind="cubic", liquid_kind="cubic",
+            vapor_eos=e.CubicEos.PR1976, liquid_eos=e.CubicEos.PR1976,
+            kij=[[0.0, k_true], [k_true, 0.0]], psat_coeffs=psat, tol=1e-9,
+        )
+        data.append((310.0, x1, p))
+    kij, sse, rmse = e.fit_kij_py(
+        e.CubicEos.PR1976, tcs, pcs, om, psat, data, k_lo=-0.05, k_hi=0.3,
+    )
+    assert abs(kij - k_true) < 1e-3
+    assert rmse < 1e-2
+
+
+def test_fit_aij_recovers_van_laar():
+    """Fit van Laar (A12, A21) to synthetic bubble-pressure data."""
+    tcs = [512.6, 647.1]
+    pcs = [8097.0, 22064.0]
+    om = [0.564, 0.344]
+    psat = [[5.20, 3200.0, -35.0], [5.11, 3800.0, -46.0]]
+    a12t, a21t = 0.85, 0.52
+    data = []
+    for x1 in [0.2, 0.35, 0.5, 0.65, 0.8]:
+        p, _, _ = e.bubble_pressure_py(
+            tcs, pcs, om, [x1, 1 - x1], 298.15,
+            vapor_kind="ideal", liquid_kind="activity",
+            liquid_activity=e.ActivityModel.VanLaar,
+            aij=[[0.0, a12t], [a21t, 0.0]], psat_coeffs=psat, tol=1e-9,
+        )
+        data.append((298.15, x1, p))
+    a12, a21, sse, rmse, iters = e.fit_aij_py(
+        e.ActivityModel.VanLaar, tcs, pcs, om, psat, data, 0.3, 0.3,
+    )
+    assert abs(a12 - a12t) < 5e-3 and abs(a21 - a21t) < 5e-3
+    assert rmse < 1e-2

@@ -184,12 +184,74 @@ fn bench_activity(c: &mut Criterion) {
     g.finish();
 }
 
+/// Rachford-Rice inner solve (§F) and the full isothermal flash (§J) —
+/// added in Milestone 9. The RR bench isolates the scalar Halley loop; the
+/// flash bench measures the whole Wilson-init + GDEM-SS convergence for a
+/// two-phase binary.
+fn bench_flash(c: &mut Criterion) {
+    use vle_thermo::eos::{LiquidModel, VaporModel};
+    use vle_thermo::flash::SystemSpec;
+    use vle_thermo::flash::isothermal::{flash_isothermal, rachford_rice};
+    use vle_thermo::mixing::MixingRule;
+
+    let mut g = c.benchmark_group("flash");
+    g.bench_function("rachford_rice_ternary", |b| {
+        let z = [0.3, 0.4, 0.3];
+        let k = [3.0, 1.2, 0.4];
+        b.iter(|| rachford_rice(black_box(&z), black_box(&k), 1e-12, 100).unwrap())
+    });
+
+    let comps = [
+        Component {
+            name: "n-butane".into(),
+            tc: 425.12,
+            pc: 3796.0,
+            omega: 0.200,
+            ..Component::default()
+        },
+        Component {
+            name: "n-heptane".into(),
+            tc: 540.2,
+            pc: 2740.0,
+            omega: 0.350,
+            ..Component::default()
+        },
+    ];
+    let spec = SystemSpec {
+        components: &comps,
+        vapor: VaporModel::Cubic(CubicEos::RKS1972),
+        liquid: LiquidModel::Cubic(CubicEos::RKS1972),
+        mixing_rule: MixingRule::Classical,
+        kij: &[],
+        aij: &[],
+        vl: &[],
+        delta: &[],
+        sat_models: &[],
+        ge_model: None,
+    };
+    g.bench_function("isothermal_flash_rks_binary", |b| {
+        b.iter(|| {
+            flash_isothermal(
+                black_box(&spec),
+                black_box(420.0),
+                black_box(1000.0),
+                black_box(&[0.5, 0.5]),
+                1e-10,
+                200,
+            )
+            .unwrap()
+        })
+    });
+    g.finish();
+}
+
 criterion_group!(
     benches,
     bench_alpha,
     bench_z_factor,
     bench_ln_phi,
     bench_saturation,
-    bench_activity
+    bench_activity,
+    bench_flash
 );
 criterion_main!(benches);

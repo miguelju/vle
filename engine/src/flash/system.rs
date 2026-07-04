@@ -78,8 +78,10 @@ impl<'a> SystemSpec<'a> {
         })
     }
 
-    /// `MixtureSpec` for a cubic phase using the given EOS.
-    fn mixture_spec(&self, eos: crate::eos::CubicEos) -> MixtureSpec<'a> {
+    /// `MixtureSpec` for a cubic phase using the given EOS. Exposed to the
+    /// energy-based flash drivers (adiabatic, critical point) that need the
+    /// mixture layer directly.
+    pub(crate) fn mixture_spec(&self, eos: crate::eos::CubicEos) -> MixtureSpec<'a> {
         MixtureSpec {
             eos,
             rule: self.mixing_rule,

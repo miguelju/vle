@@ -217,6 +217,24 @@ pub fn flash_isothermal(
     tol: f64,
     max_iter: usize,
 ) -> Result<FlashResult, FlashError> {
+    flash_isothermal_warm(spec, t, p, z, None, tol, max_iter)
+}
+
+/// Isothermal flash with an optional **warm-start** K-value vector (§J, §M).
+///
+/// Identical to [`flash_isothermal`] but seeds the K-loop from `k_init` when
+/// given (e.g. the previous temperature's converged K in the adiabatic
+/// flash's nested loop), falling back to Wilson otherwise. `k_init`, when
+/// present, must have length N.
+pub fn flash_isothermal_warm(
+    spec: &SystemSpec,
+    t: f64,
+    p: f64,
+    z: &[f64],
+    k_init: Option<&[f64]>,
+    tol: f64,
+    max_iter: usize,
+) -> Result<FlashResult, FlashError> {
     let n = spec.n();
     if z.len() != n {
         return Err(FlashError::Dimension(format!(
@@ -225,8 +243,11 @@ pub fn flash_isothermal(
         )));
     }
 
-    // Wilson initial K-values.
-    let mut k = wilson_k_values(spec.components, t, p);
+    // Warm-start K if supplied and shaped right, else Wilson.
+    let mut k = match k_init {
+        Some(k0) if k0.len() == n => k0.to_vec(),
+        _ => wilson_k_values(spec.components, t, p),
+    };
 
     let mut r_prev: Option<Vec<f64>> = None;
     let mut last_beta = 0.5;

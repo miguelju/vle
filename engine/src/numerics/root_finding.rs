@@ -357,3 +357,160 @@ mod tests {
         assert_close(r, -1.0, 1e-6);
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Brent's method for one-dimensional MINIMIZATION (parabolic interpolation
+// + golden-section fallback). Distinct from the root finders above: this
+// finds a local minimum of a scalar function on a bracket, not a zero.
+// Used for kij parameter regression (§B) — it replaces the legacy
+// golden-section search with the same guaranteed convergence but the
+// super-linear speed of parabolic interpolation near the optimum.
+//
+// Reference: Brent, R. P., *Algorithms for Minimization without
+// Derivatives* (1973), Ch. 5; Press et al., *Numerical Recipes*, §10.2.
+// ─────────────────────────────────────────────────────────────────────
+
+/// Golden ratio complement `(3 − √5)/2` used by the golden-section fallback.
+const CGOLD: f64 = 0.381_966_011_250_105_2;
+
+/// Minimize a scalar function on the bracket `[a, b]` by Brent's method.
+///
+/// Returns `(x_min, f(x_min))`. The function should be (at least locally)
+/// unimodal on `[a, b]`; the algorithm combines inverse-parabolic
+/// interpolation (fast near a smooth minimum) with a golden-section
+/// safeguard (guaranteed linear progress otherwise), so it always
+/// converges to a local minimum inside the bracket.
+///
+/// # Arguments
+/// * `f` — objective, evaluated as `FnMut(f64) -> f64`.
+/// * `a`, `b` — the bracket ends (any order).
+/// * `tol` — relative x-tolerance; convergence when the bracket half-width
+///   falls below `tol·|x| + 1e-12`.
+/// * `max_iter` — hard iteration cap.
+///
+/// # Errors
+/// [`RootError::NoConvergence`] if the cap is hit before the tolerance.
+pub fn brent_minimize<F>(
+    mut f: F,
+    a: f64,
+    b: f64,
+    tol: f64,
+    max_iter: usize,
+) -> Result<(f64, f64), RootError>
+where
+    F: FnMut(f64) -> f64,
+{
+    let (mut lo, mut hi) = if a < b { (a, b) } else { (b, a) };
+    // x = best point so far; w = second best; v = previous w.
+    let mut x = lo + CGOLD * (hi - lo);
+    let (mut w, mut v) = (x, x);
+    let mut fx = f(x);
+    let (mut fw, mut fv) = (fx, fx);
+    let mut d = 0.0_f64;
+    let mut e = 0.0_f64; // the step before last
+
+    for iter in 0..max_iter {
+        let xm = 0.5 * (lo + hi);
+        let tol1 = tol * x.abs() + 1e-12;
+        let tol2 = 2.0 * tol1;
+        if (x - xm).abs() <= tol2 - 0.5 * (hi - lo) {
+            return Ok((x, fx));
+        }
+        let mut use_golden = true;
+        if e.abs() > tol1 {
+            // Try inverse-parabolic interpolation through (x, w, v).
+            let r = (x - w) * (fx - fv);
+            let q0 = (x - v) * (fx - fw);
+            let mut p = (x - v) * q0 - (x - w) * r;
+            let mut q = 2.0 * (q0 - r);
+            if q > 0.0 {
+                p = -p;
+            }
+            q = q.abs();
+            let e_temp = e;
+            e = d;
+            // Accept the parabolic step only if it stays in the bracket and
+            // is smaller than half the step-before-last.
+            if p.abs() < (0.5 * q * e_temp).abs() && p > q * (lo - x) && p < q * (hi - x) {
+                d = p / q;
+                let u = x + d;
+                if (u - lo) < tol2 || (hi - u) < tol2 {
+                    d = if xm - x >= 0.0 { tol1 } else { -tol1 };
+                }
+                use_golden = false;
+            }
+        }
+        if use_golden {
+            e = if x >= xm { lo - x } else { hi - x };
+            d = CGOLD * e;
+        }
+        // Take a step at least tol1 away from x.
+        let u = if d.abs() >= tol1 {
+            x + d
+        } else if d >= 0.0 {
+            x + tol1
+        } else {
+            x - tol1
+        };
+        let fu = f(u);
+        // Bookkeeping: update the bracket and the best/second-best points.
+        if fu <= fx {
+            if u >= x {
+                lo = x;
+            } else {
+                hi = x;
+            }
+            v = w;
+            fv = fw;
+            w = x;
+            fw = fx;
+            x = u;
+            fx = fu;
+        } else {
+            if u < x {
+                lo = u;
+            } else {
+                hi = u;
+            }
+            if fu <= fw || w == x {
+                v = w;
+                fv = fw;
+                w = u;
+                fw = fu;
+            } else if fu <= fv || v == x || v == w {
+                v = u;
+                fv = fu;
+            }
+        }
+        if iter + 1 == max_iter {
+            return Err(RootError::NoConvergence {
+                max_iter,
+                last_residual: hi - lo,
+            });
+        }
+    }
+    Ok((x, fx))
+}
+
+#[cfg(test)]
+mod minimize_tests {
+    use super::*;
+
+    #[test]
+    fn finds_parabola_minimum() {
+        // (x − 3)² + 1 → min at x = 3, f = 1.
+        let (xm, fm) =
+            brent_minimize(|x| (x - 3.0).powi(2) + 1.0, -10.0, 10.0, 1e-10, 100).unwrap();
+        assert!((xm - 3.0).abs() < 1e-6, "x_min={xm}");
+        assert!((fm - 1.0).abs() < 1e-9, "f_min={fm}");
+    }
+
+    #[test]
+    fn finds_minimum_of_quartic() {
+        // A smooth quartic with a single interior minimum on [0, 2].
+        let f = |x: f64| x.powi(4) - 4.0 * x.powi(2) + x; // min near x ≈ 1.347
+        let (xm, _) = brent_minimize(f, 0.5, 2.0, 1e-10, 100).unwrap();
+        // Derivative 4x³ − 8x + 1 = 0 has its interior minimum at x ≈ 1.34700.
+        assert!((xm - 1.34700).abs() < 1e-3, "x_min={xm}");
+    }
+}

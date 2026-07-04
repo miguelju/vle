@@ -1297,9 +1297,13 @@ fn mixture_chao_seader_ln_phi(
 // ──────────────────────────────────────────────────────────────────────
 
 use crate::eos::{LiquidModel, VaporModel};
+use crate::flash::adiabatic::flash_adiabatic;
+use crate::flash::aij_regression::{AijBubblePoint, fit_aij};
 use crate::flash::bubble::{bubble_pressure, bubble_temperature};
+use crate::flash::critical::critical_point;
 use crate::flash::dew::{dew_pressure, dew_temperature};
 use crate::flash::isothermal::{flash_isothermal, rachford_rice as rachford_rice_rs};
+use crate::flash::kij_regression::{BubblePoint, fit_kij};
 use crate::flash::stability::{Stability, stability_analysis};
 use crate::flash::{FlashError, SystemSpec, k_values as flash_k_values};
 use crate::mixing::MixingRule;
@@ -1682,6 +1686,141 @@ saturation_pyfn!(
     "`value` = T in K and `incipient` = the liquid x"
 );
 
+/// Mixture critical point (Heidemann §G) for a two-parameter cubic EOS with
+/// classical mixing. Returns `(Tc [K], Pc [kPa], Vc [m³/kmol])`.
+///
+/// `t_init` is an initial temperature guess (pass 0.0 to use the
+/// mole-fraction-average Tc).
+#[pyfunction]
+#[pyo3(signature = (eos, tcs, pcs, omegas, z, t_init=0.0, kij=vec![], max_iter=200))]
+#[allow(clippy::too_many_arguments)]
+fn critical_point_py(
+    eos: CubicEos,
+    tcs: Vec<f64>,
+    pcs: Vec<f64>,
+    omegas: Vec<f64>,
+    z: Vec<f64>,
+    t_init: f64,
+    kij: Vec<Vec<f64>>,
+    max_iter: usize,
+) -> PyResult<(f64, f64, f64)> {
+    let comps = flash_components(&tcs, &pcs, &omegas, &[], &[])?;
+    let spec = SystemSpec {
+        components: &comps,
+        vapor: VaporModel::Cubic(eos),
+        liquid: LiquidModel::Cubic(eos),
+        mixing_rule: MixingRule::Classical,
+        kij: &kij,
+        aij: &[],
+        vl: &[],
+        delta: &[],
+        sat_models: &[],
+        ge_model: None,
+    };
+    let cp = critical_point(&spec, &z, t_init, max_iter).map_err(map_flash_err)?;
+    Ok((cp.tc, cp.pc, cp.vc))
+}
+
+/// Adiabatic (PH) flash for a φ-φ cubic system. Returns
+/// `(t, beta, x, y, enthalpy)` — the flash temperature (K), vapor fraction,
+/// phase compositions, and the stream enthalpy (kJ/kmol).
+#[pyfunction]
+#[pyo3(signature = (eos, tcs, pcs, omegas, cp_coeffs, z, p, h_feed, t_lo, t_hi,
+    t_ref=298.15, p_ref=101.325, kij=vec![], tol=1e-4, max_iter=200))]
+#[allow(clippy::too_many_arguments)]
+fn flash_adiabatic_py(
+    eos: CubicEos,
+    tcs: Vec<f64>,
+    pcs: Vec<f64>,
+    omegas: Vec<f64>,
+    cp_coeffs: Vec<Vec<f64>>,
+    z: Vec<f64>,
+    p: f64,
+    h_feed: f64,
+    t_lo: f64,
+    t_hi: f64,
+    t_ref: f64,
+    p_ref: f64,
+    kij: Vec<Vec<f64>>,
+    tol: f64,
+    max_iter: usize,
+) -> PyResult<(f64, f64, Vec<f64>, Vec<f64>, f64)> {
+    let comps = mix_components(&tcs, &pcs, &omegas, &cp_coeffs)?;
+    let spec = SystemSpec {
+        components: &comps,
+        vapor: VaporModel::Cubic(eos),
+        liquid: LiquidModel::Cubic(eos),
+        mixing_rule: MixingRule::Classical,
+        kij: &kij,
+        aij: &[],
+        vl: &[],
+        delta: &[],
+        sat_models: &[],
+        ge_model: None,
+    };
+    let r = flash_adiabatic(
+        &spec, p, &z, h_feed, t_ref, p_ref, t_lo, t_hi, tol, max_iter,
+    )
+    .map_err(map_flash_err)?;
+    Ok((r.t, r.flash.beta, r.flash.x, r.flash.y, r.enthalpy))
+}
+
+/// Fit a binary EOS `k₁₂` to bubble-pressure data. `data` is a list of
+/// `(T [K], x1, P_exp [kPa])` triples. Returns `(kij, sse, rmse)`.
+#[pyfunction]
+#[pyo3(signature = (eos, tcs, pcs, omegas, psat_coeffs, data, k_lo=-0.1, k_hi=0.3, tol=1e-6, max_iter=100))]
+#[allow(clippy::too_many_arguments)]
+fn fit_kij_py(
+    eos: CubicEos,
+    tcs: Vec<f64>,
+    pcs: Vec<f64>,
+    omegas: Vec<f64>,
+    psat_coeffs: Vec<Vec<f64>>,
+    data: Vec<(f64, f64, f64)>,
+    k_lo: f64,
+    k_hi: f64,
+    tol: f64,
+    max_iter: usize,
+) -> PyResult<(f64, f64, f64)> {
+    let comps = flash_components(&tcs, &pcs, &omegas, &psat_coeffs, &[])?;
+    let pts: Vec<BubblePoint> = data
+        .into_iter()
+        .map(|(t, x1, p_exp)| BubblePoint { t, x1, p_exp })
+        .collect();
+    let fit = fit_kij(eos, &comps, &pts, k_lo, k_hi, tol, max_iter).map_err(map_flash_err)?;
+    Ok((fit.kij, fit.sse, fit.rmse))
+}
+
+/// Fit binary activity-model parameters `(A₁₂, A₂₁)` to bubble-pressure data
+/// by Levenberg–Marquardt. `data` is a list of `(T [K], x1, P_exp [kPa])`.
+/// Returns `(a12, a21, sse, rmse, iterations)`.
+#[pyfunction]
+#[pyo3(signature = (model, tcs, pcs, omegas, psat_coeffs, data, a12_0, a21_0,
+    vl=vec![], tol=1e-10, max_iter=100))]
+#[allow(clippy::too_many_arguments)]
+fn fit_aij_py(
+    model: ActivityModel,
+    tcs: Vec<f64>,
+    pcs: Vec<f64>,
+    omegas: Vec<f64>,
+    psat_coeffs: Vec<Vec<f64>>,
+    data: Vec<(f64, f64, f64)>,
+    a12_0: f64,
+    a21_0: f64,
+    vl: Vec<f64>,
+    tol: f64,
+    max_iter: usize,
+) -> PyResult<(f64, f64, f64, f64, usize)> {
+    let comps = flash_components(&tcs, &pcs, &omegas, &psat_coeffs, &vl)?;
+    let pts: Vec<AijBubblePoint> = data
+        .into_iter()
+        .map(|(t, x1, p_exp)| AijBubblePoint { t, x1, p_exp })
+        .collect();
+    let fit =
+        fit_aij(model, &comps, &vl, &pts, a12_0, a21_0, tol, max_iter).map_err(map_flash_err)?;
+    Ok((fit.a12, fit.a21, fit.sse, fit.rmse, fit.iterations))
+}
+
 /// PyO3 module entry point.
 ///
 /// Maturin builds this into `vle/_engine.<platform>.<ext>` and Python
@@ -1783,6 +1922,12 @@ fn _engine(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(bubble_temperature_py, m)?)?;
     m.add_function(wrap_pyfunction!(dew_pressure_py, m)?)?;
     m.add_function(wrap_pyfunction!(dew_temperature_py, m)?)?;
+
+    // M9 critical point, adiabatic flash, and kij/Aij regression.
+    m.add_function(wrap_pyfunction!(critical_point_py, m)?)?;
+    m.add_function(wrap_pyfunction!(flash_adiabatic_py, m)?)?;
+    m.add_function(wrap_pyfunction!(fit_kij_py, m)?)?;
+    m.add_function(wrap_pyfunction!(fit_aij_py, m)?)?;
 
     Ok(())
 }

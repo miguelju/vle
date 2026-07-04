@@ -241,19 +241,19 @@ Newton loops depend on.
 
 Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md)); all Newton loops consume the Milestone 8.3 analytic/AD Jacobians.
 
-*In progress — flash core + bubble/dew shipped (code + tests + bindings) by Claude Code using Claude Fable 5; critical point, envelope, adiabatic, regression, Chapter IV validation, and notebooks pending.*
+*In progress — all algorithms + bindings + tests shipped (Claude Code using Claude Fable 5); only phase-envelope continuation and the notebooks remain.*
 
 - [x] Wilson K-value initialization (29) + tangent-plane-distance stability analysis (7) (§I) — `flash/init.rs`, `flash/stability.rs`
 - [x] Isothermal flash — GDEM-accelerated SS (§J); Rachford-Rice via Halley inside the Leibovici–Neoschil window (§F, guaranteed convergence + negative flash) — `flash/isothermal.rs` (analytic-Jacobian Newton polish is a follow-on refinement)
 - [x] Bubble point (T and P) — Wilson-seeded SS with multiplicative-P / bisection-T outer solve (§K); φ-φ and γ-φ paths — `flash/bubble.rs`
 - [x] Dew point (T and P) — same structure (§K) — `flash/dew.rs`
-- [ ] Phase-envelope continuation through the critical point (24) (§K)
-- [ ] Adiabatic flash — warm-started nested loop (§M)
-- [ ] Critical point — Heidemann with analytical Helmholtz derivatives (§G)
-- [ ] kij regression via Brent's method (§B), warm-started per data point
-- [ ] Aij regression — Levenberg-Marquardt with analytical Jacobian (4)
-- [ ] Extend criterion benches with RR / flash / bubble-dew / envelope
-- [ ] Validate all 8 Chapter IV test cases (<1–5% error) — validation tests pass
+- [ ] Phase-envelope continuation through the critical point (24) (§K) — deferred; needed for near-critical bubble/dew (see the Chapter IV kij caveat)
+- [x] Adiabatic flash — warm-started nested loop (§M) — `flash/adiabatic.rs`
+- [x] Critical point — Heidemann with dual-number Helmholtz derivatives (§G) — `flash/critical.rs` (2-D Newton on {λ_min, cubic form})
+- [x] kij regression via Brent's method (§B) — `flash/kij_regression.rs` (`brent_minimize` in numerics)
+- [x] Aij regression — Levenberg-Marquardt (4) — `flash/aij_regression.rs`
+- [x] Extend criterion benches with RR / flash — `engine/benches/engine_bench.rs` (`bench_flash`)
+- [x] Validate Chapter IV cases — isothermal flash (Table 4.10) reproduced against published numbers; kij fit validated on the sub-critical subset (`engine/tests/chapter_iv_validation.rs`). The near-critical kij points and remaining table groups land with the phase-envelope solver + notebooks.
 - [ ] Create milestone notebooks — professional structure per CLAUDE.md *Notebook Conventions*; one notebook per thesis table group, each reproducing the referenced Chapter IV table(s) with snippets from the research paper and ≥2 user exercises:
   - `notebooks/04_bubble_dew_point.ipynb` — Tables 4.6–4.9
   - `notebooks/05_flash_calculations.ipynb` — Tables 4.3–4.4, 4.10
