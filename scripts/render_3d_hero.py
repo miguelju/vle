@@ -52,7 +52,8 @@ def main() -> None:
     # ---- Left: the phase-envelope dome --------------------------------
     ax1 = fig.add_subplot(1, 2, 1, projection="3d")
     style_axis(ax1)
-    z1, t, p = dome["z1"], dome["T_K"], dome["P_kPa"]
+    # Render temperatures in °C (the CSVs keep the engine's canonical K).
+    z1, t, p = dome["z1"], dome["T_K"] - 273.15, dome["P_kPa"]
     # Envelope curves per composition, colored by pressure (plasma).
     norm = plt.Normalize(p.min(), p.max())
     for z_val in np.unique(z1):
@@ -70,15 +71,15 @@ def main() -> None:
     # Critical locus — the glowing ridge.
     order = np.argsort(crit["z1"])
     ax1.plot(
-        crit["z1"][order], crit["Tc_K"][order], crit["Pc_kPa"][order] / 1000.0,
+        crit["z1"][order], (crit["Tc_K"][order] - 273.15), crit["Pc_kPa"][order] / 1000.0,
         color="#00e5ff", lw=3.0, alpha=1.0, zorder=10, label="critical locus",
     )
     ax1.scatter(
-        crit["z1"][order], crit["Tc_K"][order], crit["Pc_kPa"][order] / 1000.0,
+        crit["z1"][order], (crit["Tc_K"][order] - 273.15), crit["Pc_kPa"][order] / 1000.0,
         color="#00e5ff", s=12, zorder=11,
     )
     ax1.set_xlabel("methane mole fraction", color=FG, fontsize=8, labelpad=6)
-    ax1.set_ylabel("T (K)", color=FG, fontsize=8, labelpad=6)
+    ax1.set_ylabel("T (°C)", color=FG, fontsize=8, labelpad=6)
     ax1.set_zlabel("P (MPa)", color=FG, fontsize=8, labelpad=4)
     ax1.set_title(
         "Phase-envelope dome — methane/ethane (PR)\nMichelsen continuation through the critical locus",
@@ -91,7 +92,7 @@ def main() -> None:
     # ---- Right: the P-x-y sail -----------------------------------------
     ax2 = fig.add_subplot(1, 2, 2, projection="3d")
     style_axis(ax2)
-    ts, x1, y1, ps = sail["T_K"], sail["x1"], sail["y1"], sail["P_kPa"]
+    ts, x1, y1, ps = sail["T_K"] - 273.15, sail["x1"], sail["y1"], sail["P_kPa"]
     # Bubble surface (over x1) and dew surface (over y1) as trisurfs.
     ax2.plot_trisurf(x1, ts, ps, cmap="viridis", alpha=0.75, linewidth=0.0,
                      antialiased=True)
@@ -104,21 +105,28 @@ def main() -> None:
         ax2.plot(y1[m], ts[m], ps[m], color="#ffb46b", lw=0.9, alpha=0.9)
     ax2.set_xlabel("methanol mole fraction (x bubble / y dew)", color=FG,
                    fontsize=8, labelpad=6)
-    ax2.set_ylabel("T (K)", color=FG, fontsize=8, labelpad=6)
-    ax2.set_zlabel("P (kPa)", color=FG, fontsize=8, labelpad=4)
+    ax2.set_ylabel("T (°C)", color=FG, fontsize=8, labelpad=6)
+    ax2.set_zlabel("P (kPa)", color=FG, fontsize=8, labelpad=8)
     ax2.set_title(
         "P–x–y sail — methanol/water (van Laar γ-φ)\nbubble (green rims) and dew (orange rims) surfaces",
         color=FG, fontsize=10, pad=10,
     )
-    ax2.view_init(elev=20, azim=-50)
+    # Mirror the dome's viewing geometry: with azim=-58 the z-axis sits
+    # inside the frame (not at the crop edge), so the "P (kPa)" label
+    # stays visible in the tight-bbox export.
+    ax2.view_init(elev=22, azim=-58)
 
     fig.suptitle(
         "vle-thermo — every point below computed by the Rust engine",
         color=FG, fontsize=12, y=0.98,
     )
-    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    # Explicit margins instead of bbox_inches="tight": the tight-bbox export
+    # clips mplot3d z-axis labels that sit at the figure edge (the sail's
+    # "P (kPa)"). A reserved right margin keeps both pressure labels visible,
+    # and the lowered top keeps the subplot titles clear of the suptitle.
+    fig.subplots_adjust(left=0.0, right=0.92, top=0.80, bottom=0.02, wspace=0.08)
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(OUT, dpi=170, facecolor=BG, bbox_inches="tight")
+    fig.savefig(OUT, dpi=170, facecolor=BG)
     size_kb = OUT.stat().st_size / 1024
     print(f"wrote {OUT.relative_to(REPO_ROOT)}  ({size_kb:.0f} KB)")
 
