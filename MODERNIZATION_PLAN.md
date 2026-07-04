@@ -567,9 +567,9 @@ vle/
 - Wilson binary parameter calculation from infinite-dilution activity coefficients: `CalcParBinWilson` (4) (from Pascal `TERMOIII.PAS:342`, Newton-Raphson)
 - **Key source files:** `legacy/vb6/clsActivityMulticomp.cls`, `legacy/pascal/TERMOIII.PAS`
 
-### Phase 11: Performance Foundation *(Milestone 8.2)*
+### Phase 11: Performance Foundation *(Milestone 8.2)* — **done**
 
-*Added 2026-07-01 — Tracks C + E of [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md). Pure speed and measurement work; no thermodynamic behavior change, gated by the existing test suite.*
+*Added 2026-07-01 — Tracks C + E of [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md). Pure speed and measurement work; no thermodynamic behavior change, gated by the existing test suite. Shipped: benches in `engine/benches/engine_bench.rs`, FFI benchmark in `scripts/bench_ffi_boundary.py`, `bench-rust` CI job, allocation-free cubic (`([f64;3],usize)`), `EosState`/`WilsonCache` caches, `smallvec` composition buffers, Sherman–Morrison Broyden.*
 
 - criterion benchmark suite (`engine/benches/`): α dispatch, Z-factor, pure ln φ, saturation, activity γ; extended as mixture fugacity / RR / flash land in later phases
 - Python-side boundary benchmark (scalar-loop vs future batch) to quantify FFI overhead
@@ -581,7 +581,7 @@ vle/
 - Broyden: in-place factorization update (Sherman–Morrison), no per-iteration `clone().lu()`
 - Drop the unused `ndarray` dependency
 
-### Phase 12: Mixing Rules + Derivative Core *(Milestone 8.3)*
+### Phase 12: Mixing Rules + Derivative Core *(Milestone 8.3)* — **done** (`engine/src/mixture.rs`)
 - Classical (IVDW, IIVDW) with kij (IVDW identical in both programs)
 - Wong-Sandler, Huron-Vidal (original + simplified), MHV1, MHV2 (21) (VB6)
 - Schmidt-Wenzel C-parameter mixing (4): C = F/E weighted average using acentric factors (from Pascal `TERMOII.PAS:234`)
@@ -589,7 +589,7 @@ vle/
 - **Derivative architecture (§L)**: mixing rules written once against the generalized (A, B, U, W) mixture core; classical rules carry hand-derived analytic composition derivatives; exotic rules (WS, MHV1/2) are generic over the scalar type and differentiated with `num-dual` (27) — finite differences retained only as test oracles
 - **Key source files:** `legacy/vb6/clsQbicsMulticomp.cls:395`, `legacy/pascal/TERMOII.PAS:211`
 
-### Phase 13: Multicomponent EOS *(Milestone 8.3)*
+### Phase 13: Multicomponent EOS *(Milestone 8.3)* — **done** (`engine/src/mixture.rs`)
 - Partial fugacity coefficients in solution for all mixing rules (9) (Müller et al. general expressions, Eqs 2.28–2.34), written once against the generalized (A, B, U, W) mixture form (26)
 - Analytic ∂ln φ̂ᵢ/∂nⱼ for cubic EOS + classical mixing (§L) — the Jacobian building block for Phases 15's Newton loops and §G's critical point
 - Mixture Z-factor calculation
@@ -597,15 +597,14 @@ vle/
 - Chao-Seader liquid fugacity for multicomponent mixtures (4) (from Pascal `TERMOII.PAS:386`)
 - **Key source files:** `legacy/vb6/clsQbicsMulticomp.cls`, `legacy/pascal/TERMOII.PAS`
 
-### Phase 14: Enthalpy & Entropy *(Milestone 8.4)*
-- Ideal gas Cp integration (polynomial, identical in both programs)
-- Departure functions for cubic EOS (9) and virial
-- Departure functions for 3-parameter EOS (4): Schmidt-Wenzel (note: marked as discontinuous in Pascal, returns NaN) and Patel-Teja (from Pascal `TERMOII.PAS:471`)
-- Analytical dα/dT for ALL 22+ EOS variants — extend Pascal's (4) `Aa_T` (from `TERMOII.PAS:411`, analytical for VdW-Adachi, RKS, RKS-Polar, PR, Patel-Teja) to cover all VB6 models. VB6's numerical 5-point stencil retained only as test oracle — see §D
-- Condensation enthalpy via Clausius-Clapeyron (4) (from Pascal `TERMOIII.PAS:283`)
-- Liquid residual enthalpy/entropy via condensation + excess properties path (4) (from Pascal `TERMOIII.PAS:294`)
-- Reference state handling (LiqSat, VapSat, IdealGas)
+### Phase 14: Enthalpy & Entropy *(Milestone 8.4)* — **done** (`engine/src/energy.rs`)
+- Ideal gas Cp integration (polynomial, identical in both programs) — `ideal_cp` + enthalpy/entropy integrals from the `Cpᵢ°/R` coefficients
+- Departure functions for cubic EOS (9) and virial — generalized-cubic `H^R/(RT)`, `S^R/R` via Lewis-Randall over the mixture `Σ xᵢ ln φ̂ᵢ`
+- Departure functions for 3-parameter EOS (4): Patel-Teja finite; Schmidt-Wenzel finite here via the engine's guarded analytic dα/dTr (the legacy Pascal returned NaN — a documented improvement)
+- **Analytical** `T·dA_mix/dT` for **every** mixing rule (no 5-point stencil): classical/3-param via per-component `dαᵢ/dT`, GE rules via the exact `T·d(Gᴱ/RT)/dT = −Hᴱ/(RT)` identity. VB6's numerical stencil retained only as the test oracle — see §D
+- Reference state handling (ideal-gas reference; LiqSat/VapSat anchoring via the excess-property liquid path lands with the M9 γ-φ flash)
 - **Key source files:** `legacy/pascal/TERMOII.PAS`, `legacy/pascal/TERMOIII.PAS`
+- *Deferred to M9 (γ-φ flash):* condensation enthalpy via Clausius-Clapeyron (Pascal `TERMOIII.PAS:283`) and the full liquid residual H/S condensation+excess path (`TERMOIII.PAS:294`) — these feed the activity-model liquid enthalpy consumed by the adiabatic flash, so they ship alongside it
 
 ### Phase 15: Flash Calculations *(Milestone 9)*
 

@@ -112,7 +112,12 @@ fn default_units_toml() -> &'static str {
 /// is near zero (not actually a cubic) or any coefficient is non-finite.
 #[pyfunction]
 fn solve_cubic(a: f64, b: f64, c: f64, d: f64) -> PyResult<Vec<f64>> {
-    crate::numerics::cubic::solve_real(a, b, c, d).map_err(|e| PyValueError::new_err(e.to_string()))
+    // The Rust core returns a stack array + live count (allocation-free hot
+    // path, M8.2); the FFI boundary converts to a Python list, so the
+    // Python-visible API is unchanged.
+    crate::numerics::cubic::solve_real(a, b, c, d)
+        .map(|(roots, count)| roots[..count].to_vec())
+        .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 /// Brent's method scalar root finder on a bracketed interval.
@@ -921,6 +926,363 @@ fn activity_excess_entropy(
     excess_entropy_rs(model, &x, &aij, &vl, &delta, t)
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// M8.3 / M8.4 — mixture core: mixing rules, multicomponent fugacity, the
+// exact composition-derivative Jacobian, and mixture energy properties.
+//
+// The scalar-array FFI convention (tcs/pcs/omegas + parallel lists)
+// continues from the multicomponent virial bindings. The mixing rule and
+// (optional) activity model are passed as the already-exposed enum
+// classes. GE-based rules (Wong-Sandler, Huron-Vidal, MHV1/2) require the
+// `ge_model` plus its `ge_aij`/`ge_vl`/`ge_delta` arrays; classical rules
+// leave `ge_model=None`.
+// ──────────────────────────────────────────────────────────────────────
+
+use crate::mixture::{
+    GeSpec, MixError, MixtureSpec, chao_seader_ln_phi_mix as chao_seader_ln_phi_mix_rs,
+    d_ln_phi_d_n as d_ln_phi_d_n_rs, ln_phi_mix as ln_phi_mix_rs, z_mix as z_mix_rs,
+};
+
+/// Build the component vector for a mixture binding from parallel scalar
+/// arrays. `cp` rows (may be empty) carry the ideal-Cp/R coefficients used
+/// only by the energy bindings; everything else stays at `Default`.
+fn mix_components(
+    tcs: &[f64],
+    pcs: &[f64],
+    omegas: &[f64],
+    cp: &[Vec<f64>],
+) -> PyResult<Vec<Component>> {
+    let n = tcs.len();
+    if pcs.len() != n || omegas.len() != n {
+        return Err(PyValueError::new_err(
+            "tcs, pcs, omegas must have the same length",
+        ));
+    }
+    (0..n)
+        .map(|i| {
+            let mut c = comp_for_eos(tcs[i], pcs[i], omegas[i]);
+            if let Some(row) = cp.get(i) {
+                if row.len() == 5 {
+                    c.cp_coeffs = [row[0], row[1], row[2], row[3], row[4]];
+                } else if !row.is_empty() {
+                    return Err(PyValueError::new_err(
+                        "each cp_coeffs row must have exactly 5 entries",
+                    ));
+                }
+            }
+            Ok(c)
+        })
+        .collect()
+}
+
+/// Map a [`MixError`] to a Python exception (ValueError for input/pairing
+/// problems, RuntimeError for numerical failures).
+fn map_mix_err(e: MixError) -> PyErr {
+    match e {
+        MixError::Dimension(_) | MixError::Unsupported(_) => PyValueError::new_err(e.to_string()),
+        _ => PyRuntimeError::new_err(e.to_string()),
+    }
+}
+
+/// Assemble a [`GeSpec`] from the optional activity model + its arrays.
+/// Returns `None` when `ge_model` is `None` (classical rules).
+fn ge_spec<'a>(
+    ge_model: Option<ActivityModel>,
+    ge_aij: &'a [Vec<f64>],
+    ge_vl: &'a [f64],
+    ge_delta: &'a [f64],
+) -> Option<GeSpec<'a>> {
+    ge_model.map(|model| GeSpec {
+        model,
+        aij: ge_aij,
+        vl: ge_vl,
+        delta: ge_delta,
+    })
+}
+
+/// Mixture compressibility factor Z for the requested phase.
+///
+/// `eos`/`rule` are the model-selection enums; `tcs`/`pcs`/`omegas`/`x` are
+/// parallel per-component arrays; `kij` is the N×N interaction matrix (pass
+/// `[]` for all-zero). GE-based rules also need `ge_model` + `ge_aij`/
+/// `ge_vl`/`ge_delta`. `t` in K, `p` in kPa abs, `phase` = "vapor"/"liquid".
+#[pyfunction]
+#[pyo3(signature = (eos, rule, tcs, pcs, omegas, x, kij, t, p, phase,
+    ge_model=None, ge_aij=vec![], ge_vl=vec![], ge_delta=vec![]))]
+#[allow(clippy::too_many_arguments)]
+fn mixture_z(
+    eos: CubicEos,
+    rule: crate::mixing::MixingRule,
+    tcs: Vec<f64>,
+    pcs: Vec<f64>,
+    omegas: Vec<f64>,
+    x: Vec<f64>,
+    kij: Vec<Vec<f64>>,
+    t: f64,
+    p: f64,
+    phase: &str,
+    ge_model: Option<ActivityModel>,
+    ge_aij: Vec<Vec<f64>>,
+    ge_vl: Vec<f64>,
+    ge_delta: Vec<f64>,
+) -> PyResult<f64> {
+    let comps = mix_components(&tcs, &pcs, &omegas, &[])?;
+    let phase = phase_from_str(phase)?;
+    let ge = ge_spec(ge_model, &ge_aij, &ge_vl, &ge_delta);
+    let spec = MixtureSpec {
+        eos,
+        rule,
+        components: &comps,
+        kij: &kij,
+        ge,
+    };
+    z_mix_rs(&spec, t, p, &x, phase).map_err(map_mix_err)
+}
+
+/// Partial fugacity coefficients ln φ̂ᵢ for every component (a list).
+/// Arguments as in [`mixture_z`].
+#[pyfunction]
+#[pyo3(signature = (eos, rule, tcs, pcs, omegas, x, kij, t, p, phase,
+    ge_model=None, ge_aij=vec![], ge_vl=vec![], ge_delta=vec![]))]
+#[allow(clippy::too_many_arguments)]
+fn mixture_ln_phi(
+    eos: CubicEos,
+    rule: crate::mixing::MixingRule,
+    tcs: Vec<f64>,
+    pcs: Vec<f64>,
+    omegas: Vec<f64>,
+    x: Vec<f64>,
+    kij: Vec<Vec<f64>>,
+    t: f64,
+    p: f64,
+    phase: &str,
+    ge_model: Option<ActivityModel>,
+    ge_aij: Vec<Vec<f64>>,
+    ge_vl: Vec<f64>,
+    ge_delta: Vec<f64>,
+) -> PyResult<Vec<f64>> {
+    let comps = mix_components(&tcs, &pcs, &omegas, &[])?;
+    let phase = phase_from_str(phase)?;
+    let ge = ge_spec(ge_model, &ge_aij, &ge_vl, &ge_delta);
+    let spec = MixtureSpec {
+        eos,
+        rule,
+        components: &comps,
+        kij: &kij,
+        ge,
+    };
+    ln_phi_mix_rs(&spec, t, p, &x, phase).map_err(map_mix_err)
+}
+
+/// Exact composition Jacobian ∂ln φ̂ᵢ/∂nⱼ, returned as an N×N list of lists.
+/// Analytic for classical mixing + 2-parameter EOS; dual-number AD
+/// otherwise (never finite differences). Arguments as in [`mixture_z`].
+#[pyfunction]
+#[pyo3(signature = (eos, rule, tcs, pcs, omegas, x, kij, t, p, phase,
+    ge_model=None, ge_aij=vec![], ge_vl=vec![], ge_delta=vec![]))]
+#[allow(clippy::too_many_arguments)]
+fn mixture_d_ln_phi_d_n(
+    eos: CubicEos,
+    rule: crate::mixing::MixingRule,
+    tcs: Vec<f64>,
+    pcs: Vec<f64>,
+    omegas: Vec<f64>,
+    x: Vec<f64>,
+    kij: Vec<Vec<f64>>,
+    t: f64,
+    p: f64,
+    phase: &str,
+    ge_model: Option<ActivityModel>,
+    ge_aij: Vec<Vec<f64>>,
+    ge_vl: Vec<f64>,
+    ge_delta: Vec<f64>,
+) -> PyResult<Vec<Vec<f64>>> {
+    let comps = mix_components(&tcs, &pcs, &omegas, &[])?;
+    let phase = phase_from_str(phase)?;
+    let ge = ge_spec(ge_model, &ge_aij, &ge_vl, &ge_delta);
+    let spec = MixtureSpec {
+        eos,
+        rule,
+        components: &comps,
+        kij: &kij,
+        ge,
+    };
+    d_ln_phi_d_n_rs(&spec, t, p, &x, phase).map_err(map_mix_err)
+}
+
+/// Mixture residual enthalpy H^R/(R·T) (dimensionless) for the phase.
+/// Arguments as in [`mixture_z`].
+#[pyfunction]
+#[pyo3(signature = (eos, rule, tcs, pcs, omegas, x, kij, t, p, phase,
+    ge_model=None, ge_aij=vec![], ge_vl=vec![], ge_delta=vec![]))]
+#[allow(clippy::too_many_arguments)]
+fn mixture_h_departure_rt(
+    eos: CubicEos,
+    rule: crate::mixing::MixingRule,
+    tcs: Vec<f64>,
+    pcs: Vec<f64>,
+    omegas: Vec<f64>,
+    x: Vec<f64>,
+    kij: Vec<Vec<f64>>,
+    t: f64,
+    p: f64,
+    phase: &str,
+    ge_model: Option<ActivityModel>,
+    ge_aij: Vec<Vec<f64>>,
+    ge_vl: Vec<f64>,
+    ge_delta: Vec<f64>,
+) -> PyResult<f64> {
+    let comps = mix_components(&tcs, &pcs, &omegas, &[])?;
+    let phase = phase_from_str(phase)?;
+    let ge = ge_spec(ge_model, &ge_aij, &ge_vl, &ge_delta);
+    let spec = MixtureSpec {
+        eos,
+        rule,
+        components: &comps,
+        kij: &kij,
+        ge,
+    };
+    crate::energy::h_departure_rt_mix(&spec, t, p, &x, phase).map_err(map_mix_err)
+}
+
+/// Mixture residual entropy S^R/R (dimensionless) for the phase.
+/// Arguments as in [`mixture_z`].
+#[pyfunction]
+#[pyo3(signature = (eos, rule, tcs, pcs, omegas, x, kij, t, p, phase,
+    ge_model=None, ge_aij=vec![], ge_vl=vec![], ge_delta=vec![]))]
+#[allow(clippy::too_many_arguments)]
+fn mixture_s_departure_r(
+    eos: CubicEos,
+    rule: crate::mixing::MixingRule,
+    tcs: Vec<f64>,
+    pcs: Vec<f64>,
+    omegas: Vec<f64>,
+    x: Vec<f64>,
+    kij: Vec<Vec<f64>>,
+    t: f64,
+    p: f64,
+    phase: &str,
+    ge_model: Option<ActivityModel>,
+    ge_aij: Vec<Vec<f64>>,
+    ge_vl: Vec<f64>,
+    ge_delta: Vec<f64>,
+) -> PyResult<f64> {
+    let comps = mix_components(&tcs, &pcs, &omegas, &[])?;
+    let phase = phase_from_str(phase)?;
+    let ge = ge_spec(ge_model, &ge_aij, &ge_vl, &ge_delta);
+    let spec = MixtureSpec {
+        eos,
+        rule,
+        components: &comps,
+        kij: &kij,
+        ge,
+    };
+    crate::energy::s_departure_r_mix(&spec, t, p, &x, phase).map_err(map_mix_err)
+}
+
+/// Total molar enthalpy and entropy of one phase (ideal + residual),
+/// returned as an `(H, S)` tuple — H in kJ/kmol, S in kJ/(kmol·K).
+///
+/// `cp_coeffs` is an N×5 list of ideal-Cp/R polynomial coefficients (one
+/// row per component). `t_ref`/`p_ref` set the ideal-gas reference; the
+/// per-component Hᵢ°/Sᵢ° default to 0. Other arguments as in [`mixture_z`].
+#[pyfunction]
+#[pyo3(signature = (eos, rule, tcs, pcs, omegas, cp_coeffs, x, kij, t, p, phase,
+    t_ref=298.15, p_ref=101.325, ge_model=None, ge_aij=vec![], ge_vl=vec![], ge_delta=vec![]))]
+#[allow(clippy::too_many_arguments)]
+fn mixture_phase_enthalpy_entropy(
+    eos: CubicEos,
+    rule: crate::mixing::MixingRule,
+    tcs: Vec<f64>,
+    pcs: Vec<f64>,
+    omegas: Vec<f64>,
+    cp_coeffs: Vec<Vec<f64>>,
+    x: Vec<f64>,
+    kij: Vec<Vec<f64>>,
+    t: f64,
+    p: f64,
+    phase: &str,
+    t_ref: f64,
+    p_ref: f64,
+    ge_model: Option<ActivityModel>,
+    ge_aij: Vec<Vec<f64>>,
+    ge_vl: Vec<f64>,
+    ge_delta: Vec<f64>,
+) -> PyResult<(f64, f64)> {
+    let comps = mix_components(&tcs, &pcs, &omegas, &cp_coeffs)?;
+    let phase = phase_from_str(phase)?;
+    let ge = ge_spec(ge_model, &ge_aij, &ge_vl, &ge_delta);
+    let spec = MixtureSpec {
+        eos,
+        rule,
+        components: &comps,
+        kij: &kij,
+        ge,
+    };
+    crate::energy::phase_enthalpy_entropy(&spec, t, p, &x, phase, t_ref, p_ref, &[], &[])
+        .map_err(map_mix_err)
+}
+
+/// Ideal-gas mixture enthalpy relative to `t_ref`, in kJ/kmol.
+/// `cp_coeffs` is N×5 (ideal-Cp/R coefficients per component).
+#[pyfunction]
+#[pyo3(signature = (tcs, pcs, omegas, cp_coeffs, x, t, t_ref=298.15))]
+fn mixture_ideal_enthalpy(
+    tcs: Vec<f64>,
+    pcs: Vec<f64>,
+    omegas: Vec<f64>,
+    cp_coeffs: Vec<Vec<f64>>,
+    x: Vec<f64>,
+    t: f64,
+    t_ref: f64,
+) -> PyResult<f64> {
+    let comps = mix_components(&tcs, &pcs, &omegas, &cp_coeffs)?;
+    Ok(crate::energy::ideal_enthalpy_mix(&comps, &x, t, t_ref, &[]))
+}
+
+/// Ideal-gas mixture entropy relative to `(t_ref, p_ref)` including the
+/// `−R Σ xᵢ ln xᵢ` mixing term, in kJ/(kmol·K). `cp_coeffs` is N×5.
+#[pyfunction]
+#[pyo3(signature = (tcs, pcs, omegas, cp_coeffs, x, t, p, t_ref=298.15, p_ref=101.325))]
+#[allow(clippy::too_many_arguments)]
+fn mixture_ideal_entropy(
+    tcs: Vec<f64>,
+    pcs: Vec<f64>,
+    omegas: Vec<f64>,
+    cp_coeffs: Vec<Vec<f64>>,
+    x: Vec<f64>,
+    t: f64,
+    p: f64,
+    t_ref: f64,
+    p_ref: f64,
+) -> PyResult<f64> {
+    let comps = mix_components(&tcs, &pcs, &omegas, &cp_coeffs)?;
+    Ok(crate::energy::ideal_entropy_mix(
+        &comps,
+        &x,
+        t,
+        p,
+        t_ref,
+        p_ref,
+        &[],
+    ))
+}
+
+/// Chao-Seader multicomponent liquid ln νᵢ (a list). `species` is a list of
+/// [`ChaoSeaderSpecies`] (one per component). `t` in K, `p` in kPa abs.
+#[pyfunction]
+fn mixture_chao_seader_ln_phi(
+    tcs: Vec<f64>,
+    pcs: Vec<f64>,
+    omegas: Vec<f64>,
+    species: Vec<ChaoSeaderSpecies>,
+    t: f64,
+    p: f64,
+) -> PyResult<Vec<f64>> {
+    let comps = mix_components(&tcs, &pcs, &omegas, &[])?;
+    chao_seader_ln_phi_mix_rs(&comps, &species, t, p).map_err(map_mix_err)
+}
+
 /// PyO3 module entry point.
 ///
 /// Maturin builds this into `vle/_engine.<platform>.<ext>` and Python
@@ -998,6 +1360,20 @@ fn _engine(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(activity_excess_gibbs, m)?)?;
     m.add_function(wrap_pyfunction!(activity_excess_enthalpy, m)?)?;
     m.add_function(wrap_pyfunction!(activity_excess_entropy, m)?)?;
+
+    // M8.3 mixture core — mixing rules, multicomponent fugacity, the exact
+    // composition-derivative Jacobian, and 3-param / Chao-Seader paths.
+    m.add_function(wrap_pyfunction!(mixture_z, m)?)?;
+    m.add_function(wrap_pyfunction!(mixture_ln_phi, m)?)?;
+    m.add_function(wrap_pyfunction!(mixture_d_ln_phi_d_n, m)?)?;
+    m.add_function(wrap_pyfunction!(mixture_chao_seader_ln_phi, m)?)?;
+
+    // M8.4 mixture energy properties — departures + ideal + total assembly.
+    m.add_function(wrap_pyfunction!(mixture_h_departure_rt, m)?)?;
+    m.add_function(wrap_pyfunction!(mixture_s_departure_r, m)?)?;
+    m.add_function(wrap_pyfunction!(mixture_ideal_enthalpy, m)?)?;
+    m.add_function(wrap_pyfunction!(mixture_ideal_entropy, m)?)?;
+    m.add_function(wrap_pyfunction!(mixture_phase_enthalpy_entropy, m)?)?;
 
     Ok(())
 }

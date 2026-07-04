@@ -36,6 +36,11 @@
 //! temperature-independent over the excess-property derivative (`Hᴱ = Gᴱ`,
 //! `Sᴱ = 0`), and we reproduce that exactly.
 
+// The generic full-vector helpers index parallel arrays (xₖ, Λₖⱼ) in nested
+// `for k/j in 0..n` loops that mirror the local-composition sums; allow the
+// range-loop lint here rather than obscure the activity-model formulas.
+#![allow(clippy::needless_range_loop)]
+
 /// Activity coefficient model for liquid-phase non-ideality.
 ///
 /// Each model computes ln(γᵢ) from composition and binary parameters (Aij),
@@ -174,6 +179,236 @@ fn wilson_lambda(i: usize, j: usize, aij: &[Vec<f64>], vl: &[f64], t: f64) -> f6
     } else {
         (vl[j] / vl[i]) * (-aij[i][j] / (R_GAS * t)).exp()
     }
+}
+
+/// Cached Wilson Λ matrix for one temperature (M8.2, PERFORMANCE_PROPOSAL
+/// §C2). Λᵢⱼ depends only on (T, aij, vl) — NOT on composition — so a
+/// flash iteration that updates x at fixed T can reuse one `WilsonCache`
+/// across every γ evaluation instead of paying N² `exp` calls each time.
+///
+/// The matrix is stored flattened row-major (`lambda[i*n + j]`) in a
+/// single contiguous buffer — cache-friendly and one allocation total.
+#[derive(Debug, Clone)]
+pub struct WilsonCache {
+    n: usize,
+    lambda: Vec<f64>,
+}
+
+impl WilsonCache {
+    /// Precompute Λᵢⱼ for all pairs at temperature `t` (**K**).
+    /// Arguments as in [`ln_gamma`] (`aij` in kJ/kmol, `vl` in cm³/mol).
+    pub fn new(aij: &[Vec<f64>], vl: &[f64], t: f64) -> Self {
+        let n = vl.len();
+        let mut lambda = vec![0.0; n * n];
+        for i in 0..n {
+            for j in 0..n {
+                lambda[i * n + j] = wilson_lambda(i, j, aij, vl, t);
+            }
+        }
+        Self { n, lambda }
+    }
+
+    /// Λᵢⱼ lookup. **Dimensionless.**
+    #[inline]
+    pub fn lambda(&self, i: usize, j: usize) -> f64 {
+        self.lambda[i * self.n + j]
+    }
+
+    /// Number of components the cache was built for.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.n
+    }
+
+    /// True when built for zero components (clippy convention: any type
+    /// with `len` should offer `is_empty`).
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.n == 0
+    }
+
+    /// ln(γᵢ) for **all** components at composition `x`, reusing the
+    /// cached Λ matrix.
+    ///
+    /// Writes into `out` (length n). Cost: one pass computing the row
+    /// sums Sₖ = Σⱼ xⱼΛₖⱼ (O(N²)), then O(N²) for the nested term —
+    /// versus O(N³) `exp`-heavy work for n calls to [`ln_gamma`]. This
+    /// full-vector form is what the GE-based mixing rules (Wong-Sandler,
+    /// MHV1/2 — M8.3) consume on their hot path.
+    pub fn ln_gamma_all(&self, x: &[f64], out: &mut [f64]) {
+        let n = self.n;
+        // Sₖ = Σⱼ xⱼ·Λₖⱼ, one row-sum per component. The nested term
+        // needs every Sₖ while filling out[i], so S gets its own scratch
+        // buffer — a SmallVec, so for n ≤ 8 it lives on the stack and
+        // this whole function is allocation-free (M8.2 §C3).
+        let mut s: smallvec::SmallVec<[f64; 8]> = smallvec::smallvec![0.0; n];
+        for (k, sk) in s.iter_mut().enumerate() {
+            let mut acc = 0.0;
+            for j in 0..n {
+                acc += x[j] * self.lambda(k, j);
+            }
+            *sk = acc;
+        }
+        // ln γᵢ = 1 − ln(Sᵢ) − Σₖ xₖ·Λₖᵢ/Sₖ.
+        for i in 0..n {
+            let mut nested = 0.0;
+            for k in 0..n {
+                nested += x[k] * self.lambda(k, i) / s[k];
+            }
+            out[i] = 1.0 - s[i].ln() - nested;
+        }
+    }
+}
+
+/// ln(γᵢ) for **all** components at once.
+///
+/// Semantically identical to calling [`ln_gamma`] for each `i`, but the
+/// Wilson branch routes through a [`WilsonCache`] so the Λ matrix is
+/// built once (O(N²) `exp` calls) instead of once per component (O(N³)).
+/// The GE-based mixing rules (M8.3) call this on their hot path.
+///
+/// Writes into `out` (length = number of components). Arguments and
+/// units as in [`ln_gamma`].
+pub fn ln_gamma_all(
+    model: ActivityModel,
+    x: &[f64],
+    aij: &[Vec<f64>],
+    vl: &[f64],
+    delta: &[f64],
+    temperature: f64,
+    out: &mut [f64],
+) {
+    match model {
+        ActivityModel::Wilson => {
+            WilsonCache::new(aij, vl, temperature).ln_gamma_all(x, out);
+        }
+        _ => {
+            for (i, o) in out.iter_mut().enumerate() {
+                *o = ln_gamma(model, i, x, aij, vl, delta, temperature);
+            }
+        }
+    }
+}
+
+// ===========================================================================
+// Generic-scalar activity layer (M8.3, PERFORMANCE_PROPOSAL §B3).
+//
+// The GE-based mixing rules (Wong-Sandler, Huron-Vidal, MHV1/2) need ln γᵢ
+// and Gᴱ/RT evaluated with *dual numbers* so the mixture derivative core can
+// differentiate through them exactly. These functions are the same formulas
+// as `ln_gamma`/`excess_gibbs` above, written once generic over the scalar
+// type D: with D = f64 they compile to the plain arithmetic; with a dual
+// type they carry exact derivatives along for free. Only the COMPOSITION is
+// generic — temperature and the model parameters stay f64 (composition
+// derivatives are what the flash Jacobians need).
+// ===========================================================================
+
+use num_dual::DualNum;
+
+/// ln(γᵢ) for all components, generic over the scalar type of `x`.
+///
+/// Same models/units as [`ln_gamma`]; writes into `out` (length n).
+/// With `D = f64` this is equivalent to [`ln_gamma_all`].
+pub fn ln_gamma_all_generic<D: DualNum<f64> + Copy>(
+    model: ActivityModel,
+    x: &[D],
+    aij: &[Vec<f64>],
+    vl: &[f64],
+    delta: &[f64],
+    temperature: f64,
+    out: &mut [D],
+) {
+    let n = x.len();
+    match model {
+        ActivityModel::IdealSolution => {
+            for o in out.iter_mut() {
+                *o = D::from(0.0);
+            }
+        }
+
+        ActivityModel::ScatchardHildebrand => {
+            // δ_mix = Σ xₖvₖδₖ / Σ xₖvₖ (volume-fraction average).
+            let mut v_tot = D::from(0.0);
+            let mut num = D::from(0.0);
+            for k in 0..n {
+                v_tot += x[k] * vl[k];
+                num += x[k] * (vl[k] * delta[k]);
+            }
+            let delta_mix = num / v_tot;
+            for i in 0..n {
+                let d = -delta_mix + delta[i];
+                out[i] = d * d * (vl[i] / (R_CAL * temperature));
+            }
+        }
+
+        ActivityModel::Margules => {
+            // Binary-only (legacy convention, research paper Table 2.3).
+            let (x1, x2) = (x[0], x[1]);
+            let (a12, a21) = (aij[0][1], aij[1][0]);
+            out[0] = x2 * x2 * (x1 * (2.0 * (a21 - a12)) + a12);
+            out[1] = x1 * x1 * (x2 * (2.0 * (a12 - a21)) + a21);
+        }
+
+        ActivityModel::VanLaar => {
+            for i in 0..n {
+                let mut sum_ij = D::from(0.0); // Σⱼ xⱼ Aᵢⱼ
+                let mut sum_ji = D::from(0.0); // Σⱼ xⱼ Aⱼᵢ
+                for j in 0..n {
+                    sum_ij += x[j] * aij[i][j];
+                    sum_ji += x[j] * aij[j][i];
+                }
+                let one_minus_xi = -x[i] + 1.0;
+                let denom = x[i] * sum_ij + one_minus_xi * sum_ji;
+                if denom.re().abs() < f64::EPSILON {
+                    out[i] = D::from(0.0);
+                } else {
+                    let ratio = sum_ji / denom;
+                    out[i] = sum_ij * one_minus_xi * ratio * ratio;
+                }
+            }
+        }
+
+        ActivityModel::Wilson => {
+            // Λ depends only on (T, aij, vl) — plain f64 even when x is dual.
+            // Sₖ = Σⱼ xⱼ·Λₖⱼ computed once (the M8.2 cache structure).
+            let mut s: smallvec::SmallVec<[D; 8]> = smallvec::smallvec![D::from(0.0); n];
+            for k in 0..n {
+                let mut acc = D::from(0.0);
+                for j in 0..n {
+                    acc += x[j] * wilson_lambda(k, j, aij, vl, temperature);
+                }
+                s[k] = acc;
+            }
+            for i in 0..n {
+                let mut nested = D::from(0.0);
+                for k in 0..n {
+                    nested += x[k] * wilson_lambda(k, i, aij, vl, temperature) / s[k];
+                }
+                out[i] = -s[i].ln() - nested + 1.0;
+            }
+        }
+    }
+}
+
+/// Dimensionless excess Gibbs energy Gᴱ/(R·T) = Σᵢ xᵢ ln γᵢ, generic over
+/// the scalar type of `x`. The GE-based mixing rules consume this form
+/// directly (they always pair Gᴱ with an RT divisor).
+pub fn excess_gibbs_rt_generic<D: DualNum<f64> + Copy>(
+    model: ActivityModel,
+    x: &[D],
+    aij: &[Vec<f64>],
+    vl: &[f64],
+    delta: &[f64],
+    temperature: f64,
+) -> D {
+    let n = x.len();
+    let mut lng: smallvec::SmallVec<[D; 8]> = smallvec::smallvec![D::from(0.0); n];
+    ln_gamma_all_generic(model, x, aij, vl, delta, temperature, &mut lng);
+    let mut acc = D::from(0.0);
+    for i in 0..n {
+        acc += x[i] * lng[i];
+    }
+    acc
 }
 
 /// Excess Gibbs energy Gᴱ = RT Σᵢ xᵢ ln γᵢ.
@@ -440,6 +675,66 @@ mod tests {
             let se = excess_entropy(model, &x, &aij, &[], &[], 298.15);
             assert!((he - ge).abs() < 1e-9);
             assert!(se.abs() < 1e-9);
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // M8.2 — WilsonCache / ln_gamma_all consistency with the per-i path.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn wilson_cache_matches_per_component_ln_gamma() {
+        // Ternary with asymmetric aij — the cached full-vector path must
+        // reproduce the per-component reference to machine precision.
+        let x = [0.3, 0.45, 0.25];
+        let aij = vec![
+            vec![0.0, 1200.0, 800.0],
+            vec![-300.0, 0.0, 650.0],
+            vec![450.0, -150.0, 0.0],
+        ];
+        let vl = [90.0, 116.0, 130.0];
+        let t = 340.0;
+        let cache = WilsonCache::new(&aij, &vl, t);
+        let mut got = [0.0; 3];
+        cache.ln_gamma_all(&x, &mut got);
+        for i in 0..3 {
+            let want = ln_gamma(ActivityModel::Wilson, i, &x, &aij, &vl, &[], t);
+            assert!(
+                (got[i] - want).abs() < 1e-14,
+                "component {i}: cached={} reference={}",
+                got[i],
+                want
+            );
+        }
+    }
+
+    #[test]
+    fn ln_gamma_all_matches_per_component_for_every_model() {
+        // The dispatching full-vector helper must agree with per-i calls
+        // for every model (binary case — Margules/van Laar are binary-only).
+        let x = [0.4, 0.6];
+        let aij = vec![vec![0.0, 950.0], vec![620.0, 0.0]];
+        let vl = [90.0, 116.0];
+        let delta = [7.5, 8.2];
+        let t = 330.0;
+        for model in [
+            ActivityModel::IdealSolution,
+            ActivityModel::Margules,
+            ActivityModel::VanLaar,
+            ActivityModel::Wilson,
+            ActivityModel::ScatchardHildebrand,
+        ] {
+            let mut got = [0.0; 2];
+            ln_gamma_all(model, &x, &aij, &vl, &delta, t, &mut got);
+            for i in 0..2 {
+                let want = ln_gamma(model, i, &x, &aij, &vl, &delta, t);
+                assert!(
+                    (got[i] - want).abs() < 1e-14,
+                    "{model:?} component {i}: {} vs {}",
+                    got[i],
+                    want
+                );
+            }
         }
     }
 }

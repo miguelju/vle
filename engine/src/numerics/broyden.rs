@@ -3,18 +3,22 @@
 //! Solves `F(x) = 0` where `F: ℝⁿ → ℝⁿ` is a vector residual function,
 //! given an initial guess `x₀`. Each iteration:
 //!
-//! 1. Solve the linear system `J · Δx = −F(x)` for the step `Δx`.
+//! 1. Take the quasi-Newton step `Δx = −H · F(x)`, where `H ≈ J⁻¹` is
+//!    the maintained **inverse** Jacobian approximation.
 //! 2. Update `x ← x + Δx` and evaluate `F(x)`.
-//! 3. Update the Jacobian approximation by a **rank-1 secant update**
-//!    (the "good Broyden" formula):
+//! 3. Update `H` by the **Sherman–Morrison rank-1 update** of the "good
+//!    Broyden" formula (M8.2, PERFORMANCE_PROPOSAL §C4):
 //!
 //!    ```text
-//!    J ← J + ((Δy − J·Δx) · Δxᵀ) / (Δxᵀ · Δx)
+//!    H ← H + ((Δx − H·Δy) · (Δxᵀ·H)) / (Δxᵀ · H · Δy)
 //!    ```
 //!
-//!    where `Δy = F(x_new) − F(x_old)`. The update preserves the secant
-//!    equation `J_new · Δx = Δy` and costs `O(n²)` instead of `O(n³)`
-//!    (full re-factorization) per step.
+//!    where `Δy = F(x_new) − F(x_old)`. This is algebraically the
+//!    inverse of the classic J-update `J ← J + ((Δy − J·Δx)·Δxᵀ)/(Δxᵀ·Δx)`
+//!    (both preserve the secant equation `J_new·Δx = Δy`), but keeping
+//!    `H` directly makes the whole iteration `O(n²)` — no linear solve,
+//!    no `clone().lu()` re-factorization per step (which made the old
+//!    implementation `O(n³)` per iteration despite the rank-1 update).
 //!
 //! After a configurable number of rank-1 updates (`refresh_every` —
 //! default 5), the approximation drifts from the true Jacobian and the
@@ -39,11 +43,15 @@
 //!
 //! ## Why "good" Broyden
 //!
-//! There are two textbook variants: "good" (this one, updates `J`) and
-//! "bad" (updates `J⁻¹` directly). Good Broyden's rank-1 update is
-//! cheaper per iteration when paired with an in-place LU re-solve, and
-//! it has slightly better numerical stability. The engine uses "good"
-//! everywhere.
+//! There are two textbook variants, distinguished by *which secant
+//! condition* the update enforces: "good" (J·Δx = Δy, this one) and
+//! "bad" (H·Δy = Δx directly). We use the good-Broyden update expressed
+//! on the inverse via Sherman–Morrison — same approximation sequence as
+//! the classic J-form, with `O(n²)` per-iteration cost and slightly
+//! better numerical stability than bad Broyden. Note: once the M8.3
+//! analytic/AD derivative core lands, full Newton with the exact
+//! Jacobian becomes the primary flash driver and Broyden is demoted to
+//! the fallback for residuals without a cheap Jacobian.
 //!
 //! Reference: Broyden, C. G. (1965), *"A class of methods for solving
 //! nonlinear simultaneous equations"*; Press et al., *Numerical Recipes*,
@@ -144,25 +152,19 @@ where
     let n = x0.len();
     let mut x = DVector::from_column_slice(x0);
 
-    // Initial residual and Jacobian. The FD Jacobian costs n+1
-    // function evaluations (one at x₀, n at perturbations).
+    // Initial residual and inverse Jacobian. The FD Jacobian costs n
+    // extra function evaluations; the one-time inversion is O(n³) —
+    // paid only here and at refreshes, never per iteration.
     let mut fx = eval(&mut f, &x, n)?;
     if norm_l2(fx.as_slice()) <= cfg.ftol {
         return Ok(x.iter().copied().collect());
     }
-    let mut j = finite_diff_jacobian(&mut f, &x, &fx, n, cfg.fd_step)?;
+    let mut h = invert_fd_jacobian(&mut f, &x, &fx, n, cfg, 0)?;
     let mut updates_since_refresh: usize = 0;
 
     for iter in 0..cfg.max_iter {
-        // Solve J · Δx = -F for the step. nalgebra's LU re-factorizes
-        // every step (we updated J via rank-1 since the last solve);
-        // this is the O(n³) work per iter.
-        let neg_fx = -fx.clone();
-        let dx = j
-            .clone()
-            .lu()
-            .solve(&neg_fx)
-            .ok_or(BroydenError::SingularJacobian { iter })?;
+        // Quasi-Newton step Δx = −H·F — a matrix-vector product, O(n²).
+        let dx = -(&h * &fx);
 
         // Take the step.
         let x_new = &x + &dx;
@@ -177,37 +179,34 @@ where
             return Ok(x_new.iter().copied().collect());
         }
 
-        // Decide whether to refresh J from scratch this step. The
+        // Decide whether to refresh H from scratch this step. The
         // refresh_every == 0 sentinel means "never refresh".
         let should_refresh =
             cfg.refresh_every != 0 && updates_since_refresh + 1 >= cfg.refresh_every;
 
         if should_refresh {
-            j = finite_diff_jacobian(&mut f, &x_new, &fx_new, n, cfg.fd_step)?;
+            h = invert_fd_jacobian(&mut f, &x_new, &fx_new, n, cfg, iter)?;
             updates_since_refresh = 0;
         } else {
-            // Rank-1 "good Broyden" update.
-            //   J ← J + ((Δy − J·Δx) · Δxᵀ) / (Δxᵀ · Δx)
+            // Sherman–Morrison rank-1 update of the inverse (good Broyden):
+            //   H ← H + ((Δx − H·Δy) · (Δxᵀ·H)) / (Δxᵀ · H · Δy)
             let dy = &fx_new - &fx;
-            let j_dx = &j * &dx;
-            let denom = dx.dot(&dx);
-            // Defensive: skip update if Δx is effectively zero (would
-            // divide by 0). The next iteration will pick up via the
-            // unchanged J — convergence check above already covered the
-            // "we're done" case, so a tiny Δx with non-converged F
-            // signals a stall; do an emergency refresh instead.
+            let h_dy = &h * &dy; // H·Δy, O(n²)
+            let dxt_h = h.tr_mul(&dx); // Hᵀ·Δx = (Δxᵀ·H)ᵀ, O(n²)
+            let denom = dx.dot(&h_dy); // Δxᵀ·H·Δy
+            // Defensive: a near-zero denominator means the update would
+            // blow up (Δx ⊥ H·Δy — a stall or a degenerate secant pair).
+            // Fall back to a full refresh instead of corrupting H.
             if is_near_zero(denom) {
-                j = finite_diff_jacobian(&mut f, &x_new, &fx_new, n, cfg.fd_step)?;
+                h = invert_fd_jacobian(&mut f, &x_new, &fx_new, n, cfg, iter)?;
                 updates_since_refresh = 0;
             } else {
-                let numerator = &dy - &j_dx;
-                // Outer product: numerator · dxᵀ → n×n matrix, scaled
-                // by 1/denom. nalgebra spells this with .iter() loops
-                // (no built-in outer-product helper in DMatrix/DVector
-                // that we can call on borrowed refs without cloning).
+                let numerator = &dx - &h_dy; // Δx − H·Δy
+                // Outer product (numerator · Δxᵀ·H)/denom added in place —
+                // O(n²), no allocation beyond the two vectors above.
                 for i in 0..n {
                     for k in 0..n {
-                        j[(i, k)] += numerator[i] * dx[k] / denom;
+                        h[(i, k)] += numerator[i] * dxt_h[k] / denom;
                     }
                 }
                 updates_since_refresh += 1;
@@ -226,6 +225,26 @@ where
         }
     }
     unreachable!("loop exits via convergence return or NoConvergence")
+}
+
+/// FD Jacobian at `x`, inverted once. Used at startup and refresh points;
+/// the `O(n³)` inversion happens ONLY here (the iteration itself is
+/// `O(n²)` thanks to the Sherman–Morrison update).
+fn invert_fd_jacobian<F>(
+    f: &mut F,
+    x: &DVector<f64>,
+    fx: &DVector<f64>,
+    n: usize,
+    cfg: BroydenConfig,
+    iter: usize,
+) -> Result<DMatrix<f64>, BroydenError>
+where
+    F: FnMut(&[f64]) -> Vec<f64>,
+{
+    let j = finite_diff_jacobian(f, x, fx, n, cfg.fd_step)?;
+    j.lu()
+        .try_inverse()
+        .ok_or(BroydenError::SingularJacobian { iter })
 }
 
 /// Evaluate `f` and convert the result into a DVector, validating

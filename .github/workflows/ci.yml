@@ -103,6 +103,42 @@ jobs:
       - name: cargo test
         run: cargo test --workspace --all-targets
 
+  # Informational benchmark job (M8.2, PERFORMANCE_PROPOSAL.md Track E).
+  # Reports criterion deltas against the previous cached run and NEVER
+  # blocks the pipeline (continue-on-error). Runs only on pushes to main
+  # and manual dispatch — PR-time benchmarking on a shared ephemeral
+  # runner is noise, not signal. criterion compares against whatever
+  # baseline is in target/criterion (restored from the cache below), so
+  # each main push logs its delta vs the previous main push.
+  bench-rust:
+    name: bench (criterion, informational)
+    runs-on: [self-hosted, linux, x64]
+    continue-on-error: true
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable @ 2026-05-24
+      - name: Cache cargo + criterion baseline
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          # Keyed on the lockfile like the test cache, but with a distinct
+          # prefix so bench artifacts (including the criterion baseline
+          # under target/criterion) don't churn the test cache. The
+          # restore-key fallback lets a Cargo.lock bump still restore the
+          # previous baseline for delta reporting.
+          key: cargo-bench-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            cargo-bench-
+      - name: cargo bench (deltas vs previous run)
+        run: cargo bench -p vle-thermo
+
 # The wheel-matrix smoke build moved to .github/workflows/build-smoke.yml
 # so it can be path-filtered independently of lint + test. Releases still
 # go through .github/workflows/release.yml (which calls _build.yml for

@@ -227,18 +227,44 @@ pub fn ln_phi_mix_virial(
         )));
     }
     let mat = b_mix_matrix(components, t);
-    let bmix = b_mix(components, mole_fractions, t)?;
-    let factor = p / (1000.0 * R_GAS * t);
-    let mut out = Vec::with_capacity(n);
-    for row in &mat {
-        let sum_j: f64 = row
-            .iter()
-            .zip(mole_fractions.iter())
-            .map(|(b_ij, x_j)| b_ij * x_j)
-            .sum();
-        out.push(factor * (2.0 * sum_j - bmix));
+    Ok(ln_phi_mix_virial_with_matrix(&mat, mole_fractions, t, p))
+}
+
+/// [`ln_phi_mix_virial`] with a caller-provided Bᵢⱼ matrix.
+///
+/// The Bᵢⱼ matrix depends only on temperature — NOT on composition or
+/// pressure — so a flash iteration updating (x, P) at fixed T should
+/// build the matrix once with [`b_mix_matrix`] and call this variant
+/// (M8.2 cache rule, PERFORMANCE_PROPOSAL §C2). This also fixes the
+/// double matrix construction the one-shot wrapper used to do (it built
+/// the matrix itself and then `b_mix` built it again).
+///
+/// `mat` must be the N×N matrix from [`b_mix_matrix`] at the same `t`;
+/// `t` in **K**, `p` in **kPa absolute**. Returns ln(φᵢ) per component.
+pub fn ln_phi_mix_virial_with_matrix(
+    mat: &[Vec<f64>],
+    mole_fractions: &[f64],
+    t: f64,
+    p: f64,
+) -> Vec<f64> {
+    // B_mix = ΣᵢΣⱼ xᵢxⱼBᵢⱼ, computed from the same matrix (no rebuild).
+    let mut bmix = 0.0_f64;
+    for (row, x_i) in mat.iter().zip(mole_fractions.iter()) {
+        for (b_ij, x_j) in row.iter().zip(mole_fractions.iter()) {
+            bmix += x_i * x_j * b_ij;
+        }
     }
-    Ok(out)
+    let factor = p / (1000.0 * R_GAS * t);
+    mat.iter()
+        .map(|row| {
+            let sum_j: f64 = row
+                .iter()
+                .zip(mole_fractions.iter())
+                .map(|(b_ij, x_j)| b_ij * x_j)
+                .sum();
+            factor * (2.0 * sum_j - bmix)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -268,5 +294,27 @@ mod tests {
         let c = dummy_methane();
         let z = z_factor_virial(&c, 300.0, 1.0); // 1 kPa
         assert!((z - 1.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn ln_phi_mix_with_matrix_matches_one_shot() {
+        // M8.2: the cached-matrix variant must be bit-identical to the
+        // one-shot wrapper (same matrix, same math, one construction).
+        let ethane = Component {
+            name: "ethane".into(),
+            tc: 305.3,
+            pc: 4872.0,
+            omega: 0.0995,
+            ..Component::default()
+        };
+        let comps = [dummy_methane(), ethane];
+        let x = [0.6, 0.4];
+        let (t, p) = (280.0, 800.0);
+        let one_shot = ln_phi_mix_virial(&comps, &x, t, p).unwrap();
+        let mat = b_mix_matrix(&comps, t);
+        let cached = ln_phi_mix_virial_with_matrix(&mat, &x, t, p);
+        for (a, b) in one_shot.iter().zip(cached.iter()) {
+            assert!((a - b).abs() < 1e-15, "one-shot {a} vs cached {b}");
+        }
     }
 }

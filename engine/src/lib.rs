@@ -81,9 +81,11 @@
 //    Python bindings or other Rust crates) can access it. Without `pub`,
 //    the module would only be usable within this crate.
 pub mod activity;
+pub mod energy;
 pub mod eos;
 pub mod liquid_volume;
 pub mod mixing;
+pub mod mixture;
 pub mod numerics;
 pub mod saturation;
 pub mod types;

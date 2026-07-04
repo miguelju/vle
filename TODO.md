@@ -205,29 +205,31 @@ exact-derivative core that Milestone 9 depends on).
 - [x] **Create milestone notebook** (~2–3h) — `notebooks/03_activity_models.ipynb` per CLAUDE.md *Notebook Conventions*: Chapter II §2.2 snippets, gamma vs. composition plots, excess Gibbs energy, ≥2 user exercises
 - [x] **Update the notebook catalogue** (~0.3h) — add to `deploy/NOTEBOOKS.md` + version bump
 
-### Milestone 8.2 — Performance Foundation (not started)
+### Milestone 8.2 — Performance Foundation (complete)
+*Executed by Claude Code using Claude Fable 5*
 
 Tracks C + E of PERFORMANCE_PROPOSAL.md. Measure first, then the free wins; no
 thermodynamic behavior change (gated by the existing test suite).
 
-- [ ] **Stand up criterion benches** (~2–3h) — `engine/benches/`: α dispatch, Z-factor, pure ln φ, saturation, activity γ; wire an informational CI bench job (non-blocking deltas)
-- [ ] **Python boundary benchmark** (~1h) — time scalar-loop FFI overhead (the baseline the M10 batch API is measured against)
-- [ ] **Add `[profile.release]`** (~0.5h) — `lto = "fat"`, `codegen-units = 1` (keep `panic = "unwind"` for PyO3); drop the unused `ndarray` dep
-- [ ] **Allocation-free cubic/Z path** (~2–3h) — `solve_real` → `([f64; 3], usize)`; `z_factor` root selection without filter/collect/sort
-- [ ] **`EosState` caching struct** (~3–4h) — α, dα/dTr, a, b, A, B, U, W computed once per (T, P, composition), shared by Z/fugacity/departure; cache Wilson Λ + virial B matrices
-- [ ] **Small-n stack allocation + Broyden fix** (~2–3h) — SmallVec/const-generic composition arrays (n ≤ 8); Sherman–Morrison in-place update instead of per-iteration `clone().lu()`
+- [x] **Stand up criterion benches** — `engine/benches/engine_bench.rs`: α dispatch, Z-factor, pure ln φ, saturation, activity γ; informational CI bench job (`bench-rust`, non-blocking deltas). Baseline (Apple M-series, LTO release): α ≈ 3.1 ns, Z-factor ≈ 35 ns, pure ln φ ≈ 82 ns, Wilson γ (ternary) ≈ 29 ns
+- [x] **Python boundary benchmark** — `scripts/bench_ffi_boundary.py`: FFI dispatch ≈ 7 ns overhead, scalar `z_factor` ≈ 130 ns, `ln_phi` ≈ 154 ns (the baseline the M10 batch API is measured against)
+- [x] **Add `[profile.release]`** — `lto = "fat"`, `codegen-units = 1` (kept `panic = "unwind"` for PyO3); dropped the unused `ndarray` dep
+- [x] **Allocation-free cubic/Z path** — `solve_real` → `([f64; 3], usize)` with a 3-element sorting network; `z_factor` root selection by direct min/max scan (no filter/collect/sort)
+- [x] **`EosState` caching struct** — α, dα/dTr, A, B, U, W computed once per (T, P, comp), shared by Z/fugacity/departure; `WilsonCache` for the Λ matrix + virial B-matrix reuse
+- [x] **Small-n stack allocation + Broyden fix** — `smallvec` composition arrays (n ≤ 8); Sherman–Morrison in-place inverse update (O(n²)/iter, no per-iteration `clone().lu()`)
 
-### Milestone 8.3 — Mixing Rules + Multicomponent Fugacity + Derivative Core (not started)
+### Milestone 8.3 — Mixing Rules + Multicomponent Fugacity + Derivative Core (complete)
+*Executed by Claude Code using Claude Fable 5*
 
-- [ ] **Implement 8+ mixing rules** (~6–8h) — IVDW, IIVDW, WS (21), HOV, HVS, MHV1, MHV2, Clasica_I, plus Schmidt-Wenzel/Patel-Teja C-parameter mixing (4); written once against the generalized (A, B, U, W) mixture core (26)
-- [ ] **Implement multicomponent fugacity** (~4–6h) — partial fugacity coefficients for all mixing rules (9), 3-param EOS (4), Chao-Seader multicomp (4)
-- [ ] **Exact-derivative core (§L)** (~6–8h) — analytic ∂ln φ̂ᵢ/∂nⱼ for cubic EOS + classical mixing; exotic rules (WS, MHV1/2) generic over the scalar type, differentiated with `num-dual` (27); finite differences kept as test oracles only. **Must land before any M9 flash code.**
+- [x] **Implement 8 a/b mixing rules** — Classical, IVDW, IIVDW, WS (21), HOV, HVS, MHV1, MHV2, plus the 3 Schmidt-Wenzel/Patel-Teja C-parameter rules (4); written once against the generalized (A, B, U, W) mixture core (26) in `engine/src/mixture.rs`
+- [x] **Implement multicomponent fugacity** — one closed-form partial fugacity coefficient for every EOS/rule (9); 3-param EOS (4); Chao-Seader multicomp (4)
+- [x] **Exact-derivative core (§L)** — analytic ∂ln φ̂ᵢ/∂nⱼ for cubic EOS + classical mixing; exotic rules (WS, MHV1/2) and 3-parameter EOS differentiated with `num-dual` dual numbers (27); FD kept as test oracle only. **Lands before any M9 flash code.**
 
-### Milestone 8.4 — Mixture Energy Properties + Validation (not started)
+### Milestone 8.4 — Mixture Energy Properties + Validation (complete)
+*Executed by Claude Code using Claude Fable 5*
 
-- [ ] **Implement enthalpy/entropy** (~3–4h) — ideal Cp integration, departure functions (9), condensation enthalpy (4), reference state handling
-- [ ] **Write mixture model tests** (~3–4h) — compare against VB6/Pascal outputs — validation tests pass
-- [ ] **Refresh the hosted hub** (~0.3h) — operator-side: run `deploy-vle` in `homelab-iac`, verify the new notebook
+- [x] **Implement enthalpy/entropy** — `engine/src/energy.rs`: ideal Cp integration, EOS departure functions (9) with **analytic** `T·dA_mix/dT` for every rule (GE rules via `T·d(Gᴱ/RT)/dT = −Hᴱ/RT`), excess H/S, reference-state assembly
+- [x] **Write mixture model tests** — Rust (`mixture.rs`, `energy.rs`) + Python (`test_m8_mixture.py`): golden values, textbook-PR oracle, VB6 C_cal / Pascal Chao-Seader constants, Gibbs-Duhem/Lewis-Randall/Euler invariants, analytic-vs-FD derivatives — validation tests pass
 
 ## Milestone 9: Flash & Regression
 
@@ -292,7 +294,7 @@ Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone i
 | 5. CI/CD + Auto-Deploy | ~16–22h | **Done** |
 | 6. Numerics | ~16–20h | **Done** |
 | 7. Pure Component Models | ~28–37h | **Done** (7.1–7.4 shipped; v0.3.0–v0.6.0) |
-| 8. Mixture Models + Performance Foundation | ~41–57h | In progress (8.1 complete; 8.2–8.4 not started) |
+| 8. Mixture Models + Performance Foundation | ~41–57h | **Done** (8.1–8.4 complete; unreleased) |
 | 9. Flash & Regression | ~44–62h | Not started |
 | 10. Python Bindings, Wrapper & Batch API | ~25–36h | Not started |
 | 11. Ch. IV Walkthrough & Final Deploy | ~7–11h | Not started |

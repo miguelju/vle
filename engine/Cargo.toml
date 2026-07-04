@@ -22,7 +22,19 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 nalgebra = "0.33"
-ndarray = "0.16"
+# Dual-number automatic differentiation (M8.3, PERFORMANCE_PROPOSAL §B3):
+# the mixture fugacity path is written generic over `DualNum<f64>`, so the
+# exotic GE-based mixing rules (Wong-Sandler, MHV1/2) get exact-to-machine-
+# precision ∂ln φ̂ᵢ/∂nⱼ by evaluating the same code with dual numbers —
+# no finite differences (those survive only as test oracles). Built by the
+# FeOS authors for exactly this use. 0.11 is the newest release compatible
+# with our rust-version 1.85 (0.14 needs rustc 1.89).
+num-dual = { version = "0.11", default-features = false }
+# Stack-allocated small vectors (M8.2, PERFORMANCE_PROPOSAL §C3): mixture
+# hot paths use `SmallVec<[f64; 8]>` so compositions up to 8 components
+# never touch the heap (larger mixtures spill transparently). 8 covers
+# every Chapter IV validation case (max 4 components) with headroom.
+smallvec = "1"
 thiserror = "1"
 # Sibling crate in the workspace. We pull it in to re-export the canonical
 # unit catalog (`vle_units::default_units_toml`) through PyO3, so the Python
@@ -39,6 +51,17 @@ pyo3 = { version = "0.22", features = ["extension-module", "abi3-py310"], option
 
 [dev-dependencies]
 approx = "0.5"
+# criterion drives the M8.2 benchmark suite (engine/benches/). Kept as a
+# dev-dependency so it never enters the published crate's dependency
+# closure. `html_reports` is off: CI consumes the plain-text output and
+# the HTML generation pulls in plotters + a long tail of transitive deps.
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+# `harness = false` hands `cargo bench` over to criterion's own runner
+# (the default libtest harness has no stable bench support).
+[[bench]]
+name = "engine_bench"
+harness = false
 
 [features]
 default = []

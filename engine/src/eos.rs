@@ -765,26 +765,152 @@ pub fn d_alpha_d_tr(eos: CubicEos, tr: f64, comp: &Component) -> f64 {
     }
 }
 
-/// Compute dimensionless `A = a·P/(R·T)²` and `B = b·P/(R·T)` for the EOS.
+// ===========================================================================
+// EosState — the per-(EOS, T, P, component) cache (M8.2, PERFORMANCE_PROPOSAL
+// §C2). Everything the Z-factor / fugacity / departure machinery needs is
+// computed exactly once here: α, dα/dTr, and the dimensionless (A, B, U, W)
+// groups of the generalized cubic
+//
+//     Z³ + (U − B − 1)·Z² + (A + W − U − B·U)·Z − (A·B + W + B·W) = 0
+//
+// The two-parameter Abbott families are the special case U = k1·B,
+// W = k2·B² (verified coefficient-for-coefficient against the previous
+// per-family cubic — see tests); the 3-parameter Pascal EOS supply their
+// own (U, W). Writing every consumer against (A, B, U, W) is also the
+// architecture the M8.3 mixture core builds on (Michelsen–Mollerup style,
+// PERFORMANCE_PROPOSAL §B1): mixture code gets written ONCE, and each
+// EOS × mixing-rule combination only supplies these four numbers.
+// ===========================================================================
+
+/// Cached dimensionless state for one (EOS, T, P, component) point.
 ///
-/// Internal helper — every consumer below (z_factor, ln_phi, departure
-/// functions) shares the same A, B definitions, so factoring this out
-/// keeps the formulas consistent and the variable names clean.
-fn ab_dimensionless(eos: CubicEos, t: f64, p: f64, comp: &Component) -> (f64, f64) {
-    let fc = family_constants(eos);
-    let tr = t / comp.tc;
-    let pr = p / comp.pc;
-    let a_val = alpha(eos, tr, comp);
-    // A = OmA · α · Pr / Tr², B = OmB · Pr / Tr.
-    (fc.om_a * a_val * pr / (tr * tr), fc.om_b * pr / tr)
+/// Build it once with [`EosState::new`], then call as many property
+/// methods as needed — α and dα/dTr are never recomputed. The free
+/// functions ([`z_factor`], [`ln_phi_pure`], …) remain as one-shot
+/// conveniences and simply construct a state internally.
+#[derive(Debug, Clone, Copy)]
+pub struct EosState {
+    /// EOS variant this state was built for.
+    pub eos: CubicEos,
+    /// Temperature in **K**.
+    pub t: f64,
+    /// Pressure in **kPa absolute**.
+    pub p: f64,
+    /// Reduced temperature T/Tc. **Dimensionless.**
+    pub tr: f64,
+    /// α(Tr) — cached once. **Dimensionless.**
+    pub alpha: f64,
+    /// dα/dTr (analytical) — cached once. **Dimensionless.**
+    pub d_alpha_d_tr: f64,
+    /// `A = a·α·P/(R·T)²`. **Dimensionless.**
+    pub big_a: f64,
+    /// `B = b·P/(R·T)`. **Dimensionless.**
+    pub big_b: f64,
+    /// `U = u·P/(R·T)` — attractive-denominator linear coefficient
+    /// (`= k1·B` for 2-parameter families). **Dimensionless.**
+    pub u: f64,
+    /// `W = w·(P/(R·T))²` — attractive-denominator constant coefficient
+    /// (`= k2·B²` for 2-parameter families). **Dimensionless.**
+    pub w: f64,
+}
+
+impl EosState {
+    /// Compute the full cached state for one (EOS, T, P, component).
+    ///
+    /// # Arguments
+    /// * `t` — Temperature in **K**.
+    /// * `p` — Pressure in **kPa absolute**.
+    /// * `comp` — Component data (critical constants + the parameters the
+    ///   chosen α variant reads).
+    pub fn new(eos: CubicEos, t: f64, p: f64, comp: &Component) -> Self {
+        let tr = t / comp.tc;
+        let a_val = alpha(eos, tr, comp);
+        let da_val = d_alpha_d_tr(eos, tr, comp);
+        let (big_a, big_b, u, w) = if eos.is_three_parameter() {
+            three_param_aubw(eos, t, p, comp, a_val)
+        } else {
+            let fc = family_constants(eos);
+            let pr = p / comp.pc;
+            let big_a = fc.om_a * a_val * pr / (tr * tr);
+            let big_b = fc.om_b * pr / tr;
+            (big_a, big_b, fc.k1 * big_b, fc.k2 * big_b * big_b)
+        };
+        Self {
+            eos,
+            t,
+            p,
+            tr,
+            alpha: a_val,
+            d_alpha_d_tr: da_val,
+            big_a,
+            big_b,
+            u,
+            w,
+        }
+    }
+
+    /// Z = P·V/(R·T) for the requested phase.
+    ///
+    /// Solves the generalized cubic and selects the appropriate real root:
+    /// **liquid** = smallest Z above B, **vapor** = largest Z above B.
+    /// Roots ≤ B are unphysical (V < b) and discarded.
+    ///
+    /// # Errors
+    /// `EosError::Cubic` if the solver fails; `NoRootForPhase` if no real
+    /// root above B exists for the requested phase.
+    pub fn z(&self, phase: PhaseId) -> Result<f64, EosError> {
+        let (big_a, big_b, u, w) = (self.big_a, self.big_b, self.u, self.w);
+        let a2 = u - big_b - 1.0;
+        let a1 = big_a + w - u - big_b * u;
+        let a0 = -(big_a * big_b + w + big_b * w);
+        let (roots, count) = solve_real(1.0, a2, a1, a0)?;
+        select_physical_root(&roots[..count], big_b, phase)
+    }
+
+    /// Generalized attractive term `g` such that
+    /// `ln φ = Z − 1 − ln(Z − B) − g`. See [`attractive_term_uw`].
+    pub fn attractive_term(&self, z: f64) -> f64 {
+        attractive_term_uw(z, self.big_a, self.u, self.w)
+    }
+
+    /// Pure-component ln(φ) at an already-solved Z (no second cubic solve).
+    pub fn ln_phi_at(&self, z: f64) -> f64 {
+        z - 1.0 - (z - self.big_b).ln() - self.attractive_term(z)
+    }
+
+    /// Pure-component ln(φ) for the requested phase.
+    pub fn ln_phi(&self, phase: PhaseId) -> Result<f64, EosError> {
+        Ok(self.ln_phi_at(self.z(phase)?))
+    }
+
+    /// Departure enthalpy `H^R/(R·T)` at an already-solved Z.
+    pub fn h_departure_rt_at(&self, z: f64) -> f64 {
+        let g = self.attractive_term(z);
+        (z - 1.0) + g * (self.tr * self.d_alpha_d_tr / self.alpha - 1.0)
+    }
+
+    /// Departure enthalpy `H^R/(R·T)` for the requested phase.
+    pub fn h_departure_rt(&self, phase: PhaseId) -> Result<f64, EosError> {
+        Ok(self.h_departure_rt_at(self.z(phase)?))
+    }
+
+    /// Departure entropy `S^R/R` at an already-solved Z
+    /// (Lewis-Randall identity `S^R/R = H^R/RT − ln φ`).
+    pub fn s_departure_r_at(&self, z: f64) -> f64 {
+        self.h_departure_rt_at(z) - self.ln_phi_at(z)
+    }
+
+    /// Departure entropy `S^R/R` for the requested phase.
+    pub fn s_departure_r(&self, phase: PhaseId) -> Result<f64, EosError> {
+        Ok(self.s_departure_r_at(self.z(phase)?))
+    }
 }
 
 /// Compute Z = P·V/(R·T) for the requested phase.
 ///
-/// Solves the cubic in Z and selects the appropriate real root:
-/// **liquid** = smallest Z above B (the lower stable branch), **vapor**
-/// = largest Z above B (the upper stable branch). Roots ≤ B are
-/// unphysical (V < b, molecular impossibility) and discarded.
+/// One-shot convenience over [`EosState`]: builds the cached state and
+/// solves. If you need more than one property at the same (T, P), build
+/// an [`EosState`] once and reuse it instead.
 ///
 /// # Arguments
 /// * `t` — Temperature in **K**.
@@ -798,7 +924,6 @@ fn ab_dimensionless(eos: CubicEos, t: f64, p: f64, comp: &Component) -> (f64, f6
 /// # Errors
 /// `EosError::Cubic` if the underlying solver fails. `NoRootForPhase`
 /// if the cubic has no real root above B for the requested phase.
-/// `NotImplemented` for 3-parameter EOS (deferred to M7.3).
 pub fn z_factor(
     eos: CubicEos,
     t: f64,
@@ -806,63 +931,36 @@ pub fn z_factor(
     comp: &Component,
     phase: PhaseId,
 ) -> Result<f64, EosError> {
-    if eos.is_three_parameter() {
-        return z_factor_3p(eos, t, p, comp, phase);
-    }
-    let fc = family_constants(eos);
-    let (big_a, big_b) = ab_dimensionless(eos, t, p, comp);
-    // Cubic in Z: 1·Z³ + a2·Z² + a1·Z + a0 = 0
-    //   a2 = (k1 − 1)·B − 1
-    //   a1 = A − (k1 − k2)·B² − k1·B
-    //   a0 = −(k2·B³ + k2·B² + A·B)
-    // Verified against textbook forms for PR, RKS, VdW (see eos.rs::tests).
-    let a2 = (fc.k1 - 1.0) * big_b - 1.0;
-    let a1 = big_a - (fc.k1 - fc.k2) * big_b * big_b - fc.k1 * big_b;
-    let a0 = -(fc.k2 * big_b * big_b * big_b + fc.k2 * big_b * big_b + big_a * big_b);
-    let roots = solve_real(1.0, a2, a1, a0)?;
-    // Filter out roots ≤ B (V ≤ b is unphysical).
-    let mut physical: Vec<f64> = roots.into_iter().filter(|&z| z > big_b).collect();
-    if physical.is_empty() {
-        return Err(EosError::NoRootForPhase { phase, big_b });
-    }
-    physical.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    Ok(match phase {
-        PhaseId::Liquid => *physical.first().unwrap(),
-        PhaseId::Vapor => *physical.last().unwrap(),
-    })
+    EosState::new(eos, t, p, comp).z(phase)
 }
 
-/// Dimensionless attractive-term integral `F(Z, B; k1, k2)`.
-///
-/// Defined so that `ln(φ) = Z − 1 − ln(Z − B) − (A/B)·F`. The closed
-/// form for the non-degenerate case (k1² ≠ 4·k2) is:
-///
-/// ```text
-///   F = (1/√(k1² − 4·k2)) · ln( (2Z + B·(k1 + √(k1² − 4·k2)))
-///                              / (2Z + B·(k1 − √(k1² − 4·k2))) )
-/// ```
-///
-/// For the VdW limit (k1 = k2 = 0) the formula degenerates; we use the
-/// closed-form `F = B/Z` instead, which reproduces the standard VdW
-/// expression `ln(φ) = Z − 1 − ln(Z − B) − A/Z`.
-fn integral_attractive(z: f64, big_b: f64, fc: FamilyConstants) -> f64 {
-    let disc = fc.k1 * fc.k1 - 4.0 * fc.k2;
-    if disc.abs() < 1e-12 {
-        // VdW limit: F = B/Z. Verified by checking ln(φ_VdW) = Z − 1 −
-        // ln(Z − B) − A/Z (Smith-Van Ness-Abbott §6.4 example 6.4).
-        big_b / z
-    } else {
-        let sd = disc.sqrt();
-        (1.0 / sd) * ((2.0 * z + big_b * (fc.k1 + sd)) / (2.0 * z + big_b * (fc.k1 - sd))).ln()
+/// Select the requested phase's Z root by direct comparison — no
+/// filter/collect/sort (PERFORMANCE_PROPOSAL.md §C1). Roots ≤ B are
+/// unphysical (V ≤ b, molecular impossibility) and skipped; among the
+/// physical roots, liquid = smallest, vapor = largest. `solve_real`
+/// returns roots ascending, so a single min/max scan suffices.
+fn select_physical_root(roots: &[f64], big_b: f64, phase: PhaseId) -> Result<f64, EosError> {
+    let mut selected: Option<f64> = None;
+    for &z in roots {
+        if z <= big_b {
+            continue;
+        }
+        selected = Some(match (selected, phase) {
+            (None, _) => z,
+            (Some(cur), PhaseId::Liquid) => cur.min(z),
+            (Some(cur), PhaseId::Vapor) => cur.max(z),
+        });
     }
+    selected.ok_or(EosError::NoRootForPhase { phase, big_b })
 }
 
 /// Pure-component fugacity coefficient ln(φ).
 ///
-/// `ln(φ) = Z − 1 − ln(Z − B) − (A/B)·F(Z, B; k1, k2)`.
+/// `ln(φ) = Z − 1 − ln(Z − B) − g(Z; A, U, W)`.
 ///
 /// Returns the **natural log** of the fugacity coefficient. To get φ
 /// itself, exponentiate. `ln(φ) → 0` as `P → 0` (ideal gas limit).
+/// One-shot convenience over [`EosState`].
 ///
 /// # Errors
 /// Same as [`z_factor`].
@@ -873,14 +971,7 @@ pub fn ln_phi_pure(
     comp: &Component,
     phase: PhaseId,
 ) -> Result<f64, EosError> {
-    if eos.is_three_parameter() {
-        return ln_phi_pure_3p(eos, t, p, comp, phase);
-    }
-    let fc = family_constants(eos);
-    let (big_a, big_b) = ab_dimensionless(eos, t, p, comp);
-    let z = z_factor(eos, t, p, comp, phase)?;
-    let f = integral_attractive(z, big_b, fc);
-    Ok(z - 1.0 - (z - big_b).ln() - (big_a / big_b) * f)
+    EosState::new(eos, t, p, comp).ln_phi(phase)
 }
 
 /// Departure enthalpy in dimensionless form `H^R / (R·T)`.
@@ -889,12 +980,13 @@ pub fn ln_phi_pure(
 /// liquid and vapor phases at sub-critical conditions (the attractive
 /// term lowers the energy below the ideal-gas reference).
 ///
-/// Formula (general 2-param cubic):
+/// Formula (generalized cubic):
 /// ```text
-///   H^R/(RT) = (Z − 1) + (A/B)·F · (Tr·dα/dTr/α − 1)
+///   H^R/(RT) = (Z − 1) + g · (Tr·dα/dTr/α − 1)
 /// ```
-/// Derivation: Smith-Van Ness-Abbott §6.4, generalized to the Abbott
-/// (k1, k2) form. Verified against PR/RKS/VdW textbook expressions.
+/// Derivation: Smith-Van Ness-Abbott §6.4, generalized to the (A, B, U, W)
+/// form. Verified against PR/RKS/VdW textbook expressions.
+/// One-shot convenience over [`EosState`].
 ///
 /// # Errors
 /// Same as [`z_factor`].
@@ -905,24 +997,14 @@ pub fn h_departure_rt(
     comp: &Component,
     phase: PhaseId,
 ) -> Result<f64, EosError> {
-    if eos.is_three_parameter() {
-        return h_departure_rt_3p(eos, t, p, comp, phase);
-    }
-    let fc = family_constants(eos);
-    let (big_a, big_b) = ab_dimensionless(eos, t, p, comp);
-    let z = z_factor(eos, t, p, comp, phase)?;
-    let tr = t / comp.tc;
-    let a_val = alpha(eos, tr, comp);
-    let da_val = d_alpha_d_tr(eos, tr, comp);
-    let f = integral_attractive(z, big_b, fc);
-    Ok((z - 1.0) + (big_a / big_b) * f * (tr * da_val / a_val - 1.0))
+    EosState::new(eos, t, p, comp).h_departure_rt(phase)
 }
 
 /// Departure entropy in dimensionless form `S^R / R`.
 ///
-/// `S^R = S_real(T, P) − S_ideal_gas(T, P)`. Use the identity
+/// `S^R = S_real(T, P) − S_ideal_gas(T, P)`. Uses the identity
 /// `S^R/R = H^R/(RT) − G^R/(RT)` and `G^R/(RT) = ln(φ_pure)` for a pure
-/// component (Lewis-Randall).
+/// component (Lewis-Randall). One-shot convenience over [`EosState`].
 ///
 /// # Errors
 /// Same as [`z_factor`].
@@ -933,31 +1015,34 @@ pub fn s_departure_r(
     comp: &Component,
     phase: PhaseId,
 ) -> Result<f64, EosError> {
-    // No 3-parameter guard needed: ln_phi_pure and h_departure_rt each route
-    // to their 3-parameter implementations, so the Lewis-Randall identity holds
-    // for every EOS.
-    let g_dep = ln_phi_pure(eos, t, p, comp, phase)?;
-    let h_dep = h_departure_rt(eos, t, p, comp, phase)?;
-    Ok(h_dep - g_dep)
+    EosState::new(eos, t, p, comp).s_departure_r(phase)
 }
 
 // ===========================================================================
-// Three-parameter EOS code path (M7.3) — Ref (4): Da Silva & Báez (1989),
+// Three-parameter EOS constants (M7.3) — Ref (4): Da Silva & Báez (1989),
 // legacy/pascal/TERMOII.PAS. The attractive denominator is V² + uV + w'; in
 // dimensionless groups U = uP/(RT), W = w'(P/RT)². The cubic and the
 // fugacity/departure algebra are the SAME as the two-parameter case (which is
-// the special case U = k1·B, W = k2·B²), so we reuse those closed forms. The
-// (U, W) values were verified to reproduce the legacy Patel-Teja and
+// the special case U = k1·B, W = k2·B²) — both now flow through `EosState`.
+// The (U, W) values were verified to reproduce the legacy Patel-Teja and
 // Schmidt-Wenzel cubics coefficient-for-coefficient.
 // ===========================================================================
 
 /// Dimensionless `(A, B, U, W)` for a three-parameter cubic EOS.
-fn three_param_aubw(eos: CubicEos, t: f64, p: f64, comp: &Component) -> (f64, f64, f64, f64) {
+///
+/// `a_val` is the already-computed α(Tr) — passed in by [`EosState::new`]
+/// so α is evaluated exactly once per state (M8.2 cache rule).
+fn three_param_aubw(
+    eos: CubicEos,
+    t: f64,
+    p: f64,
+    comp: &Component,
+    a_val: f64,
+) -> (f64, f64, f64, f64) {
     use CubicEos::*;
     let tr = t / comp.tc;
     let pr = p / comp.pc;
     let w = comp.omega;
-    let a_val = alpha(eos, tr, comp);
     match eos {
         PatelTeja | PatelTejaUSB => {
             let big_a = pt_om_a(w) * a_val * pr / (tr * tr);
@@ -982,68 +1067,46 @@ fn three_param_aubw(eos: CubicEos, t: f64, p: f64, comp: &Component) -> (f64, f6
     }
 }
 
-/// Generalized attractive term `g = (A/Δ)·ln[(2Z+U+Δ)/(2Z+U−Δ)]`, Δ=√(U²−4W).
-/// Equals `(A/B)·F` of the two-parameter form, so `ln φ` and the departures
-/// share the same expressions.
-fn attractive_term_uw(z: f64, big_a: f64, u: f64, w: f64) -> f64 {
-    let delta = (u * u - 4.0 * w).sqrt();
-    (big_a / delta) * ((2.0 * z + u + delta) / (2.0 * z + u - delta)).ln()
-}
-
-/// Z for a three-parameter EOS — general cubic
-/// `Z³ + (U−B−1)Z² + (A+W−U−B·U)Z − (A·B+W+B·W) = 0`.
-fn z_factor_3p(
-    eos: CubicEos,
-    t: f64,
-    p: f64,
-    comp: &Component,
-    phase: PhaseId,
-) -> Result<f64, EosError> {
-    let (big_a, big_b, u, w) = three_param_aubw(eos, t, p, comp);
-    let a2 = u - big_b - 1.0;
-    let a1 = big_a + w - u - big_b * u;
-    let a0 = -(big_a * big_b + w + big_b * w);
-    let roots = solve_real(1.0, a2, a1, a0)?;
-    let mut physical: Vec<f64> = roots.into_iter().filter(|&z| z > big_b).collect();
-    if physical.is_empty() {
-        return Err(EosError::NoRootForPhase { phase, big_b });
+/// Generalized attractive term `g(Z; A, U, W)`, defined so that
+/// `ln φ = Z − 1 − ln(Z − B) − g`. Equals `(A/B)·F` of the classic
+/// two-parameter form, so `ln φ` and the departures share one expression
+/// across every EOS family.
+///
+/// Three branches on the discriminant `U² − 4W` (Müller et al. (9),
+/// research paper Eqs 2.31–2.33; Pascal TERMOII.PAS `II`):
+///
+/// ```text
+///   Δ² > 0:  g = (A/Δ)·ln[(2Z + U + Δ)/(2Z + U − Δ)],  Δ = √(U² − 4W)
+///   Δ² = 0:  g = 2A/(2Z + U)              (VdW limit; U = W = 0 → A/Z)
+///   Δ² < 0:  g = (2A/Δ')·(π/2 − atan[(2Z + U)/Δ']),  Δ' = √(4W − U²)
+/// ```
+///
+/// Each branch is `A·∫_Z^∞ dZ'/(Z'² + U·Z' + W)`, so all three vanish as
+/// Z → ∞ (the ideal-gas limit ln φ → 0 holds in every branch — the π/2
+/// in the arctan branch is that boundary term).
+///
+/// The negative branch matters in practice: Schmidt-Wenzel with
+/// ω ∈ (−1.94, −0.057) — e.g. hydrogen, ω ≈ −0.216 — puts `U² − 4W`
+/// below zero (Ref (4), TERMOII.PAS:355 implements the same arctan
+/// form). The `1e-12`-scaled tolerance keeps the degenerate branch from
+/// being missed through floating-point noise.
+pub fn attractive_term_uw(z: f64, big_a: f64, u: f64, w: f64) -> f64 {
+    let disc = u * u - 4.0 * w;
+    let scale = (u * u).max(4.0 * w.abs()).max(1e-300);
+    if disc.abs() <= 1e-12 * scale {
+        // Degenerate: lim_{Δ→0} (A/Δ)·ln[(x+Δ)/(x−Δ)] = 2A/x, x = 2Z+U.
+        2.0 * big_a / (2.0 * z + u)
+    } else if disc > 0.0 {
+        let delta = disc.sqrt();
+        (big_a / delta) * ((2.0 * z + u + delta) / (2.0 * z + u - delta)).ln()
+    } else {
+        // Complex-conjugate denominator roots: the antiderivative is an
+        // arctan, and the Z' → ∞ boundary contributes the π/2 (where the
+        // real branch's log contributes ln 1 = 0). Positive for A > 0,
+        // matching the real branch by analytic continuation.
+        let delta = (-disc).sqrt();
+        (2.0 * big_a / delta) * (std::f64::consts::FRAC_PI_2 - ((2.0 * z + u) / delta).atan())
     }
-    physical.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    Ok(match phase {
-        PhaseId::Liquid => *physical.first().unwrap(),
-        PhaseId::Vapor => *physical.last().unwrap(),
-    })
-}
-
-/// ln(φ) for a three-parameter EOS.
-fn ln_phi_pure_3p(
-    eos: CubicEos,
-    t: f64,
-    p: f64,
-    comp: &Component,
-    phase: PhaseId,
-) -> Result<f64, EosError> {
-    let (big_a, big_b, u, w) = three_param_aubw(eos, t, p, comp);
-    let z = z_factor_3p(eos, t, p, comp, phase)?;
-    let g = attractive_term_uw(z, big_a, u, w);
-    Ok(z - 1.0 - (z - big_b).ln() - g)
-}
-
-/// H^R/(RT) for a three-parameter EOS.
-fn h_departure_rt_3p(
-    eos: CubicEos,
-    t: f64,
-    p: f64,
-    comp: &Component,
-    phase: PhaseId,
-) -> Result<f64, EosError> {
-    let (big_a, _big_b, u, w) = three_param_aubw(eos, t, p, comp);
-    let z = z_factor_3p(eos, t, p, comp, phase)?;
-    let tr = t / comp.tc;
-    let a_val = alpha(eos, tr, comp);
-    let da_val = d_alpha_d_tr(eos, tr, comp);
-    let g = attractive_term_uw(z, big_a, u, w);
-    Ok((z - 1.0) + g * (tr * da_val / a_val - 1.0))
 }
 
 /// Chao-Seader species selector — hydrogen and methane use distinct
@@ -1633,6 +1696,88 @@ mod tests {
                 expected
             );
         }
+    }
+
+    // -----------------------------------------------------------------
+    // M8.2 — EosState cache + generalized attractive term.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn eos_state_reuse_matches_one_shot_functions() {
+        // One EosState reused across all four properties must reproduce
+        // the one-shot free functions exactly, for a 2-param and a
+        // 3-param EOS (both flow through the same generalized path now).
+        let c = n_pentane();
+        for eos in [CubicEos::PR1976, CubicEos::RKS1972, CubicEos::PatelTeja] {
+            let st = EosState::new(eos, 400.0, 1500.0, &c);
+            for phase in [PhaseId::Vapor, PhaseId::Liquid] {
+                assert_eq!(
+                    st.z(phase).unwrap(),
+                    z_factor(eos, 400.0, 1500.0, &c, phase).unwrap(),
+                    "{eos:?} {phase:?} Z"
+                );
+                assert_eq!(
+                    st.ln_phi(phase).unwrap(),
+                    ln_phi_pure(eos, 400.0, 1500.0, &c, phase).unwrap(),
+                    "{eos:?} {phase:?} ln_phi"
+                );
+                assert_eq!(
+                    st.h_departure_rt(phase).unwrap(),
+                    h_departure_rt(eos, 400.0, 1500.0, &c, phase).unwrap(),
+                    "{eos:?} {phase:?} H^R"
+                );
+                assert_eq!(
+                    st.s_departure_r(phase).unwrap(),
+                    s_departure_r(eos, 400.0, 1500.0, &c, phase).unwrap(),
+                    "{eos:?} {phase:?} S^R"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn generalized_uw_reproduces_two_param_families() {
+        // U = k1·B, W = k2·B² must give the same attractive term as the
+        // old per-family (A/B)·F closed form. Check PR (log branch) and
+        // VdW (degenerate branch) hand-built references.
+        let (big_a, big_b, z) = (0.5_f64, 0.05_f64, 0.8_f64);
+        // PR: k1=2, k2=−1 → disc = 8B², Δ = 2√2·B.
+        let sd = 8.0_f64.sqrt();
+        let f_pr = (1.0 / sd)
+            * ((2.0 * z + big_b * (2.0 + sd)) / (2.0 * z + big_b * (2.0 - sd))).ln()
+            * (big_a / big_b);
+        let g_pr = attractive_term_uw(z, big_a, 2.0 * big_b, -big_b * big_b);
+        assert!((f_pr - g_pr).abs() < 1e-14, "PR: {f_pr} vs {g_pr}");
+        // VdW: U = W = 0 → g = A/Z.
+        let g_vdw = attractive_term_uw(z, big_a, 0.0, 0.0);
+        assert!((g_vdw - big_a / z).abs() < 1e-14, "VdW: {g_vdw}");
+    }
+
+    #[test]
+    fn attractive_term_arctan_branch_hydrogen_like_sw() {
+        // Schmidt-Wenzel with hydrogen's ω ≈ −0.216 puts U² − 4W < 0
+        // (the 9ω² + 18ω + 1 quadratic is negative there), exercising the
+        // arctan branch. Ref (4), TERMOII.PAS:355. It must be finite and
+        // → 0 as Z → ∞ (ideal-gas limit — the π/2 boundary term).
+        let hydrogen = Component {
+            name: "hydrogen".into(),
+            tc: 33.2,
+            pc: 1300.0,
+            omega: -0.216,
+            ..Component::default()
+        };
+        let st = EosState::new(CubicEos::SchmidtWenzel, 40.0, 500.0, &hydrogen);
+        assert!(
+            st.u * st.u - 4.0 * st.w < 0.0,
+            "test premise: SW hydrogen must hit the negative-discriminant branch"
+        );
+        let g = st.attractive_term(0.9);
+        assert!(g.is_finite() && g > 0.0, "g = {g}");
+        // Ideal-gas limit: g(Z→∞) → 0.
+        assert!(st.attractive_term(1e9).abs() < 1e-6);
+        // And the full ln φ machinery stays finite through this branch.
+        let lnphi = st.ln_phi(PhaseId::Vapor).unwrap();
+        assert!(lnphi.is_finite(), "ln φ = {lnphi}");
     }
 
     #[test]

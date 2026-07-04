@@ -210,28 +210,30 @@ Newton loops depend on.
 - [x] Create milestone notebook (`notebooks/03_activity_models.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: Chapter II §2.2 (activity models) snippets, gamma-vs-composition plots, excess Gibbs energy, ≥2 user exercises
 - [x] Update the notebook catalogue (`deploy/NOTEBOOKS.md`); touch `deploy/README.md` only if a distribution channel changed
 
-### Milestone 8.2 — Performance Foundation (not started)
+### Milestone 8.2 — Performance Foundation (complete)
 *Tracks C + E of PERFORMANCE_PROPOSAL.md — measure first, then the free wins. No thermodynamic behavior change.*
+*Executed by Claude Code using Claude Fable 5*
 
-- [ ] criterion benchmark suite (`engine/benches/`) + Python-side FFI boundary benchmark — the baseline every later claim is measured against
-- [ ] Informational CI bench job (reports deltas, non-blocking)
-- [ ] `[profile.release]` (`lto = "fat"`, `codegen-units = 1`); drop unused `ndarray` dep
-- [ ] Allocation-free cubic solver / Z-factor path (`([f64; 3], usize)` instead of `Vec`)
-- [ ] `EosState` caching struct (α, dα/dTr, A, B, U, W computed once per state; Wilson Λ + virial B matrices cached)
-- [ ] Stack-allocated composition arrays (n ≤ 8); Broyden in-place factorization update
+- [x] criterion benchmark suite (`engine/benches/engine_bench.rs`) + Python-side FFI boundary benchmark (`scripts/bench_ffi_boundary.py`) — the baseline every later claim is measured against
+- [x] Informational CI bench job (reports deltas, non-blocking) — `bench-rust` in `.github/workflows/ci.yml`
+- [x] `[profile.release]` (`lto = "fat"`, `codegen-units = 1`); dropped unused `ndarray` dep
+- [x] Allocation-free cubic solver / Z-factor path (`([f64; 3], usize)` instead of `Vec`)
+- [x] `EosState` caching struct (α, dα/dTr, A, B, U, W computed once per state; Wilson Λ via `WilsonCache` + virial B matrix reuse)
+- [x] Stack-allocated composition arrays (n ≤ 8, `smallvec`); Broyden in-place Sherman–Morrison inverse update
 
-### Milestone 8.3 — Mixing Rules + Multicomponent Fugacity + Derivative Core (not started)
+### Milestone 8.3 — Mixing Rules + Multicomponent Fugacity + Derivative Core (complete)
+*Executed by Claude Code using Claude Fable 5*
 
-- [ ] 8+ mixing rules including Wong-Sandler (21), written once against the generalized (A, B, U, W) mixture core (26)
-- [ ] Multicomponent fugacity coefficients (9)
-- [ ] Analytic ∂ln φ̂ᵢ/∂nⱼ for classical mixing; `num-dual` dual-number AD (27) for Wong-Sandler/MHV1/MHV2 (§L) — **must land before any Milestone 9 flash code**
-- [ ] 3-parameter EOS mixture fugacity (4)
+- [x] 8 a/b mixing rules (Classical, IVDW, IIVDW, Wong-Sandler (21), Huron-Vidal original/simplified, MHV1, MHV2) + 3 C-parameter rules, written once against the generalized (A, B, U, W) mixture core (26) in `engine/src/mixture.rs`
+- [x] Multicomponent fugacity coefficients (9) — one closed form for every EOS/rule; Chao-Seader multicomponent (4)
+- [x] Analytic ∂ln φ̂ᵢ/∂nⱼ for classical mixing; `num-dual` dual-number AD (27) for Wong-Sandler/MHV1/MHV2 and 3-parameter EOS (§L) — cross-validated against FD oracles. **Lands before any Milestone 9 flash code**
+- [x] 3-parameter EOS mixture fugacity (4) — Schmidt-Wenzel + Patel-Teja (linear & √B-weighted) C-mixing
 
-### Milestone 8.4 — Mixture Energy Properties + Validation (not started)
+### Milestone 8.4 — Mixture Energy Properties + Validation (complete)
+*Executed by Claude Code using Claude Fable 5*
 
-- [ ] Enthalpy and entropy (ideal + departure + excess)
-- [ ] Unit tests for all mixture calculations — validation test passes
-- [ ] Refresh the hosted hub (operator-side: run `deploy-vle` in `homelab-iac`) and verify the new notebook
+- [x] Enthalpy and entropy (ideal + departure + excess) — `engine/src/energy.rs`, analytic `T·dA_mix/dT` for every rule (no FD)
+- [x] Unit tests for all mixture calculations — Rust (`mixture.rs`, `energy.rs`) + Python (`test_m8_mixture.py`) validation, golden values + Gibbs-Duhem/Lewis-Randall/Euler invariants — validation tests pass
 
 ## Milestone 9: Flash & Regression
 **Goal**: All flash calculations pass Chapter IV validation, with guaranteed-convergence modern algorithms.

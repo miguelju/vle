@@ -5,6 +5,13 @@
 [ROADMAP.md](ROADMAP.md), and [TODO.md](TODO.md). This document is the rationale record;
 the planning docs are the executable plan.*
 
+*Implementation status (2026-07-03): **Track C** (engine mechanics) and **Track E**
+(measure-first: criterion benches + FFI boundary benchmark + informational CI bench
+job) shipped with Milestone 8.2. **Track B** (generalized (A, B, U, W) mixture core
+with exact analytic/`num-dual` composition derivatives) shipped with Milestone 8.3
+(`engine/src/mixture.rs`). **Track A** algorithm choices land with the Milestone 9
+flash work; **Track D** (batch numpy API) with Milestone 10.*
+
 ## Goal
 
 Make `vle-thermo` a **very fast, always-convergent** thermodynamics library driven from

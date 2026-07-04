@@ -13,6 +13,20 @@
 resolver = "2"
 members = ["engine", "units"]
 
+# Release profile (PERFORMANCE_PROPOSAL.md §C5): fat LTO + single codegen
+# unit let LLVM inline across crate boundaries (the α dispatch and cubic
+# solver benefit most). `panic = "abort"` is deliberately NOT set — PyO3
+# needs unwinding to convert Rust panics into Python exceptions instead of
+# aborting the host interpreter. Wheels stay portable: no target-cpu=native.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
+# The bench profile inherits `release`, so criterion numbers measure the
+# same optimization level users get from the published crate/wheel.
+[profile.bench]
+inherits = "release"
+
 [workspace.package]
 version = "0.7.0"
 edition = "2024"

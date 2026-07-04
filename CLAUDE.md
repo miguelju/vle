@@ -141,6 +141,17 @@ docs/       — English translations and parameter reference
 
 **Build chain:** Rust (engine/) -> PyO3/maturin -> Python native module -> Python wrapper (python/) -> Jupyter notebooks
 
+## Python Environment (conda `vle` env — mandatory)
+
+**All Python work in this repo goes through the dedicated `vle` conda environment. Never invoke a bare `python`/`python3`/`pip`/`pytest`, and never create a `.venv` in the repo.** Use the env's binaries directly by absolute path (more reliable from non-interactive shells than `conda activate`):
+
+- `~/miniconda3/envs/vle/bin/python` — running any Python script or one-liner
+- `~/miniconda3/envs/vle/bin/pytest` — running `python/tests/`
+- `~/miniconda3/envs/vle/bin/maturin` — building/installing the PyO3 wheel (`maturin develop` from `python/`)
+- `~/miniconda3/envs/vle/bin/jupyter` — executing notebooks (`nbconvert --execute`)
+
+If the env is ever missing, recreate it with conda (`conda create -n vle python=3.12` + `pip install maturin pytest` + the deps in `python/pyproject.toml`) rather than falling back to the system Python. Note: `conda env list` from a non-interactive shell sometimes misses envs — check `ls ~/miniconda3/envs/` directly.
+
 ## Key Technical Decisions
 
 - **Rust enums + match** map directly to VB6's `Select Case` dispatch over 22+ EOS variants, 5 activity models, 8 mixing rules
