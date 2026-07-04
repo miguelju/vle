@@ -10,7 +10,7 @@ A modern Rust + Python reimplementation of a multicomponent vapor-liquid equilib
 
 This project modernizes legacy thermodynamic software — originally written in VB6 (1999) and Pascal (1989) — into a fast **Rust computation engine** with **Python bindings** (via PyO3) and **Jupyter notebooks** for interactive exploration.
 
-**This is an educational project** demonstrating how AI coding tools like [Claude Code](https://claude.ai/code) can be used to understand, analyze, and modernize legacy scientific code. The entire modernization process — from analyzing ~17,500 lines of VB6/Pascal, mapping algorithms to academic references, proposing performance improvements, and planning the new architecture — was conducted with Claude Code as a development partner.
+**This is an educational project** demonstrating how AI coding tools like [Claude Code](https://claude.ai/code) can be used to understand, analyze, and modernize legacy scientific code. The entire modernization process — from analyzing ~17,500 lines of VB6/Pascal, mapping algorithms to academic references, proposing performance improvements, and planning the new architecture, through implementing and validating the full Rust engine and its Python bindings — was conducted with Claude Code as a development partner.
 
 ### Original Research
 
@@ -37,13 +37,14 @@ The full research paper is available in both [English](docs/en/research-paper/RE
 - **Chao-Seader** liquid fugacity correlation (with special H2/methane handling)
 - **Second virial equation** (Pitzer/Tsonopoulos correlation)
 - **5 activity coefficient models**: Wilson, van Laar, Margules, Scatchard-Hildebrand, Ideal
-- **8 mixing rules**: Classical (IVDW, IIVDW), Wong-Sandler, Huron-Vidal, MHV1, MHV2, and more
+- **11 mixing rules**: Classical (IVDW, IIVDW), Wong-Sandler, Huron-Vidal (original + simplified), MHV1, MHV2, plus 3 C-parameter rules for the three-parameter EOS — all with **exact composition derivatives** (analytic or dual-number AD, never finite differences)
 
 ### Calculations
 - Bubble point (temperature and pressure)
 - Dew point (temperature and pressure)
-- Isothermal flash (Rachford-Rice)
+- Isothermal flash (Rachford-Rice via Halley in the Leibovici–Neoschil window; tangent-plane stability analysis)
 - Adiabatic flash
+- Phase-envelope continuation through the critical point (Michelsen)
 - Mixture critical point (Heidemann-Khalil algorithm)
 - Binary interaction parameter regression (kij)
 - Activity model parameter regression (Aij) with analytical Jacobians
@@ -58,7 +59,7 @@ The full research paper is available in both [English](docs/en/research-paper/RE
 - Works standalone — can be used in other projects
 
 ### Algorithm Improvements Over Legacy Code
-The modernization introduces several numerical improvements over the original VB6/Pascal implementations:
+The modernization introduces several numerical improvements over the original VB6/Pascal implementations. This table is the **original improvement plan proposed by Claude Opus 4.6** during the initial legacy-code analysis (Milestone 0):
 
 | Algorithm | Legacy | Modernized | Benefit |
 |-----------|--------|-----------|---------|
@@ -70,7 +71,7 @@ The modernization introduces several numerical improvements over the original VB
 | Rachford-Rice | Newton-Raphson (quadratic) | Halley's method (cubic) | Faster convergence |
 | Critical point | Numerical Helmholtz derivatives | Analytical (2-param EOS) | Dominant cost eliminated |
 
-See [MODERNIZATION_PLAN.md](MODERNIZATION_PLAN.md) for full details and justifications.
+The plan was later expanded into [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md) — the "numpy for thermo" strategy adding the **exact-derivative mixture core** (analytic + `num-dual` dual-number AD, replacing every finite difference), the modern Michelsen flash suite (stability analysis, windowed Halley Rachford-Rice, phase-envelope continuation), a measured performance foundation, and the upcoming batch numpy API — and implemented, largely by Claude Fable 5, in Milestones 8.2–9. In the final architecture the exact analytic/AD Jacobians go further than the Broyden row above: full Newton uses them directly, with Broyden demoted to a fallback. See [MODERNIZATION_PLAN.md](MODERNIZATION_PLAN.md) for full details and justifications.
 
 ## Install
 
@@ -146,10 +147,10 @@ vle/
 │   ├── db/                  # Component database (connection, queries, models)
 │   │   └── sql/             # Bundled schema.sql + seed_chapter4.sql (ship in wheel)
 │   └── cli/                 # CLI tool (vle-db)
-├── notebooks/               # Jupyter notebooks
-│   └── 00_component_database.ipynb  # Interactive component browser
+├── notebooks/               # 13 Jupyter notebooks (00–09 + index; see deploy/NOTEBOOKS.md)
+│   └── data/                # Pre-computed 3-D surface datasets (CSV, committed)
 ├── units/                   # Independent units crate (dimensional analysis, gauge pressure, custom units)
-├── engine/                  # Rust computation engine (scaffolded — enums, structs, PyO3 bindings)
+├── engine/                  # Rust computation engine (complete: 22+ EOS, mixture core, flash suite, PyO3 bindings)
 ├── docs/
 │   ├── en/research-paper/   # English translation (navigatable)
 │   ├── en/units/            # Units add-on design document
@@ -159,7 +160,7 @@ vle/
 │   └── pascal/              # Original Pascal source (~2,500 lines, reference) (4)
 ├── ROADMAP.md               # Milestones and progress tracking
 ├── TODO.md                  # Tasks with time estimates
-├── MODERNIZATION_PLAN.md    # 16-phase implementation plan
+├── MODERNIZATION_PLAN.md    # 18-phase implementation plan
 ├── PASCAL_VB6_COMPARISON.md # Legacy codebase comparison
 └── CLAUDE.md                # Claude Code development guidance and conventions
 ```
@@ -172,7 +173,7 @@ This project is developed incrementally using [Claude Code](https://claude.ai/co
 |----------|---------|
 | [`ROADMAP.md`](ROADMAP.md) | Milestones — high-level goals and deliverables |
 | [`TODO.md`](TODO.md) | Tasks — actionable items with time estimates per milestone |
-| [`MODERNIZATION_PLAN.md`](MODERNIZATION_PLAN.md) | Phases — detailed technical implementation plan (16 phases) |
+| [`MODERNIZATION_PLAN.md`](MODERNIZATION_PLAN.md) | Phases — detailed technical implementation plan (18 phases) |
 
 ### Resuming work from a new machine
 
@@ -213,14 +214,14 @@ Each milestone records which AI model was used (e.g., `Claude Opus 4.6 (1M conte
 
 ## Getting Started
 
-> **Status**: Milestones 0–6 complete, **M7.1 (Pure Component Models — Deployable Core) shipped in v0.3.0**, and **M7.2 (α-Function Zoo) shipped in v0.4.0**. M7.1 gave PR / RKS / RK / VdW cubic EOS with analytical α + dα/dTr + Z-factor + ln(φ) + departure H/S, Antoine vapor pressure with analytical dPsat/dT, and the full truncated virial equation (pure + multicomponent). M7.2 adds the **12 remaining two-parameter α variants** (Berthelot, VdWAda1984, RKSGD1978, RKSL1997, RP1978, PRL1997, VdWVald1989, RKSmn1980, RKSATmn1995, PRATmng1997, PRMmn1989, PRSV1986), each with an analytical dα/dTr and `eos_alpha_ex` bindings for the polar/fitted parameters, and the now-live `02b_alpha_zoo` notebook. **M7.3 (Three-Parameter EOS + Chao-Seader) shipped in v0.5.0**: Schmidt-Wenzel, Patel-Teja, and Patel-Teja USB (handled through a unified general (U, W) cubic form that reuses the two-parameter fugacity/departure algebra), the Chao-Seader liquid-fugacity correlation with its H₂ / methane special cases, the `mixing::c_mix` C-parameter rules, and the live `02c_three_param_eos` notebook. **M7.4 (Advanced Saturation) shipped in v0.6.0**, completing Milestone 7: the Riedel / Müller / RPM / polynomial saturation correlations, the Maxwell equal-area construction, boiling-point inversion and the Poynting factor, and the OL-family α (VdWOL/RKOL/PROL — saturation-coupled, with an analytical dα/dTr), plus the live `02d_advanced_saturation` notebook. **M8.1 (Activity Models + Liquid Volume) shipped in v0.7.0**, beginning Milestone 8: the five activity-coefficient models (Ideal, Margules, van Laar, Wilson, Scatchard-Hildebrand) with analytical excess enthalpy, the Rackett and Thomson/COSTALD liquid molar volumes, their PyO3 bindings, and the live `03_activity_models` notebook. **M8.2 (Performance Foundation), M8.3 (Mixing Rules + Multicomponent Fugacity + Derivative Core), and M8.4 (Mixture Energy Properties) are complete** (code + tests; unreleased — a version bump + crates.io/PyPI publish is the remaining release step): 8.2 added the criterion bench suite + FFI boundary benchmark + informational CI bench job, `[profile.release]` LTO, an allocation-free cubic/Z path, the `EosState`/`WilsonCache` caches, `smallvec` composition buffers, and a Sherman–Morrison Broyden update; 8.3 added the 8 a/b mixing rules (incl. Wong-Sandler, Huron-Vidal, MHV1/2) + 3 C-parameter rules written once against the generalized (A, B, U, W) mixture core, one closed-form partial fugacity coefficient for every EOS/rule, Chao-Seader multicomponent, and the **exact composition-derivative core** (analytic ∂ln φ̂ᵢ/∂nⱼ for classical mixing, `num-dual` dual-number AD for the exotic rules and 3-parameter EOS); 8.4 added mixture enthalpy/entropy (ideal + EOS departure + excess) with an **analytic** `T·dA_mix/dT` for every rule. **Milestone 9 (Flash & Regression) is complete** (code + tests + notebooks; unreleased): the full flash suite — Wilson K-init + tangent-plane stability, Rachford-Rice via Halley in the Leibovici–Neoschil window, GDEM-accelerated isothermal flash, bubble/dew (T and P) for both φ-φ and γ-φ, adiabatic (PH) flash, the Heidemann–Khalil mixture critical point (dual-number Helmholtz derivatives), Michelsen phase-envelope continuation through the critical point, and kij (Brent) / Aij (Levenberg-Marquardt) regression — all bound to Python, with the Chapter IV cases validated against the published tables and notebooks 04–08 reproducing them. Milestones 10–11 (batch numpy API, full validation walkthrough) are not yet started.
+**Status**: Milestones 0–9 are complete — the full engine (22+ EOS, mixing rules with exact derivatives, energy properties, and the modern flash/regression suite), Python bindings, and 13 notebooks, all validated against the thesis's Chapter IV tables. Milestones 10–11 (batch numpy API, final walkthrough) remain. Note the latest **published** release is v0.7.0 — the mixture core and flash suite are on `main` awaiting the next release, so build from source for those until then. Per-milestone detail: [ROADMAP.md](ROADMAP.md).
 
 ### Prerequisites
-- Python 3.10+ (for the component database and future Python wrapper)
-- Rust 1.75+ with cargo (for the future engine build)
-- maturin (for building PyO3 bindings)
+- Python 3.10+
+- Rust 1.85+ with cargo (only if building the engine from source)
+- maturin (for building PyO3 bindings from source)
 
-### Component Database (available now)
+### Component Database
 ```bash
 PYTHONPATH=python/src python -m vle.cli.main init               # Create database
 PYTHONPATH=python/src python -m vle.cli.main seed --source chapter4  # Seed 15 compounds
@@ -228,12 +229,14 @@ PYTHONPATH=python/src python -m vle.cli.main list               # Browse compone
 PYTHONPATH=python/src python -m vle.cli.main show methane       # View details
 ```
 
-### Build
+### Build (from source)
 ```bash
-conda activate vle                    # Activate conda environment
-cd engine && cargo build --release    # Build Rust engine
-cd python && maturin develop          # Build Python bindings
-python -c "import vle; print(vle.__version__)"  # Verify
+conda activate vle                    # Or your own Python 3.10+ environment
+cargo build --release                 # Build the Rust workspace (engine + units)
+cargo test --workspace                # Run the Rust test suite
+(cd python && maturin develop --release)  # Build + install the Python bindings
+python -c "import vle; print(vle._engine.version())"  # Verify
+pytest python/tests/                  # Run the Python test suite
 ```
 
 ## Documentation
