@@ -606,9 +606,11 @@ vle/
 - **Key source files:** `legacy/pascal/TERMOII.PAS`, `legacy/pascal/TERMOIII.PAS`
 - *Deferred to M9 (γ-φ flash):* condensation enthalpy via Clausius-Clapeyron (Pascal `TERMOIII.PAS:283`) and the full liquid residual H/S condensation+excess path (`TERMOIII.PAS:294`) — these feed the activity-model liquid enthalpy consumed by the adiabatic flash, so they ship alongside it
 
-### Phase 15: Flash Calculations *(Milestone 9)*
+### Phase 15: Flash Calculations *(Milestone 9)* — **in progress** (`engine/src/flash/`)
 
 *Rewritten 2026-07-01 — Track A of [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md). The thesis-era iteration schemes are replaced by the modern (Michelsen-derived) methodology; the legacy two-stage bubble/dew scheme is retained only as a test oracle. All Newton loops consume the Phase 12–13 analytic/AD Jacobians (§L).*
+
+*Progress (Claude Fable 5): the flash core is shipped — Wilson K-init (`init.rs`), Rachford-Rice via Halley in the Leibovici–Neoschil window (`isothermal.rs`, §F), TPD stability (`stability.rs`, §I), GDEM-accelerated SS isothermal flash (`isothermal.rs`, §J), the φ-φ / γ-φ K-value dispatch (`system.rs`), and bubble/dew (T and P) (`bubble.rs`, `dew.rs`, shared `incipient.rs`, §K) — with PyO3 bindings and Rust + Python tests. Still pending: phase-envelope continuation, adiabatic flash, critical point (§G), kij/Aij regression, the extended benches, the 8 Chapter IV validation cases, and the notebooks.*
 
 - Wilson K-value correlation initial estimates (29) (§I) — supersedes Raoult-only initialization; Raoult retained for the γ-φ path
 - Tangent-plane-distance stability analysis (7) (§I) before every flash — supplies "is there a second phase?" + non-trivial K estimates; structurally eliminates the thesis's trivial-solution failure mode

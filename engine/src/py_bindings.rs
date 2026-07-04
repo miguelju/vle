@@ -1283,6 +1283,405 @@ fn mixture_chao_seader_ln_phi(
     chao_seader_ln_phi_mix_rs(&comps, &species, t, p).map_err(map_mix_err)
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// M9 — flash, bubble/dew, and stability bindings.
+//
+// The `SystemSpec` combines a vapor and a liquid model; Python selects each
+// with a small string tag plus an optional enum:
+//   vapor_kind ∈ {"ideal", "virial", "cubic"}  (+ vapor_eos for "cubic")
+//   liquid_kind ∈ {"ideal", "cubic", "activity", "chao_seader"}
+//       (+ liquid_eos for "cubic", + liquid_activity for "activity")
+// Component data is the usual parallel arrays, extended with per-component
+// `psat_coeffs` (reduced-Antoine, for the γ-φ path) and `vl` (liquid molar
+// volume, for Poynting / Wilson / Scatchard). Results come back as tuples.
+// ──────────────────────────────────────────────────────────────────────
+
+use crate::eos::{LiquidModel, VaporModel};
+use crate::flash::bubble::{bubble_pressure, bubble_temperature};
+use crate::flash::dew::{dew_pressure, dew_temperature};
+use crate::flash::isothermal::{flash_isothermal, rachford_rice as rachford_rice_rs};
+use crate::flash::stability::{Stability, stability_analysis};
+use crate::flash::{FlashError, SystemSpec, k_values as flash_k_values};
+use crate::mixing::MixingRule;
+
+/// Map a [`FlashError`] to a Python exception. Input-condition problems
+/// (bad shapes, unsupported model combos, no two-phase root) become
+/// `ValueError`; numerical failures become `RuntimeError`.
+fn map_flash_err(e: FlashError) -> PyErr {
+    match e {
+        FlashError::Dimension(_)
+        | FlashError::Unsupported(_)
+        | FlashError::NoRachfordRiceRoot { .. } => PyValueError::new_err(e.to_string()),
+        _ => PyRuntimeError::new_err(e.to_string()),
+    }
+}
+
+/// Build the flash `Component` vector including the saturation coefficients
+/// and liquid molar volumes the γ-φ path needs.
+fn flash_components(
+    tcs: &[f64],
+    pcs: &[f64],
+    omegas: &[f64],
+    psat_coeffs: &[Vec<f64>],
+    vl: &[f64],
+) -> PyResult<Vec<Component>> {
+    let n = tcs.len();
+    if pcs.len() != n || omegas.len() != n {
+        return Err(PyValueError::new_err(
+            "tcs, pcs, omegas must have the same length",
+        ));
+    }
+    Ok((0..n)
+        .map(|i| Component {
+            tc: tcs[i],
+            pc: pcs[i],
+            omega: omegas[i],
+            psat_coeffs: psat_coeffs.get(i).cloned().unwrap_or_default(),
+            liquid_volume: vl.get(i).copied().unwrap_or(0.0),
+            ..Component::default()
+        })
+        .collect())
+}
+
+/// Resolve the vapor model from a string tag + optional EOS.
+fn vapor_model(kind: &str, eos: Option<CubicEos>) -> PyResult<VaporModel> {
+    match kind.to_ascii_lowercase().as_str() {
+        "ideal" | "idealgas" | "ideal_gas" => Ok(VaporModel::IdealGas),
+        "virial" => Ok(VaporModel::Virial),
+        "cubic" | "eos" => eos
+            .map(VaporModel::Cubic)
+            .ok_or_else(|| PyValueError::new_err("vapor_kind='cubic' needs vapor_eos")),
+        other => Err(PyValueError::new_err(format!(
+            "vapor_kind must be 'ideal', 'virial', or 'cubic' (got {other:?})"
+        ))),
+    }
+}
+
+/// Resolve the liquid model from a string tag + optional EOS / activity model.
+fn liquid_model(
+    kind: &str,
+    eos: Option<CubicEos>,
+    activity: Option<ActivityModel>,
+) -> PyResult<LiquidModel> {
+    match kind.to_ascii_lowercase().as_str() {
+        "ideal" | "idealsolution" | "ideal_solution" => Ok(LiquidModel::IdealSolution),
+        "cubic" | "eos" => eos
+            .map(LiquidModel::Cubic)
+            .ok_or_else(|| PyValueError::new_err("liquid_kind='cubic' needs liquid_eos")),
+        "activity" | "gamma" => activity
+            .map(LiquidModel::Activity)
+            .ok_or_else(|| PyValueError::new_err("liquid_kind='activity' needs liquid_activity")),
+        "chao_seader" | "chaoseader" => Ok(LiquidModel::ChaoSeader),
+        other => Err(PyValueError::new_err(format!(
+            "liquid_kind must be 'ideal', 'cubic', 'activity', or 'chao_seader' (got {other:?})"
+        ))),
+    }
+}
+
+/// Solve the scalar Rachford-Rice equation for the vapor fraction β at fixed
+/// K-values (§F). Raises `ValueError` if there is no interior root (the
+/// mixture cannot be two-phase at these K), `RuntimeError` on non-convergence.
+#[pyfunction]
+#[pyo3(signature = (z, k, tol=1e-12, max_iter=200))]
+fn rachford_rice(z: Vec<f64>, k: Vec<f64>, tol: f64, max_iter: usize) -> PyResult<f64> {
+    rachford_rice_rs(&z, &k, tol, max_iter).map_err(map_flash_err)
+}
+
+/// A bundle of the model-selection arguments shared by every flash binding,
+/// kept as one macro to avoid repeating the long signature. Returns the
+/// assembled `(components, vapor, liquid)` for use inside a binding body.
+#[allow(clippy::too_many_arguments)]
+fn build_flash_pieces(
+    tcs: &[f64],
+    pcs: &[f64],
+    omegas: &[f64],
+    psat_coeffs: &[Vec<f64>],
+    vl: &[f64],
+    vapor_kind: &str,
+    vapor_eos: Option<CubicEos>,
+    liquid_kind: &str,
+    liquid_eos: Option<CubicEos>,
+    liquid_activity: Option<ActivityModel>,
+) -> PyResult<(Vec<Component>, VaporModel, LiquidModel)> {
+    let comps = flash_components(tcs, pcs, omegas, psat_coeffs, vl)?;
+    let vapor = vapor_model(vapor_kind, vapor_eos)?;
+    let liquid = liquid_model(liquid_kind, liquid_eos, liquid_activity)?;
+    Ok((comps, vapor, liquid))
+}
+
+/// Isothermal (PT) flash. Returns `(beta, x, y, k, iterations, two_phase)`.
+///
+/// See the module tag docs for the `*_kind` / `*_eos` / `liquid_activity`
+/// model selectors. `kij`/`aij`/`vl` may be empty; `t` in K, `p` in kPa abs.
+#[pyfunction]
+#[pyo3(signature = (tcs, pcs, omegas, z, t, p,
+    vapor_kind, liquid_kind, vapor_eos=None, liquid_eos=None, liquid_activity=None,
+    mixing_rule=MixingRule::Classical, kij=vec![], aij=vec![], vl=vec![],
+    psat_coeffs=vec![], ge_model=None, tol=1e-10, max_iter=200))]
+#[allow(clippy::too_many_arguments)]
+fn flash_pt(
+    tcs: Vec<f64>,
+    pcs: Vec<f64>,
+    omegas: Vec<f64>,
+    z: Vec<f64>,
+    t: f64,
+    p: f64,
+    vapor_kind: &str,
+    liquid_kind: &str,
+    vapor_eos: Option<CubicEos>,
+    liquid_eos: Option<CubicEos>,
+    liquid_activity: Option<ActivityModel>,
+    mixing_rule: MixingRule,
+    kij: Vec<Vec<f64>>,
+    aij: Vec<Vec<f64>>,
+    vl: Vec<f64>,
+    psat_coeffs: Vec<Vec<f64>>,
+    ge_model: Option<ActivityModel>,
+    tol: f64,
+    max_iter: usize,
+) -> PyResult<(f64, Vec<f64>, Vec<f64>, Vec<f64>, usize, bool)> {
+    let (comps, vapor, liquid) = build_flash_pieces(
+        &tcs,
+        &pcs,
+        &omegas,
+        &psat_coeffs,
+        &vl,
+        vapor_kind,
+        vapor_eos,
+        liquid_kind,
+        liquid_eos,
+        liquid_activity,
+    )?;
+    let spec = SystemSpec {
+        components: &comps,
+        vapor,
+        liquid,
+        mixing_rule,
+        kij: &kij,
+        aij: &aij,
+        vl: &vl,
+        delta: &[],
+        sat_models: &[],
+        ge_model,
+    };
+    let r = flash_isothermal(&spec, t, p, &z, tol, max_iter).map_err(map_flash_err)?;
+    Ok((r.beta, r.x, r.y, r.k, r.iterations, r.two_phase))
+}
+
+/// K-values `Kᵢ = yᵢ/xᵢ` at a trial `(t, p, x, y)` (a list). Model selectors
+/// as in [`flash_pt`].
+#[pyfunction]
+#[pyo3(signature = (tcs, pcs, omegas, x, y, t, p,
+    vapor_kind, liquid_kind, vapor_eos=None, liquid_eos=None, liquid_activity=None,
+    mixing_rule=MixingRule::Classical, kij=vec![], aij=vec![], vl=vec![],
+    psat_coeffs=vec![], ge_model=None))]
+#[allow(clippy::too_many_arguments)]
+fn flash_k_values_py(
+    tcs: Vec<f64>,
+    pcs: Vec<f64>,
+    omegas: Vec<f64>,
+    x: Vec<f64>,
+    y: Vec<f64>,
+    t: f64,
+    p: f64,
+    vapor_kind: &str,
+    liquid_kind: &str,
+    vapor_eos: Option<CubicEos>,
+    liquid_eos: Option<CubicEos>,
+    liquid_activity: Option<ActivityModel>,
+    mixing_rule: MixingRule,
+    kij: Vec<Vec<f64>>,
+    aij: Vec<Vec<f64>>,
+    vl: Vec<f64>,
+    psat_coeffs: Vec<Vec<f64>>,
+    ge_model: Option<ActivityModel>,
+) -> PyResult<Vec<f64>> {
+    let (comps, vapor, liquid) = build_flash_pieces(
+        &tcs,
+        &pcs,
+        &omegas,
+        &psat_coeffs,
+        &vl,
+        vapor_kind,
+        vapor_eos,
+        liquid_kind,
+        liquid_eos,
+        liquid_activity,
+    )?;
+    let spec = SystemSpec {
+        components: &comps,
+        vapor,
+        liquid,
+        mixing_rule,
+        kij: &kij,
+        aij: &aij,
+        vl: &vl,
+        delta: &[],
+        sat_models: &[],
+        ge_model,
+    };
+    flash_k_values(&spec, t, p, &x, &y).map_err(map_flash_err)
+}
+
+/// Tangent-plane-distance stability analysis (cubic/φ-φ only). Returns
+/// `(is_stable, trial_k, tpd)`; on a stable feed `trial_k` is empty and
+/// `tpd = 0`.
+#[pyfunction]
+#[pyo3(signature = (tcs, pcs, omegas, z, t, p, eos,
+    mixing_rule=MixingRule::Classical, kij=vec![], max_iter=100))]
+#[allow(clippy::too_many_arguments)]
+fn flash_stability(
+    tcs: Vec<f64>,
+    pcs: Vec<f64>,
+    omegas: Vec<f64>,
+    z: Vec<f64>,
+    t: f64,
+    p: f64,
+    eos: CubicEos,
+    mixing_rule: MixingRule,
+    kij: Vec<Vec<f64>>,
+    max_iter: usize,
+) -> PyResult<(bool, Vec<f64>, f64)> {
+    let comps = flash_components(&tcs, &pcs, &omegas, &[], &[])?;
+    let spec = SystemSpec {
+        components: &comps,
+        vapor: VaporModel::Cubic(eos),
+        liquid: LiquidModel::Cubic(eos),
+        mixing_rule,
+        kij: &kij,
+        aij: &[],
+        vl: &[],
+        delta: &[],
+        sat_models: &[],
+        ge_model: None,
+    };
+    match stability_analysis(&spec, t, p, &z, max_iter).map_err(map_flash_err)? {
+        Stability::Stable => Ok((true, vec![], 0.0)),
+        Stability::Unstable { trial_k, tpd } => Ok((false, trial_k, tpd)),
+    }
+}
+
+/// Shared body for the four bubble/dew bindings: assemble the spec and call
+/// `solver`, returning `(value, incipient, k)`.
+#[allow(clippy::too_many_arguments)]
+fn saturation_binding(
+    tcs: Vec<f64>,
+    pcs: Vec<f64>,
+    omegas: Vec<f64>,
+    comp: Vec<f64>,
+    fixed: f64,
+    vapor_kind: &str,
+    liquid_kind: &str,
+    vapor_eos: Option<CubicEos>,
+    liquid_eos: Option<CubicEos>,
+    liquid_activity: Option<ActivityModel>,
+    mixing_rule: MixingRule,
+    kij: Vec<Vec<f64>>,
+    aij: Vec<Vec<f64>>,
+    vl: Vec<f64>,
+    psat_coeffs: Vec<Vec<f64>>,
+    ge_model: Option<ActivityModel>,
+    tol: f64,
+    max_iter: usize,
+    solver: impl Fn(
+        &SystemSpec,
+        f64,
+        &[f64],
+        f64,
+        usize,
+    ) -> Result<crate::flash::bubble::SaturationResult, FlashError>,
+) -> PyResult<(f64, Vec<f64>, Vec<f64>)> {
+    let (comps, vapor, liquid) = build_flash_pieces(
+        &tcs,
+        &pcs,
+        &omegas,
+        &psat_coeffs,
+        &vl,
+        vapor_kind,
+        vapor_eos,
+        liquid_kind,
+        liquid_eos,
+        liquid_activity,
+    )?;
+    let spec = SystemSpec {
+        components: &comps,
+        vapor,
+        liquid,
+        mixing_rule,
+        kij: &kij,
+        aij: &aij,
+        vl: &vl,
+        delta: &[],
+        sat_models: &[],
+        ge_model,
+    };
+    let r = solver(&spec, fixed, &comp, tol, max_iter).map_err(map_flash_err)?;
+    Ok((r.value, r.incipient, r.k))
+}
+
+macro_rules! saturation_pyfn {
+    ($name:ident, $solver:path, $fixed_doc:literal, $comp_doc:literal) => {
+        #[doc = concat!("Saturation point — ", $fixed_doc, ". Returns `(value, incipient, k)` where ", $comp_doc, ".")]
+        #[pyfunction]
+        #[pyo3(signature = (tcs, pcs, omegas, comp, fixed, vapor_kind, liquid_kind,
+            vapor_eos=None, liquid_eos=None, liquid_activity=None,
+            mixing_rule=MixingRule::Classical, kij=vec![], aij=vec![], vl=vec![],
+            psat_coeffs=vec![], ge_model=None, tol=1e-9, max_iter=200))]
+        #[allow(clippy::too_many_arguments)]
+        fn $name(
+            tcs: Vec<f64>,
+            pcs: Vec<f64>,
+            omegas: Vec<f64>,
+            comp: Vec<f64>,
+            fixed: f64,
+            vapor_kind: &str,
+            liquid_kind: &str,
+            vapor_eos: Option<CubicEos>,
+            liquid_eos: Option<CubicEos>,
+            liquid_activity: Option<ActivityModel>,
+            mixing_rule: MixingRule,
+            kij: Vec<Vec<f64>>,
+            aij: Vec<Vec<f64>>,
+            vl: Vec<f64>,
+            psat_coeffs: Vec<Vec<f64>>,
+            ge_model: Option<ActivityModel>,
+            tol: f64,
+            max_iter: usize,
+        ) -> PyResult<(f64, Vec<f64>, Vec<f64>)> {
+            saturation_binding(
+                tcs, pcs, omegas, comp, fixed, vapor_kind, liquid_kind, vapor_eos, liquid_eos,
+                liquid_activity, mixing_rule, kij, aij, vl, psat_coeffs, ge_model, tol, max_iter,
+                $solver,
+            )
+        }
+    };
+}
+
+saturation_pyfn!(
+    bubble_pressure_py,
+    bubble_pressure,
+    "bubble pressure given `(fixed=T [K], comp=x)`",
+    "`value` = P in kPa and `incipient` = the vapor y"
+);
+saturation_pyfn!(
+    bubble_temperature_py,
+    bubble_temperature,
+    "bubble temperature given `(fixed=P [kPa], comp=x)`",
+    "`value` = T in K and `incipient` = the vapor y"
+);
+saturation_pyfn!(
+    dew_pressure_py,
+    dew_pressure,
+    "dew pressure given `(fixed=T [K], comp=y)`",
+    "`value` = P in kPa and `incipient` = the liquid x"
+);
+saturation_pyfn!(
+    dew_temperature_py,
+    dew_temperature,
+    "dew temperature given `(fixed=P [kPa], comp=y)`",
+    "`value` = T in K and `incipient` = the liquid x"
+);
+
 /// PyO3 module entry point.
 ///
 /// Maturin builds this into `vle/_engine.<platform>.<ext>` and Python
@@ -1374,6 +1773,16 @@ fn _engine(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(mixture_ideal_enthalpy, m)?)?;
     m.add_function(wrap_pyfunction!(mixture_ideal_entropy, m)?)?;
     m.add_function(wrap_pyfunction!(mixture_phase_enthalpy_entropy, m)?)?;
+
+    // M9 flash / bubble / dew / stability.
+    m.add_function(wrap_pyfunction!(rachford_rice, m)?)?;
+    m.add_function(wrap_pyfunction!(flash_pt, m)?)?;
+    m.add_function(wrap_pyfunction!(flash_k_values_py, m)?)?;
+    m.add_function(wrap_pyfunction!(flash_stability, m)?)?;
+    m.add_function(wrap_pyfunction!(bubble_pressure_py, m)?)?;
+    m.add_function(wrap_pyfunction!(bubble_temperature_py, m)?)?;
+    m.add_function(wrap_pyfunction!(dew_pressure_py, m)?)?;
+    m.add_function(wrap_pyfunction!(dew_temperature_py, m)?)?;
 
     Ok(())
 }

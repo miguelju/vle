@@ -241,10 +241,12 @@ Newton loops depend on.
 
 Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md)); all Newton loops consume the Milestone 8.3 analytic/AD Jacobians.
 
-- [ ] Wilson K-value initialization (29) + tangent-plane-distance stability analysis (7) (§I)
-- [ ] Isothermal flash — GDEM-accelerated SS → Newton on ln K (§J); Rachford-Rice via Halley inside the Leibovici–Neoschil window (§F, guaranteed convergence + negative flash)
-- [ ] Bubble point (T and P) — log-variable Newton with analytic Jacobian (§K); legacy two-stage scheme kept as test oracle
-- [ ] Dew point (T and P) — same structure (§K)
+*In progress — flash core + bubble/dew shipped (code + tests + bindings) by Claude Code using Claude Fable 5; critical point, envelope, adiabatic, regression, Chapter IV validation, and notebooks pending.*
+
+- [x] Wilson K-value initialization (29) + tangent-plane-distance stability analysis (7) (§I) — `flash/init.rs`, `flash/stability.rs`
+- [x] Isothermal flash — GDEM-accelerated SS (§J); Rachford-Rice via Halley inside the Leibovici–Neoschil window (§F, guaranteed convergence + negative flash) — `flash/isothermal.rs` (analytic-Jacobian Newton polish is a follow-on refinement)
+- [x] Bubble point (T and P) — Wilson-seeded SS with multiplicative-P / bisection-T outer solve (§K); φ-φ and γ-φ paths — `flash/bubble.rs`
+- [x] Dew point (T and P) — same structure (§K) — `flash/dew.rs`
 - [ ] Phase-envelope continuation through the critical point (24) (§K)
 - [ ] Adiabatic flash — warm-started nested loop (§M)
 - [ ] Critical point — Heidemann with analytical Helmholtz derivatives (§G)

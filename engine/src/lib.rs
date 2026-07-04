@@ -83,6 +83,7 @@
 pub mod activity;
 pub mod energy;
 pub mod eos;
+pub mod flash;
 pub mod liquid_volume;
 pub mod mixing;
 pub mod mixture;

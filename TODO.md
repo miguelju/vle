@@ -236,10 +236,13 @@ thermodynamic behavior change (gated by the existing test suite).
 Algorithm suite modernized 2026-07-01 (Track A of PERFORMANCE_PROPOSAL.md);
 every Newton loop consumes the M8.3 analytic/AD Jacobians (§L).
 
-- [ ] **Implement Wilson init + stability analysis** (~4–6h) — Wilson K-value correlation (29); tangent-plane-distance stability test (7) supplying phase count + non-trivial K estimates (§I)
-- [ ] **Implement isothermal flash** (~4–6h) — GDEM-accelerated SS (25) → Newton on ln K switch (§J); Rachford-Rice via Halley inside the Leibovici–Neoschil window (23) with bisection safeguard (§F)
-- [ ] **Implement bubble point (T and P)** (~4–6h) — log-variable Newton on {ln K, ln T or ln P} with analytic Jacobian (§K); legacy parabolic/Asselineau two-stage scheme (4),(14),(20) as test oracle
-- [ ] **Implement dew point (T and P)** (~2–3h) — same structure as bubble point (§K)
+*In progress — flash core + bubble/dew shipped (code + tests + PyO3 bindings +
+`test_m9_flash.py`) by Claude Code using Claude Fable 5; the rest pending.*
+
+- [x] **Implement Wilson init + stability analysis** — Wilson K-value correlation (29); tangent-plane-distance stability test (7) supplying phase count + non-trivial K estimates (§I) — `flash/init.rs`, `flash/stability.rs`
+- [x] **Implement isothermal flash** — GDEM-accelerated SS (25) (§J); Rachford-Rice via Halley inside the Leibovici–Neoschil window (23) with bisection safeguard (§F); φ-φ + γ-φ K-value dispatch in `flash/system.rs`. Newton-on-lnK polish is a follow-on refinement
+- [x] **Implement bubble point (T and P)** — Wilson-seeded SS with multiplicative-P / bisection-T outer solve (§K); φ-φ and γ-φ — `flash/bubble.rs`, shared core `flash/incipient.rs`
+- [x] **Implement dew point (T and P)** — same structure (§K) — `flash/dew.rs`
 - [ ] **Implement phase-envelope continuation** (~3–4h) — Michelsen predictor-corrector (24), adaptive step through the critical point (§K)
 - [ ] **Implement adiabatic flash** (~2–3h) — warm-started nested T-loop (Brent outer, K-seeded inner flash) (§M)
 - [ ] **Implement critical point** (~4–6h) — Heidemann (16) with analytical Helmholtz derivatives from the §L core, ZCriticoMezcla quick estimate (4)
@@ -295,7 +298,7 @@ Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone i
 | 6. Numerics | ~16–20h | **Done** |
 | 7. Pure Component Models | ~28–37h | **Done** (7.1–7.4 shipped; v0.3.0–v0.6.0) |
 | 8. Mixture Models + Performance Foundation | ~41–57h | **Done** (8.1–8.4 complete; unreleased) |
-| 9. Flash & Regression | ~44–62h | Not started |
+| 9. Flash & Regression | ~44–62h | In progress (flash core + bubble/dew done; critical/envelope/adiabatic/regression/validation/notebooks pending) |
 | 10. Python Bindings, Wrapper & Batch API | ~25–36h | Not started |
 | 11. Ch. IV Walkthrough & Final Deploy | ~7–11h | Not started |
 | **Total** | **~237–326h** | |
