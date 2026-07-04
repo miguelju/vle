@@ -2,6 +2,10 @@
 
 A modern Rust + Python reimplementation of a multicomponent vapor-liquid equilibrium (VLE) thermodynamic calculator, built from two legacy academic codebases using AI-assisted development.
 
+![3-D phase surfaces computed by the vle-thermo engine: the methane/ethane phase-envelope dome with its critical locus, and the methanol/water P–x–y sail](docs/assets/phase_surfaces_hero.png)
+
+*Every point above was computed by this library's Rust engine — the **phase-envelope dome** (left) traced through each mixture's critical point by Michelsen continuation, with the critical locus from the Heidemann–Khalil solver riding the ridge, and the **P–x–y "sail"** (right) from the γ-φ bubble/dew solvers. Explore and regenerate them in [`notebooks/09_3d_phase_surfaces.ipynb`](notebooks/09_3d_phase_surfaces.ipynb).*
+
 ## About This Project
 
 This project modernizes legacy thermodynamic software — originally written in VB6 (1999) and Pascal (1989) — into a fast **Rust computation engine** with **Python bindings** (via PyO3) and **Jupyter notebooks** for interactive exploration.
@@ -198,7 +202,7 @@ claude
 4. **Validate** — Results are verified against Chapter IV test cases (8 validation systems from the thesis).
 5. **Commit** — All documentation (`ROADMAP.md`, `TODO.md`, `MODERNIZATION_PLAN.md`) is updated to reflect the current state before pushing.
 
-Each milestone records which AI model was used (e.g., `Claude Opus 4.6 (1M context)`) in the commit and documentation for reproducibility tracking.
+Each milestone records which AI model was used (e.g., `Claude Opus 4.6 (1M context)`, `Claude Fable 5`) in the commit and documentation for reproducibility tracking — see the model history in [Built with Claude Code](#built-with-claude-code) below.
 
 ### Project conventions
 
@@ -258,6 +262,19 @@ The full reference list and code mapping is in [MODERNIZATION_PLAN.md](MODERNIZA
 ## Built with Claude Code
 
 **This entire project was built with [Claude Code](https://claude.ai/code)**, Anthropic's CLI coding agent. Every aspect — from analyzing 20,000 lines of legacy code to writing this README — was done collaboratively between a human developer and an AI agent working directly in the terminal.
+
+### Model history
+
+The project spans several generations of Claude models, and each milestone records which one executed it (in `ROADMAP.md`, `TODO.md`, and the commit trailers):
+
+| Model | Milestones | Contribution |
+|---|---|---|
+| **Claude Opus 4.6** (1M context) | 0–2 | Foundation: legacy-code analysis, reference mapping, English translation, repo structure, the modernization plan |
+| **Claude Opus 4.7** (1M context) | 3–6 | Units add-on, component database, CI/CD + publishing pipeline, numerics layer |
+| **Claude Opus 4.8** (1M context) | 7–8.1 | The full pure-component EOS zoo (22+ α variants, 3-parameter EOS, saturation models, virial) and the activity-coefficient models |
+| **Claude Fable 5** | 8.2–9 | **The major performance & algorithm modernization**: the measured performance foundation (benches, allocation-free hot paths, caches), the generalized (A, B, U, W) mixture core with **exact analytic/dual-number derivatives** replacing every finite difference, mixture energy properties, and the complete modern flash suite — stability analysis, guaranteed-convergence Rachford-Rice, bubble/dew, adiabatic flash, Heidemann–Khalil critical points, phase-envelope continuation through the critical point, and kij/Aij regression — validated against the thesis's Chapter IV tables |
+
+In short: the project **started with Opus 4.6** doing the archaeology and planning, and **Fable 5 delivered the deep optimization work** — the exact-derivative architecture and modern algorithm suite that the original thesis identified as its own main weaknesses (Ch. IV §4.1).
 
 ### What the agent did
 

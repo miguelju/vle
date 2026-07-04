@@ -257,7 +257,6 @@ every Newton loop consumes the M8.3 analytic/AD Jacobians (§L).
   - `notebooks/07_kij_regression.ipynb` — Tables 4.11–4.12 (sub-critical subset)
   - `notebooks/08_aij_regression.ipynb` — recovers the Table 4.5 van Laar parameters by LM
 - [x] **Update the notebook catalogue** — `deploy/NOTEBOOKS.md` rows present; rebuilt `notebooks/index.ipynb`
-- [ ] **Refresh the hosted hub** (~0.3h) — operator-side: run `deploy-vle` in `homelab-iac`, verify each new notebook
 
 ## Milestone 10: Python Bindings, Wrapper & Batch API
 
@@ -272,14 +271,13 @@ every Newton loop consumes the M8.3 analytic/AD Jacobians (§L).
 - [ ] **Write installation guide** (~1h) — end-user: `pip install`, basic usage example
 - [ ] **Create milestone notebook** (~2–3h) — `notebooks/01_introduction.ipynb` per CLAUDE.md *Notebook Conventions*: Chapter I + Appendix B snippets, `vle.System` API tour, first flash calculation end-to-end, ≥2 user exercises
 - [ ] **Update the notebook catalogue** (~0.3h) — add to `deploy/NOTEBOOKS.md`; touch `deploy/README.md` only if a distribution channel changed
-- [ ] **Refresh the hosted hub** (~0.3h) — operator-side: run `deploy-vle` in `homelab-iac`, verify the new notebook
 
 ## Milestone 11: Chapter IV Walkthrough & Final Deployment
 
 Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone is the capstone: one new walkthrough notebook covering all Chapter IV results, plus a final operator-side hub refresh of every notebook.
 
 - [ ] **Re-run all prior milestone notebooks** (~1–2h) — fresh kernel, Run All, verify no cell errors — validation pass
-- [ ] **Create `notebooks/09_chapter4_validation_walkthrough.ipynb`** (~4–6h) — per CLAUDE.md *Notebook Conventions*: narrated end-to-end walkthrough of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md) §4.1–§4.7, running the library against every Table 4.1–4.12 and reporting % error vs. published values, ≥2 user exercises
+- [ ] **Create `notebooks/10_chapter4_validation_walkthrough.ipynb`** (~4–6h) — per CLAUDE.md *Notebook Conventions*: narrated end-to-end walkthrough of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md) §4.1–§4.7, running the library against every Table 4.1–4.12 and reporting % error vs. published values, ≥2 user exercises
 - [ ] **Update the notebook catalogue** (~0.3h) — `deploy/NOTEBOOKS.md` catalogue marked complete
 - [ ] **Final hub refresh** (~0.5h) — operator-side: run `deploy-vle` (mode=full) in `homelab-iac`, verify every notebook in the catalogue opens and Run-All succeeds on the hub
 
@@ -298,7 +296,7 @@ Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone i
 | 6. Numerics | ~16–20h | **Done** |
 | 7. Pure Component Models | ~28–37h | **Done** (7.1–7.4 shipped; v0.3.0–v0.6.0) |
 | 8. Mixture Models + Performance Foundation | ~41–57h | **Done** (8.1–8.4 complete; unreleased) |
-| 9. Flash & Regression | ~44–62h | **Done** (all algorithms + bindings + tests + Ch. IV validation + notebooks 04–08; unreleased, operator hub refresh pending) |
+| 9. Flash & Regression | ~44–62h | **Done** (all algorithms + bindings + tests + Ch. IV validation + notebooks 04–08; unreleased) |
 | 10. Python Bindings, Wrapper & Batch API | ~25–36h | Not started |
 | 11. Ch. IV Walkthrough & Final Deploy | ~7–11h | Not started |
 | **Total** | **~237–326h** | |

@@ -241,7 +241,7 @@ Newton loops depend on.
 
 Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md)); all Newton loops consume the Milestone 8.3 analytic/AD Jacobians.
 
-*Complete (code + tests + notebooks) — every flash algorithm, its bindings/tests, the Chapter IV validation, and notebooks 04–08 shipped (Claude Code using Claude Fable 5). Only the operator-side hub refresh remains (not tracked as repo work).*
+*Complete — every flash algorithm, its bindings/tests, the Chapter IV validation, and notebooks 04–08 shipped (Claude Code using Claude Fable 5).*
 
 - [x] Wilson K-value initialization (29) + tangent-plane-distance stability analysis (7) (§I) — `flash/init.rs`, `flash/stability.rs`
 - [x] Isothermal flash — GDEM-accelerated SS (§J); Rachford-Rice via Halley inside the Leibovici–Neoschil window (§F, guaranteed convergence + negative flash) — `flash/isothermal.rs` (analytic-Jacobian Newton polish is a follow-on refinement)
@@ -261,7 +261,6 @@ Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERF
   - `notebooks/07_kij_regression.ipynb` — Tables 4.11–4.12 CO₂/butane fit on the sub-critical subset (~0.14, near the literature 0.1357)
   - `notebooks/08_aij_regression.ipynb` — Levenberg-Marquardt recovers the Table 4.5 van Laar parameters from the Table 4.6 data
 - [x] Update the notebook catalogue (`deploy/NOTEBOOKS.md`) + rebuilt the landing index (`notebooks/index.ipynb`)
-- [ ] Refresh the hosted hub (operator-side: run `deploy-vle` in `homelab-iac`) and verify each new notebook
 
 ## Milestone 10: Python Bindings, Wrapper & Batch API
 **Goal**: Python package installable, high-level API usable, batch numpy API makes it "numpy for thermo".
@@ -285,7 +284,6 @@ Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERF
 - [ ] Write end-user installation guide
 - [ ] Create milestone notebook (`notebooks/01_introduction.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: Chapter I + Appendix B (User Manual) snippets, installation walk-through, `vle.System` basic API tour, ≥2 user exercises
 - [ ] Update the notebook catalogue (`deploy/NOTEBOOKS.md`); touch `deploy/README.md` only if a distribution channel changed
-- [ ] Refresh the hosted hub (operator-side: run `deploy-vle` in `homelab-iac`) and verify the new notebook
 
 ## Milestone 11: Chapter IV Walkthrough & Final Deployment
 **Goal**: One cohesive walkthrough of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md) and a final full-stack redeploy of every milestone notebook.
@@ -294,7 +292,7 @@ Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERF
 > Notebooks 01–08 ship incrementally through Milestones 4–10 (each milestone produces the notebook for the feature it built). This milestone is the capstone: it adds the Chapter IV walkthrough and verifies every notebook is still reachable after a fresh deploy.
 
 - [ ] Re-run every existing milestone notebook top-to-bottom in a fresh kernel — validation pass
-- [ ] Create `notebooks/09_chapter4_validation_walkthrough.ipynb` — professional structure per CLAUDE.md *Notebook Conventions*; walks a reader through all seven Chapter IV cases (Tables 4.1–4.12), pulls quoted snippets from [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md), runs the `vle` library against each table, reports % error vs. published values, and ends with ≥2 user exercises (e.g. "repeat the kij regression for a different binary").
+- [ ] Create `notebooks/10_chapter4_validation_walkthrough.ipynb` — professional structure per CLAUDE.md *Notebook Conventions*; walks a reader through all seven Chapter IV cases (Tables 4.1–4.12), pulls quoted snippets from [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md), runs the `vle` library against each table, reports % error vs. published values, and ends with ≥2 user exercises (e.g. "repeat the kij regression for a different binary").
 - [ ] Update the notebook catalogue (`deploy/NOTEBOOKS.md`) — mark the full catalogue as published
 - [ ] Final hub refresh (operator-side) — run `deploy-vle` (mode=full) in `homelab-iac`, verify every notebook in the catalogue opens and Runs-All cleanly on the hub
 

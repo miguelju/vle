@@ -74,7 +74,8 @@ of the research paper's Chapter IV validation cases.
 | `06_critical_points.ipynb`                          | 9         | Reproduce Tables 4.1–4.2                        |
 | `07_kij_regression.ipynb`                           | 9         | Reproduce Tables 4.11–4.12                      |
 | `08_aij_regression.ipynb`                           | 9         | Activity model Aij fitting (Pascal-origin)      |
-| `09_chapter4_validation_walkthrough.ipynb`          | 11        | End-to-end walkthrough of Chapter IV            |
+| `09_3d_phase_surfaces.ipynb`                        | 9         | 3-D showcase: phase-envelope dome + critical locus, P–x–y sail (pre-computed CSVs in `notebooks/data/`) |
+| `10_chapter4_validation_walkthrough.ipynb`          | 11        | End-to-end walkthrough of Chapter IV            |
 
 Notebooks appear in the table as they are authored; a missing file means the
 corresponding milestone has not shipped its notebook yet.
