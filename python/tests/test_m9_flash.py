@@ -297,3 +297,17 @@ def test_fit_aij_recovers_van_laar():
     )
     assert abs(a12 - a12t) < 5e-3 and abs(a21 - a21t) < 5e-3
     assert rmse < 1e-2
+
+
+def test_phase_envelope_traces_points():
+    """Trace a methane/ethane phase envelope; points climb in pressure."""
+    tcs = [190.564, 305.32]
+    pcs = [4599.0, 4872.0]
+    om = [0.0115, 0.0995]
+    pts = e.trace_envelope_py(
+        e.CubicEos.PR1976, tcs, pcs, om, [0.5, 0.5], p_start=300.0, max_points=40,
+    )
+    assert len(pts) >= 5
+    assert all(t > 0 and p > 0 for (t, p) in pts)
+    p_max = max(p for (_, p) in pts)
+    assert p_max > 2 * 300.0, f"envelope P_max {p_max} did not climb"

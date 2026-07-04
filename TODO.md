@@ -243,7 +243,7 @@ every Newton loop consumes the M8.3 analytic/AD Jacobians (§L).
 - [x] **Implement isothermal flash** — GDEM-accelerated SS (25) (§J); Rachford-Rice via Halley inside the Leibovici–Neoschil window (23) with bisection safeguard (§F); φ-φ + γ-φ K-value dispatch in `flash/system.rs`. Newton-on-lnK polish is a follow-on refinement
 - [x] **Implement bubble point (T and P)** — Wilson-seeded SS with multiplicative-P / bisection-T outer solve (§K); φ-φ and γ-φ — `flash/bubble.rs`, shared core `flash/incipient.rs`
 - [x] **Implement dew point (T and P)** — same structure (§K) — `flash/dew.rs`
-- [ ] **Implement phase-envelope continuation** (~3–4h) — Michelsen predictor-corrector (24), adaptive step through the critical point (§K). **Deferred** — the one remaining algorithm; needed for near-critical bubble/dew (the Chapter IV kij high-CO₂ points)
+- [x] **Implement phase-envelope continuation** — Michelsen predictor-corrector (24), adaptive step through the critical point (§K) — `flash/envelope.rs`. Unified incipient-phase (n+2)-variable Newton with min-Gibbs root selection through the critical point; `trace_envelope_py` binding + tests
 - [x] **Implement adiabatic flash** — warm-started nested T-loop (bisection outer, K-seeded inner flash) (§M) — `flash/adiabatic.rs`, `flash_isothermal_warm`
 - [x] **Implement critical point** — Heidemann (16) with **dual-number** Helmholtz derivatives (§G); 2-D Newton on {λ_min, cubic form} — `flash/critical.rs`
 - [x] **Implement kij regression** — Brent minimization replacing golden section (4) — `flash/kij_regression.rs` + `numerics::root_finding::brent_minimize`
@@ -298,7 +298,7 @@ Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone i
 | 6. Numerics | ~16–20h | **Done** |
 | 7. Pure Component Models | ~28–37h | **Done** (7.1–7.4 shipped; v0.3.0–v0.6.0) |
 | 8. Mixture Models + Performance Foundation | ~41–57h | **Done** (8.1–8.4 complete; unreleased) |
-| 9. Flash & Regression | ~44–62h | In progress (flash core + bubble/dew done; critical/envelope/adiabatic/regression/validation/notebooks pending) |
+| 9. Flash & Regression | ~44–62h | In progress (all algorithms + bindings + tests + Ch. IV flash/kij validation done; only notebooks 04–08 pending) |
 | 10. Python Bindings, Wrapper & Batch API | ~25–36h | Not started |
 | 11. Ch. IV Walkthrough & Final Deploy | ~7–11h | Not started |
 | **Total** | **~237–326h** | |

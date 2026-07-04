@@ -42,6 +42,7 @@ pub mod aij_regression;
 pub mod bubble;
 pub mod critical;
 pub mod dew;
+pub mod envelope;
 pub mod init;
 pub mod isothermal;
 pub mod kij_regression;

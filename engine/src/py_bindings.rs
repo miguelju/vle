@@ -1302,6 +1302,7 @@ use crate::flash::aij_regression::{AijBubblePoint, fit_aij};
 use crate::flash::bubble::{bubble_pressure, bubble_temperature};
 use crate::flash::critical::critical_point;
 use crate::flash::dew::{dew_pressure, dew_temperature};
+use crate::flash::envelope::trace_envelope;
 use crate::flash::isothermal::{flash_isothermal, rachford_rice as rachford_rice_rs};
 use crate::flash::kij_regression::{BubblePoint, fit_kij};
 use crate::flash::stability::{Stability, stability_analysis};
@@ -1821,6 +1822,39 @@ fn fit_aij_py(
     Ok((fit.a12, fit.a21, fit.sse, fit.rmse, fit.iterations))
 }
 
+/// Trace the phase envelope of a φ-φ cubic mixture at composition `z`
+/// (Michelsen continuation, §K). Returns a list of `(T [K], P [kPa])`
+/// points from the low-pressure seed up through the critical region.
+#[pyfunction]
+#[pyo3(signature = (eos, tcs, pcs, omegas, z, p_start=100.0, kij=vec![], max_points=60))]
+#[allow(clippy::too_many_arguments)]
+fn trace_envelope_py(
+    eos: CubicEos,
+    tcs: Vec<f64>,
+    pcs: Vec<f64>,
+    omegas: Vec<f64>,
+    z: Vec<f64>,
+    p_start: f64,
+    kij: Vec<Vec<f64>>,
+    max_points: usize,
+) -> PyResult<Vec<(f64, f64)>> {
+    let comps = flash_components(&tcs, &pcs, &omegas, &[], &[])?;
+    let spec = SystemSpec {
+        components: &comps,
+        vapor: VaporModel::Cubic(eos),
+        liquid: LiquidModel::Cubic(eos),
+        mixing_rule: MixingRule::Classical,
+        kij: &kij,
+        aij: &[],
+        vl: &[],
+        delta: &[],
+        sat_models: &[],
+        ge_model: None,
+    };
+    let pts = trace_envelope(&spec, &z, p_start, max_points).map_err(map_flash_err)?;
+    Ok(pts.into_iter().map(|p| (p.t, p.p)).collect())
+}
+
 /// PyO3 module entry point.
 ///
 /// Maturin builds this into `vle/_engine.<platform>.<ext>` and Python
@@ -1923,9 +1957,10 @@ fn _engine(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(dew_pressure_py, m)?)?;
     m.add_function(wrap_pyfunction!(dew_temperature_py, m)?)?;
 
-    // M9 critical point, adiabatic flash, and kij/Aij regression.
+    // M9 critical point, adiabatic flash, phase envelope, kij/Aij regression.
     m.add_function(wrap_pyfunction!(critical_point_py, m)?)?;
     m.add_function(wrap_pyfunction!(flash_adiabatic_py, m)?)?;
+    m.add_function(wrap_pyfunction!(trace_envelope_py, m)?)?;
     m.add_function(wrap_pyfunction!(fit_kij_py, m)?)?;
     m.add_function(wrap_pyfunction!(fit_aij_py, m)?)?;
 

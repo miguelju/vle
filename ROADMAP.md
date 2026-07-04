@@ -241,13 +241,13 @@ Newton loops depend on.
 
 Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md)); all Newton loops consume the Milestone 8.3 analytic/AD Jacobians.
 
-*In progress — all algorithms + bindings + tests shipped (Claude Code using Claude Fable 5); only phase-envelope continuation and the notebooks remain.*
+*In progress — **every flash algorithm + bindings + tests shipped** (Claude Code using Claude Fable 5); only the Chapter IV notebooks (04–08) remain.*
 
 - [x] Wilson K-value initialization (29) + tangent-plane-distance stability analysis (7) (§I) — `flash/init.rs`, `flash/stability.rs`
 - [x] Isothermal flash — GDEM-accelerated SS (§J); Rachford-Rice via Halley inside the Leibovici–Neoschil window (§F, guaranteed convergence + negative flash) — `flash/isothermal.rs` (analytic-Jacobian Newton polish is a follow-on refinement)
 - [x] Bubble point (T and P) — Wilson-seeded SS with multiplicative-P / bisection-T outer solve (§K); φ-φ and γ-φ paths — `flash/bubble.rs`
 - [x] Dew point (T and P) — same structure (§K) — `flash/dew.rs`
-- [ ] Phase-envelope continuation through the critical point (24) (§K) — deferred; needed for near-critical bubble/dew (see the Chapter IV kij caveat)
+- [x] Phase-envelope continuation through the critical point (24) (§K) — `flash/envelope.rs`; Michelsen unified incipient-phase formulation with min-Gibbs root selection through the critical point + tangent-predictor/Newton-corrector continuation
 - [x] Adiabatic flash — warm-started nested loop (§M) — `flash/adiabatic.rs`
 - [x] Critical point — Heidemann with dual-number Helmholtz derivatives (§G) — `flash/critical.rs` (2-D Newton on {λ_min, cubic form})
 - [x] kij regression via Brent's method (§B) — `flash/kij_regression.rs` (`brent_minimize` in numerics)
