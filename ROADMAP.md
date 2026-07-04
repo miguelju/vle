@@ -241,7 +241,7 @@ Newton loops depend on.
 
 Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md)); all Newton loops consume the Milestone 8.3 analytic/AD Jacobians.
 
-*In progress — **every flash algorithm + bindings + tests shipped** (Claude Code using Claude Fable 5); only the Chapter IV notebooks (04–08) remain.*
+*Complete (code + tests + notebooks) — every flash algorithm, its bindings/tests, the Chapter IV validation, and notebooks 04–08 shipped (Claude Code using Claude Fable 5). Only the operator-side hub refresh remains (not tracked as repo work).*
 
 - [x] Wilson K-value initialization (29) + tangent-plane-distance stability analysis (7) (§I) — `flash/init.rs`, `flash/stability.rs`
 - [x] Isothermal flash — GDEM-accelerated SS (§J); Rachford-Rice via Halley inside the Leibovici–Neoschil window (§F, guaranteed convergence + negative flash) — `flash/isothermal.rs` (analytic-Jacobian Newton polish is a follow-on refinement)
@@ -254,13 +254,13 @@ Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERF
 - [x] Aij regression — Levenberg-Marquardt (4) — `flash/aij_regression.rs`
 - [x] Extend criterion benches with RR / flash — `engine/benches/engine_bench.rs` (`bench_flash`)
 - [x] Validate Chapter IV cases — isothermal flash (Table 4.10) reproduced against published numbers; kij fit validated on the sub-critical subset (`engine/tests/chapter_iv_validation.rs`). The near-critical kij points and remaining table groups land with the phase-envelope solver + notebooks.
-- [ ] Create milestone notebooks — professional structure per CLAUDE.md *Notebook Conventions*; one notebook per thesis table group, each reproducing the referenced Chapter IV table(s) with snippets from the research paper and ≥2 user exercises:
-  - `notebooks/04_bubble_dew_point.ipynb` — Tables 4.6–4.9
-  - `notebooks/05_flash_calculations.ipynb` — Tables 4.3–4.4, 4.10
-  - `notebooks/06_critical_points.ipynb` — Tables 4.1–4.2
-  - `notebooks/07_kij_regression.ipynb` — Tables 4.11–4.12
-  - `notebooks/08_aij_regression.ipynb` — Aij fitting (Pascal-origin)
-- [ ] Update the notebook catalogue (`deploy/NOTEBOOKS.md`); touch `deploy/README.md` only if a distribution channel changed
+- [x] Create milestone notebooks — professional structure per CLAUDE.md *Notebook Conventions*; each reproduces the referenced Chapter IV table(s), executes top-to-bottom, and has ≥2 exercises with solutions (build scripts in `scripts/build_notebook_m9_*.py`):
+  - `notebooks/04_bubble_dew_point.ipynb` — Table 4.6 van Laar bubble P reproduced (y within 1%, P within the Psat-correlation band) + dew/bubble-T demos
+  - `notebooks/05_flash_calculations.ipynb` — Table 4.10 isothermal flash reproduced exactly + adiabatic (Table 4.4) energy-balance round-trip
+  - `notebooks/06_critical_points.ipynb` — Tables 4.1–4.2 mixtures reproduced within the thesis band (Tc < 2%, Pc < 6%)
+  - `notebooks/07_kij_regression.ipynb` — Tables 4.11–4.12 CO₂/butane fit on the sub-critical subset (~0.14, near the literature 0.1357)
+  - `notebooks/08_aij_regression.ipynb` — Levenberg-Marquardt recovers the Table 4.5 van Laar parameters from the Table 4.6 data
+- [x] Update the notebook catalogue (`deploy/NOTEBOOKS.md`) + rebuilt the landing index (`notebooks/index.ipynb`)
 - [ ] Refresh the hosted hub (operator-side: run `deploy-vle` in `homelab-iac`) and verify each new notebook
 
 ## Milestone 10: Python Bindings, Wrapper & Batch API

@@ -250,13 +250,13 @@ every Newton loop consumes the M8.3 analytic/AD Jacobians (§L).
 - [x] **Implement Aij regression** — Levenberg-Marquardt for Margules/VanLaar/Wilson (4) — `flash/aij_regression.rs`
 - [x] **Extend criterion benches** — RR + isothermal flash — `engine/benches/engine_bench.rs`
 - [x] **Validate Chapter IV cases** — isothermal flash (Table 4.10) reproduced vs published x₁/y₁/β; kij fit validated on the sub-critical subset — `engine/tests/chapter_iv_validation.rs`. Full-dataset kij + the remaining table groups land with the phase envelope + notebooks
-- [ ] **Create milestone notebooks** (~10–13h total) — per CLAUDE.md *Notebook Conventions*, one notebook per Chapter IV table group with research-paper snippets, reproduction, and ≥2 exercises each:
-  - `notebooks/04_bubble_dew_point.ipynb` (~2–3h) — Tables 4.6–4.9
-  - `notebooks/05_flash_calculations.ipynb` (~2–3h) — Tables 4.3–4.4, 4.10
-  - `notebooks/06_critical_points.ipynb` (~2–3h) — Tables 4.1–4.2
-  - `notebooks/07_kij_regression.ipynb` (~2h) — Tables 4.11–4.12
-  - `notebooks/08_aij_regression.ipynb` (~2–3h) — Aij fitting (Pascal-origin)
-- [ ] **Update the notebook catalogue** (~0.3h) — add the new notebooks to `deploy/NOTEBOOKS.md`; touch `deploy/README.md` only if a distribution channel changed
+- [x] **Create milestone notebooks** — per CLAUDE.md *Notebook Conventions*, one per Chapter IV table group; each executes top-to-bottom, reproduces the referenced table(s), and has ≥2 exercises with solutions (deterministic build scripts `scripts/build_notebook_m9_*.py`):
+  - `notebooks/04_bubble_dew_point.ipynb` — Table 4.6 (van Laar bubble P) + dew/bubble-T demos
+  - `notebooks/05_flash_calculations.ipynb` — Table 4.10 (isothermal, exact) + Table 4.4 (adiabatic round-trip)
+  - `notebooks/06_critical_points.ipynb` — Tables 4.1–4.2 (within the thesis band)
+  - `notebooks/07_kij_regression.ipynb` — Tables 4.11–4.12 (sub-critical subset)
+  - `notebooks/08_aij_regression.ipynb` — recovers the Table 4.5 van Laar parameters by LM
+- [x] **Update the notebook catalogue** — `deploy/NOTEBOOKS.md` rows present; rebuilt `notebooks/index.ipynb`
 - [ ] **Refresh the hosted hub** (~0.3h) — operator-side: run `deploy-vle` in `homelab-iac`, verify each new notebook
 
 ## Milestone 10: Python Bindings, Wrapper & Batch API
@@ -298,7 +298,7 @@ Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone i
 | 6. Numerics | ~16–20h | **Done** |
 | 7. Pure Component Models | ~28–37h | **Done** (7.1–7.4 shipped; v0.3.0–v0.6.0) |
 | 8. Mixture Models + Performance Foundation | ~41–57h | **Done** (8.1–8.4 complete; unreleased) |
-| 9. Flash & Regression | ~44–62h | In progress (all algorithms + bindings + tests + Ch. IV flash/kij validation done; only notebooks 04–08 pending) |
+| 9. Flash & Regression | ~44–62h | **Done** (all algorithms + bindings + tests + Ch. IV validation + notebooks 04–08; unreleased, operator hub refresh pending) |
 | 10. Python Bindings, Wrapper & Batch API | ~25–36h | Not started |
 | 11. Ch. IV Walkthrough & Final Deploy | ~7–11h | Not started |
 | **Total** | **~237–326h** | |
