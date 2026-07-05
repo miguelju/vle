@@ -44,7 +44,7 @@ the local rustc trips a pyo3 `E0133` across every `#[pyfunction]` (a toolchain/p
 mismatch, not our code), so clippy is enforced only in CI. **Always run
 `cargo fmt --check` before pushing** even if the hook is active — never `--no-verify`.
 
-Note: addresses on `migueljackson.dev` (e.g. `admin@migueljackson.dev`, `git@migueljackson.dev`) are Miguel's intentional public / professional identity and are safe to include in committed files — `Cargo.toml` / `pyproject.toml` `authors`, git commit author fields, READMEs, etc. They are **not** covered by this gate. The JupyterHub deployment now lives in the private `homelab-iac` repo, so no deployment hostnames, IPs, or Cloudflare Access team names should appear in this repo's committed files at all — use `example.com` / `${VAR}` placeholders (see the rule list below).
+Note: addresses on `migueljackson.dev` (e.g. `admin@migueljackson.dev`, `git@migueljackson.dev`) are Miguel's intentional public / professional identity and are safe to include in committed files — `Cargo.toml` / `pyproject.toml` `authors`, git commit author fields, READMEs, etc. They are **not** covered by this gate. The JupyterHub deployment now lives in a separate private operator repository, so no deployment hostnames, IPs, or Cloudflare Access team names should appear in this repo's committed files at all — use `example.com` / `${VAR}` placeholders (see the rule list below).
 
 ## Phase / Milestone Synchronization Rules
 
@@ -227,8 +227,8 @@ The minimal scaffolding (`vle._engine` exposing `version()` plus the four enum t
 This repo distributes through **three channels only**: crates.io, PyPI, and the
 **example notebooks** (run locally, or on any Jupyter). It no longer carries a
 deployment — the multi-user Docker/JupyterHub stack that used to live under
-`deploy/` moved to the operator's **private `homelab-iac` repo** (Ansible role
-`vle` + the gated `deploy-vle` workflow). `deploy/` now holds only
+`deploy/` moved to a **separate private operator repository** (an Ansible role
++ a gated deploy workflow). `deploy/` now holds only
 `README.md` (distribution channels), `NOTEBOOKS.md` (host-agnostic notebook
 guide), and `scripts/publish-{crate,pypi}.sh`. See `PUBLISHING.md` for the
 release flow.
@@ -237,10 +237,10 @@ release flow.
 
 `release.yml` publishes to crates.io + PyPI + GitHub Releases on a `v*` tag and
 **deploys nowhere**. To update the hosted teaching hub, the operator runs the
-gated `deploy-vle` workflow (or `ansible-playbook playbooks/deploy-vle.yml`) in
-`homelab-iac`, choosing `mode=notebooks` (content refresh) or `mode=full`
-(engine rebuild from source). Nothing in this repo triggers that — keep it that
-way (no cross-repo deploy coupling).
+gated deploy workflow in a separate private operator repository, choosing
+`mode=notebooks` (content refresh) or `mode=full` (engine rebuild from source).
+Nothing in this repo triggers that — keep it that way (no cross-repo deploy
+coupling).
 
 ### Per-milestone artifact workflow
 
@@ -251,8 +251,8 @@ Every milestone that produces a user-facing artifact ends with:
    catalogue and note any new prerequisite; touch `deploy/README.md` only if a
    distribution channel changed.
 
-Deploying that notebook to the hub is a **separate operator-side step** in
-`homelab-iac`, not part of the milestone commit here.
+Deploying that notebook to the hub is a **separate operator-side step** in a
+private operator repository, not part of the milestone commit here.
 
 ### Keep private infrastructure out of committed files
 
@@ -261,7 +261,7 @@ IPs, Cloudflare Access team names, and TLS key material. In any committed
 example use placeholders — `vle.example.com`, `203.0.113.10` (TEST-NET-3),
 `admin@example.com`, `example.cloudflareaccess.com`, or `${VAR}`. All
 operator-specific values (real hostnames, the tunnel token, cert paths) live
-**only** in the private `homelab-iac` repo.
+**only** in a separate private operator repository.
 
 ## Notebook Conventions
 
@@ -271,33 +271,8 @@ the collection works as a coherent learning path for learners working through th
 **Required sections (top to bottom):**
 
 1. **Title + one-sentence motivation** (H1 + lead paragraph).
-2. **Notebook sandbox notice** — a single blockquote markdown cell immediately
-   after the title that scopes itself to *a shared JupyterLab someone else set
-   up* (this repo does not operate a hub), lists the three sandbox properties
-   (no persistence, version may lag PyPI, in-container `pip install` is
-   ephemeral), and points readers running locally at `pip install vle-thermo`.
-   Use this exact wording so the notice is consistent across notebooks:
-
-   ```markdown
-   > 💾 **Notebook sandbox notice — only applies if you're running this notebook
-   > on a shared JupyterLab someone set up for you.** If you were given a URL to
-   > a shared JupyterLab environment, treat it as an *educational
-   > sandbox*: edits you make to this notebook won't survive a container
-   > restart, the bundled `vle-thermo` version may lag PyPI, and any
-   > `pip install` you run inside this container is ephemeral (it vanishes
-   > when your session is culled). For real work, install `vle-thermo` in
-   > your own Jupyter environment with `pip install vle-thermo` and run the
-   > notebook there — see the [project README](https://github.com/miguelju/vle/blob/main/README.md).
-   > **If you opened this notebook in your own Jupyter, you can ignore this
-   > notice.**
-   ```
-
-   The landing page (`notebooks/index.ipynb`, generated by
-   `scripts/build_index.py`) emits the same notice automatically; per-notebook
-   files include it manually.
-
-2b. **Optional setup cell (commented `%pip install --upgrade vle-thermo`)**
-    — immediately after the notebook sandbox notice and before the
+2. **Optional setup cell (commented `%pip install --upgrade vle-thermo`)**
+    — immediately after the title and before the
     research-paper context, every milestone notebook includes a short
     "Setup (optional)" markdown cell followed by a code cell containing
     exactly:

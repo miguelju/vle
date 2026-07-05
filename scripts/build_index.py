@@ -169,29 +169,6 @@ def build() -> nbf.NotebookNode:
         "**Click a notebook link below to open it.**"
     ))
 
-    # ---- Persistence notice --------------------------------------------
-    # Mirrors the per-notebook notice required by CLAUDE.md *Notebook
-    # Conventions*: this hub does not promise to preserve user edits across
-    # container restarts or image rebuilds. The notice goes on the landing
-    # page so first-time visitors see it before opening any notebook.
-    cells.append(md(
-        "> 💾 **Notebook sandbox notice — only applies if you're running this "
-        "hub on a shared JupyterLab someone set up for you.** If you were given "
-        "a URL to this shared JupyterLab environment, you're in an "
-        "*educational sandbox*: the bundled `vle-thermo` version may lag "
-        "PyPI, any `pip install` you run inside a notebook is ephemeral "
-        "(it vanishes when your session is culled), and **edits to any "
-        "bundled notebook get overwritten the next time the hub publishes "
-        "a new version of it** — use **File → Save As** to a different "
-        "filename if you want your changes to survive. (Files you create "
-        "with new names, and your own data files, are never touched.) For "
-        "real work, install `vle-thermo` in your own Jupyter environment "
-        "with `pip install vle-thermo` and open the notebooks there — see "
-        "the [project README](https://github.com/miguelju/vle/blob/main/README.md). "
-        "**If you're already running this in your own Jupyter, you can "
-        "ignore this notice.**"
-    ))
-
     # ---- What is VLE ----------------------------------------------------
     cells.append(md(
         "## About this environment\n"

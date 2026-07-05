@@ -10,10 +10,9 @@
 #   gh-release      - creates the GitHub Release and attaches all wheels + sdist
 #
 # Deploying the teaching hub is NO LONGER part of this pipeline. The
-# Docker-Compose JupyterHub stack moved to the operator's private homelab-iac
-# repo; after a release, refresh the hub from there via the gated `deploy-vle`
-# workflow / `ansible-playbook playbooks/deploy-vle.yml` (notebooks or full
-# mode). See PUBLISHING.md.
+# Docker-Compose JupyterHub stack moved to a separate private operator
+# repository; after a release, refresh the hub from there via its gated deploy
+# workflow (notebooks or full mode). See PUBLISHING.md.
 #
 # Secrets:
 #   GitHub secret OP_SERVICE_ACCOUNT_TOKEN is the *only* GitHub-side secret;

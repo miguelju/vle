@@ -111,7 +111,7 @@ The `release.yml` workflow then:
 4. Creates a GitHub Release and attaches all wheels + sdist.
 
 The pipeline **publishes only — it deploys nowhere.** The teaching hub is
-refreshed separately from the private `homelab-iac` repo (gated `deploy-vle`
+refreshed separately from a private operator repository (a gated deploy
 workflow); see [PUBLISHING.md](../PUBLISHING.md) → *Deploying the teaching hub*.
 
 End-to-end clock from `git push origin vX.Y.Z` to "PyPI install works"
@@ -131,7 +131,7 @@ full release procedure.
   `OP_SERVICE_ACCOUNT_TOKEN` (the 1Password Service Account token).
   The crates.io token lives in the 1Password vault `vle-thermo-ci` and is
   loaded at workflow runtime. (Deploy SSH keys / host names are no longer
-  needed — deployment moved to the `homelab-iac` repo.)
+  needed — deployment moved to a separate private operator repository.)
 - **Self-hosted runners** — register one or more per the
   `runners/*-setup.md` docs.
 

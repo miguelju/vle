@@ -50,21 +50,6 @@ def code(text: str) -> nbf.NotebookNode:
 # Shared boilerplate ---------------------------------------------------------
 
 
-def hub_sandbox_notice() -> nbf.NotebookNode:
-    return md(
-        "> 💾 **Notebook sandbox notice — only applies if you're running this "
-        "notebook on a shared JupyterLab someone set up for you.** If you were given "
-        "a URL to a shared JupyterLab environment, treat it as an "
-        "*educational sandbox*: edits you make to this notebook won't survive "
-        "a container restart, the bundled `vle-thermo` version may lag PyPI, "
-        "and any `pip install` you run inside this container is ephemeral "
-        "(it vanishes when your session is culled). For real work, install "
-        "`vle-thermo` in your own Jupyter environment with "
-        "`pip install vle-thermo` and run the notebook there — see the "
-        "[project README](https://github.com/miguelju/vle/blob/main/README.md). "
-        "**If you opened this notebook in your own Jupyter, you can ignore "
-        "this notice.**"
-    )
 
 
 def optional_pip_install_cell() -> list[nbf.NotebookNode]:
@@ -120,8 +105,7 @@ def build_placeholder(p: Placeholder) -> nbf.NotebookNode:
         f"{p.one_liner}\n"
     ))
 
-    # ---- Notebook sandbox notice + optional pip cell ------------------------
-    cells.append(hub_sandbox_notice())
+    # ---- Optional pip cell ---------------------------------------------------
     cells.extend(optional_pip_install_cell())
 
     # ---- Motivation -----------------------------------------------------

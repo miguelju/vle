@@ -49,25 +49,6 @@ def build() -> nbf.NotebookNode:
         "seeded from the research paper, and how to extend it."
     ))
 
-    # ---- Notebook sandbox notice (CLAUDE.md "Notebook Conventions" §2) -------
-    cells.append(md(
-        "> 💾 **Notebook sandbox notice — only applies if you're running this "
-        "notebook on a shared JupyterLab someone set up for you.** If you were given "
-        "a URL to a shared JupyterLab environment, treat it as an "
-        "*educational sandbox*: the bundled `vle-thermo` version may lag PyPI, "
-        "any `pip install` you run inside this container is ephemeral (it "
-        "vanishes when your session is culled), and **edits to this bundled "
-        "notebook get overwritten the next time the hub publishes a new "
-        "version of it** — use **File → Save As** to a different filename if "
-        "you want your changes to survive. (Files you create with new names, "
-        "and your own data files, are never touched.) For real work, install "
-        "`vle-thermo` in your own Jupyter environment with "
-        "`pip install vle-thermo` and run the notebook there — see the "
-        "[project README](https://github.com/miguelju/vle/blob/main/README.md). "
-        "**If you opened this notebook in your own Jupyter, you can ignore "
-        "this notice.**"
-    ))
-
     # ---- Optional upgrade cell (CLAUDE.md "Notebook Conventions" §2b) ---
     cells.append(md(
         "## Setup (optional)\n"

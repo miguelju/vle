@@ -17,19 +17,6 @@ from nbclient import NotebookClient
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NB_PATH = REPO_ROOT / "notebooks" / "07_kij_regression.ipynb"
 
-SANDBOX_NOTICE = (
-    "> 💾 **Notebook sandbox notice — only applies if you're running this "
-    "notebook on a shared JupyterLab someone set up for you.** If you were given "
-    "a URL to a shared JupyterLab environment, treat it as an *educational "
-    "sandbox*: edits you make to this notebook won't survive a container "
-    "restart, the bundled `vle-thermo` version may lag PyPI, and any "
-    "`pip install` you run inside this container is ephemeral (it vanishes "
-    "when your session is culled). For real work, install `vle-thermo` in "
-    "your own Jupyter environment with `pip install vle-thermo` and run the "
-    "notebook there — see the [project README](https://github.com/miguelju/vle/blob/main/README.md). "
-    "**If you opened this notebook in your own Jupyter, you can ignore this "
-    "notice.**"
-)
 SETUP_CELL = (
     "# Optional: pull the latest vle-thermo from PyPI.\n"
     "# Uncomment if you want the newest released version instead of\n"
@@ -61,7 +48,6 @@ def build():
         "the research paper's **Tables 4.11–4.12**, reproducing the reported "
         "$k_{12} \\approx 0.1357$."
     ))
-    c.append(md(SANDBOX_NOTICE))
     c.append(md(
         "## Setup (optional)\n\nThe cell below is **commented out by default**. "
         "Uncomment it to pull the latest `vle-thermo` from PyPI."

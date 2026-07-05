@@ -96,7 +96,7 @@ Hybrid CI/CD pipeline, first PyO3 bindings, and automatic sandbox redeploy on ta
 - [x] **`docs/ci.md`** (~1h) — developer overview, ephemerality table, fork-PR guard, retry flow, badges
 - [x] **`docs/runners/linux-setup.md`** (~1.5h) — Proxmox LXC + Docker + `myoung34/github-runner:latest` ephemeral container; PAT setup; verification; scaling
 - [x] **`docs/runners/macos-setup.md`** (~1.5h) — Mac mini M1 launchd service; toolchain bootstrap (Xcode CLT, rustup, four Pythons via python.org or `uv`, maturin); periodic-cleanup checklist
-- [x] **`.github/workflows/release.yml`** (~3h) — `v*` tag: call `_build.yml`, then `publish-pypi` (Trusted Publishing OIDC), `publish-crates` (1Password-loaded token; `vle-units` then `vle-thermo`), `gh-release` (wheels + sdist attached). *(M5 also shipped an auto-deploy job; it was later removed when the deployment moved to `homelab-iac` — see MODERNIZATION_PLAN.md.)*
+- [x] **`.github/workflows/release.yml`** (~3h) — `v*` tag: call `_build.yml`, then `publish-pypi` (Trusted Publishing OIDC), `publish-crates` (1Password-loaded token; `vle-units` then `vle-thermo`), `gh-release` (wheels + sdist attached). *(M5 also shipped an auto-deploy job; it was later removed when the deployment moved to a separate private operator repository — see MODERNIZATION_PLAN.md.)*
 - [x] **Drop `git pull` from `deploy/scripts/deploy.sh`** (~0.3h) — tag-checkout happens in the deploy wrapper; deploy.sh becomes pure docker build + up
 - [x] **Private auto-deploy installer** (`deploy/local/auto-deploy/{vle-deploy, install-rocky.sh, install-oracle.sh, README.md}`) (~2h) — `/usr/local/bin/vle-deploy` wrapper with tag-regex validation; one-shot installers add the `command="..."` restriction to `~/.ssh/authorized_keys`; fail2ban on rocky
 - [x] **PUBLISHING.md rewrite** (~0.5h) — drop GHCR section; add "Cutting a release" subsection with the tag-push flow
@@ -236,8 +236,9 @@ thermodynamic behavior change (gated by the existing test suite).
 Algorithm suite modernized 2026-07-01 (Track A of PERFORMANCE_PROPOSAL.md);
 every Newton loop consumes the M8.3 analytic/AD Jacobians (§L).
 
-*In progress — flash core + bubble/dew shipped (code + tests + PyO3 bindings +
-`test_m9_flash.py`) by Claude Code using Claude Fable 5; the rest pending.*
+*Complete (shipped in v0.8.0) — every flash algorithm, its PyO3 bindings and
+tests (`test_m9_flash.py`), the Chapter IV validation, and notebooks 04–09, by
+Claude Code using Claude Fable 5.*
 
 - [x] **Implement Wilson init + stability analysis** — Wilson K-value correlation (29); tangent-plane-distance stability test (7) supplying phase count + non-trivial K estimates (§I) — `flash/init.rs`, `flash/stability.rs`
 - [x] **Implement isothermal flash** — GDEM-accelerated SS (25) (§J); Rachford-Rice via Halley inside the Leibovici–Neoschil window (23) with bisection safeguard (§F); φ-φ + γ-φ K-value dispatch in `flash/system.rs`. Newton-on-lnK polish is a follow-on refinement
@@ -305,4 +306,4 @@ Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone i
 | 11. Chapter IV Walkthrough | ~5–8h | **Done** (walkthrough notebook 10 + all 15 notebooks re-verified + catalogue complete; shipped in v0.8.0) |
 | **Total** | **~237–326h** | |
 
-Each active milestone's total now includes: milestone notebook (~2–4h) + notebook-catalogue update (~0.3h). Deploying to the hosted hub is a separate operator-side step in the `homelab-iac` repo, not counted here.
+Each active milestone's total now includes: milestone notebook (~2–4h) + notebook-catalogue update (~0.3h). Deploying to the hosted hub is a separate operator-side step in a private operator repository, not counted here.

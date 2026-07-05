@@ -280,14 +280,14 @@ An **independent `units/` Rust crate** (sibling to `engine/`) plus a Python comp
 
 ## Deployment Strategy
 
-This repo distributes through **crates.io + PyPI + the example notebooks** only. The multi-user JupyterHub + Docker stack that used to live under `deploy/` has been **moved to the operator's private `homelab-iac` repo** (Ansible role `vle` + a gated `deploy-vle` workflow that deploys to both hub hosts — rocky + oracle — as a hot standby). See `CLAUDE.md` → *Deployment Rules* and [`deploy/README.md`](../deploy/README.md) for the distribution channels.
+This repo distributes through **crates.io + PyPI + the example notebooks** only. The multi-user JupyterHub + Docker stack that used to live under `deploy/` has been **moved to a separate private operator repository** (an Ansible role + a gated deploy workflow that deploys to both hub hosts as a hot standby). See `CLAUDE.md` → *Deployment Rules* and [`deploy/README.md`](../deploy/README.md) for the distribution channels.
 
 `deploy/` now contains only:
   - `deploy/README.md` — the distribution channels (crates.io, PyPI, notebooks)
   - `deploy/NOTEBOOKS.md` — host-agnostic guide to running any VLE notebook
   - `deploy/scripts/publish-crate.sh`, `publish-pypi.sh` — manual publish paths
 
-Each non-completed milestone (8–11) that ships a user-facing artifact ends with two steps after validation tests pass: (1) create a milestone notebook following CLAUDE.md *Notebook Conventions*, and (2) update the `deploy/NOTEBOOKS.md` catalogue. Tagging a release auto-publishes to PyPI + crates.io; refreshing the hosted teaching hub is a separate operator step in `homelab-iac` (run `deploy-vle`), not part of the release. Milestone 11 adds a Chapter IV walkthrough notebook.
+Each non-completed milestone (8–11) that ships a user-facing artifact ends with two steps after validation tests pass: (1) create a milestone notebook following CLAUDE.md *Notebook Conventions*, and (2) update the `deploy/NOTEBOOKS.md` catalogue. Tagging a release auto-publishes to PyPI + crates.io; refreshing the hosted teaching hub is a separate operator step in a private operator repository, not part of the release. Milestone 11 adds a Chapter IV walkthrough notebook.
 
 ---
 
@@ -487,11 +487,11 @@ vle/
 - **Three-workflow GitHub Actions architecture**:
   - `.github/workflows/_build.yml` (reusable) — cibuildwheel matrix over Linux x64 (self-hosted ephemeral), Linux arm64 (`ubuntu-24.04-arm` hosted), macOS arm64 (self-hosted Mac mini M1), Windows (hosted); CPython 3.10+ abi3 wheels; manylinux_2_28 baseline; `pytest {project}/tests` against each built wheel
   - `.github/workflows/ci.yml` — push/PR/dispatch: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`, plus the wheel matrix as artifact-only; fork-PR guard (`if: github.event_name != 'pull_request' || …head.repo.full_name == github.repository`) on every self-hosted job
-  - `.github/workflows/release.yml` — `v*` tag: PyPI Trusted Publishing (OIDC, no token), crates.io publish (`vle-units` then `vle-thermo`, token loaded from 1Password), GitHub Release with wheels + sdist. (It publishes only — the teaching-hub deploy moved to the `homelab-iac` repo; see *Deployment Strategy*.)
+  - `.github/workflows/release.yml` — `v*` tag: PyPI Trusted Publishing (OIDC, no token), crates.io publish (`vle-units` then `vle-thermo`, token loaded from 1Password), GitHub Release with wheels + sdist. (It publishes only — the teaching-hub deploy moved to a separate private operator repository; see *Deployment Strategy*.)
 - **First PyO3 module**: `engine/src/py_bindings.rs` exposes `version()` and the four enum types (`CubicEos`, `ActivityModel`, `MixingRule`, `SatPressureModel`) as `#[pyclass(eq, eq_int)]`. From this phase forward the **PyO3 Bindings Rule** (CLAUDE.md) is in force: every later milestone that adds Rust functionality also exposes it via PyO3 in the same commit series.
 - **abi3 wheels**: PyO3 `abi3-py310` feature in `engine/Cargo.toml`; one wheel per (OS, arch) covers CPython 3.10+ including unreleased versions. Boundary-crossing overhead is negligible for VLE's workload (Python calls the engine once per `flash(...)`; the heavy work stays in Rust).
 - **Secrets via 1Password Service Accounts**: a single GitHub secret (`OP_SERVICE_ACCOUNT_TOKEN`) loads the crates.io token at workflow runtime via `1password/load-secrets-action@v2`. Workflow files commit `op://vault/item/field` paths (locators, not values).
-- **Auto-deploy (historical)**: M5 originally shipped a `deploy-sandbox` job that SSHed to two sandbox hosts via a `/usr/local/bin/vle-deploy` force-command wrapper. This was **removed** when the JupyterHub deployment moved to the `homelab-iac` repo (role `vle`); the release pipeline now publishes only, and the hub is deployed from there (see *Deployment Strategy*).
+- **Auto-deploy (historical)**: M5 originally shipped a `deploy-sandbox` job that SSHed to two sandbox hosts via a `/usr/local/bin/vle-deploy` force-command wrapper. This was **removed** when the JupyterHub deployment moved to a separate private operator repository; the release pipeline now publishes only, and the hub is deployed from there (see *Deployment Strategy*).
 - **Public docs**: `docs/ci.md` (developer overview, ephemerality table, fork-PR guard), `docs/runners/linux-setup.md` (Proxmox LXC + Docker + `myoung34/github-runner` ephemeral), `docs/runners/macos-setup.md` (Mac mini M1 launchd service + toolchain bootstrap).
 
 ### Phase 6: Numerics *(Milestone 6)*
@@ -648,7 +648,7 @@ Notebooks 01–08 are produced by the milestone that builds the underlying featu
 
 - **10_chapter4_validation_walkthrough**: Single end-to-end notebook that narrates every section of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md). For each of §4.1–§4.7 it quotes the research-paper text, runs the `vle` library against the referenced table (4.1–4.12), reports absolute and percent error against published values, and presents ≥2 user exercises (e.g. "repeat the kij regression for a different binary pair").
 
-Refreshing the hosted teaching hub after a release remains a separate, optional operator step in `homelab-iac` (run `deploy-vle`), not part of this milestone — see `CLAUDE.md` → *Deployment Rules*.
+Refreshing the hosted teaching hub after a release remains a separate, optional operator step in a private operator repository, not part of this milestone — see `CLAUDE.md` → *Deployment Rules*.
 
 **Notebook-to-milestone map (produced incrementally through Milestones 4–9):**
 

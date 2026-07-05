@@ -14,8 +14,8 @@ in `.github/workflows/` target it correctly.
 
 This runner exists solely to **build wheels and run Rust tests** for vle CI
 (`_build.yml` / `ci.yml`, jobs tagged `self-hosted, linux, x64`). It no longer
-participates in any deploy step — the JupyterHub deployment moved to the
-`homelab-iac` repo, which uses its own runner. So this LXC needs only outbound
+participates in any deploy step — the JupyterHub deployment moved to a separate
+private operator repository, which uses its own runner. So this LXC needs only outbound
 HTTPS; it has **no Tailscale, no `--network host`, and no deploy access** to any
 lab host.
 
