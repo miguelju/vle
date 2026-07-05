@@ -36,15 +36,65 @@ import vle
 
 ## Status
 
-`0.1.x` — the component database, CLI, and units layer work today. Numerical
-kernels (flash algorithms, equation-of-state solvers, parameter regression) are
-under active development. Treat `0.1.x` as pre-release; semver promises begin
-at 1.0.
+`0.8.1` — pre-1.0, but the numerical core is live. Flash algorithms
+(isothermal, bubble/dew *T* and *P*, adiabatic *PH*), 22+ cubic
+equations of state, the five activity models, the mixture critical point,
+and kij/Aij parameter regression all run through the Rust engine, exposed
+through a unit-aware Python facade (`vle.System`) and a vectorized numpy
+**batch API**. The component database, CLI, and units layer round it out.
+Treat `0.x` as pre-release; semver promises begin at 1.0.
 
 See the [roadmap](https://github.com/miguelju/vle/blob/main/ROADMAP.md) for
 what's shipped vs. planned.
 
-## What works today
+## Quick start
+
+Build a system from component names and a model choice, then run flash and
+saturation calculations. Inputs and outputs are unit-aware (`vle.units`):
+
+```python
+import vle
+from vle.units import Q_
+
+# n-heptane / n-butane with Redlich-Kwong-Soave (Chapter IV, Table 4.10)
+sys = vle.System(["n-heptane", "n-butane"], eos="rks")
+
+# Isothermal (PT) flash at 300 K, 100 kPa, equimolar feed
+res = sys.flash_pt(Q_(300, "K"), Q_(100, "kPa"), z=[0.5, 0.5])
+print(res.beta)   # vapor fraction ≈ 0.197
+print(res.x)      # liquid composition (numpy array)
+print(res.y)      # vapor composition
+
+# Bubble-point pressure of an equimolar liquid at 300 K
+bub = sys.bubble_pressure([0.5, 0.5], Q_(300, "K"))
+print(bub.value)  # ≈ 127.8 kPa
+```
+
+`System` also exposes `dew_pressure`, `bubble_temperature`, `dew_temperature`,
+`flash_ph` (adiabatic), `critical_point`, `phase_envelope`, `stability`,
+`k_values`, `ln_phi`, `z_factor`, and `enthalpy_entropy`.
+
+### Vectorized numpy batch API
+
+Every calculation has a `_batch` sibling that takes numpy arrays and releases
+the GIL, running the sweep in parallel across cores:
+
+```python
+import numpy as np
+import vle
+from vle.units import Q_
+
+sys = vle.System(["n-heptane", "n-butane"], eos="rks")
+
+ts = Q_(np.linspace(280.0, 320.0, 5), "K")
+ps = Q_(np.full(5, 100.0), "kPa")
+
+batch = sys.flash_pt_batch(ts, ps, z=[0.5, 0.5])
+print(batch.beta)        # vapor fraction at each (T, P)
+print(batch.converged)   # per-point convergence flags
+```
+
+## Component database & units
 
 ```sh
 # Initialize the bundled component database (SQLite) and seed with the 15
@@ -76,7 +126,7 @@ T = Q_(25, "degC")                # 298.15 K internally
 P = Q_(3.5, "bar").to("kPa")      # 350 kPa
 ```
 
-## Features (full roadmap)
+## Features
 
 - **22+ cubic equations of state** — Peng-Robinson, RKS, van der Waals,
   Schmidt-Wenzel, Patel-Teja, and more

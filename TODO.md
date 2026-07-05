@@ -299,10 +299,10 @@ Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone i
 | 5. CI/CD + Auto-Deploy | ~16–22h | **Done** |
 | 6. Numerics | ~16–20h | **Done** |
 | 7. Pure Component Models | ~28–37h | **Done** (7.1–7.4 shipped; v0.3.0–v0.6.0) |
-| 8. Mixture Models + Performance Foundation | ~41–57h | **Done** (8.1–8.4 complete; unreleased) |
-| 9. Flash & Regression | ~44–62h | **Done** (all algorithms + bindings + tests + Ch. IV validation + notebooks 04–09; unreleased) |
-| 10. Python Bindings, Wrapper & Batch API | ~25–36h | **Done** (System wrapper + batch API + component DB + plots + tests + intro notebook; external thermo/CoolProp bench deferred; unreleased) |
-| 11. Chapter IV Walkthrough | ~5–8h | **Done** (walkthrough notebook 10 + all 15 notebooks re-verified + catalogue complete; unreleased) |
+| 8. Mixture Models + Performance Foundation | ~41–57h | **Done** (8.1 in v0.7.0; 8.2–8.4 in v0.8.0) |
+| 9. Flash & Regression | ~44–62h | **Done** (all algorithms + bindings + tests + Ch. IV validation + notebooks 04–09; shipped in v0.8.0) |
+| 10. Python Bindings, Wrapper & Batch API | ~25–36h | **Done** (System wrapper + batch API + component DB + plots + tests + intro notebook; external thermo/CoolProp bench deferred; shipped in v0.8.0) |
+| 11. Chapter IV Walkthrough | ~5–8h | **Done** (walkthrough notebook 10 + all 15 notebooks re-verified + catalogue complete; shipped in v0.8.0) |
 | **Total** | **~237–326h** | |
 
 Each active milestone's total now includes: milestone notebook (~2–4h) + notebook-catalogue update (~0.3h). Deploying to the hosted hub is a separate operator-side step in the `homelab-iac` repo, not counted here.

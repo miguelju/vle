@@ -37,7 +37,7 @@ try:  # Prefer the installed distribution's version; fall back for source trees.
 
     __version__ = version("vle-thermo")
 except (ImportError, PackageNotFoundError):  # pragma: no cover
-    __version__ = "0.8.0"
+    __version__ = "0.8.1"
 
 __all__ = [
     "System",

@@ -12,15 +12,17 @@ A modern Rust port of two legacy thermodynamic codebases (VB6 ~15,000 lines + Pa
 - **5 activity coefficient models** — Wilson, van Laar, Margules, Scatchard-Hildebrand, Ideal
 - **11 mixing rules** — Classical (IVDW, IIVDW), Wong-Sandler, Huron-Vidal, MHV1/MHV2
 - **6 saturation pressure correlations** — Antoine, Riedel, Müller, RPM, polynomial, Maxwell
-- **6 flash calculation types** — bubble/dew point (T/P), isothermal, adiabatic (WIP)
-- **Parameter regression** — kij (binary interaction) and Aij (activity model) (WIP)
+- **6 flash calculation types** — bubble/dew point (T/P), isothermal, adiabatic (PH)
+- **Parameter regression** — kij (binary interaction) and Aij (activity model)
 
 ## Status
 
-`0.1.x` — types, enums, and data structures are stable. Numerical kernels (Cardano
-solver, Newton-Raphson, Broyden, Rachford-Rice, flash algorithms) are under active
-development across Milestones 5–7 of the modernization plan. Semver promises do
-**not** apply until 1.0; treat `0.1.x` as a pre-release.
+`0.8.1` — pre-1.0, but the numerical core is live. The Cardano solver,
+Newton-Raphson / Broyden drivers, Rachford-Rice, the flash algorithms
+(isothermal, bubble/dew *T* and *P*, adiabatic *PH*), the mixture critical
+point, and kij/Aij regression all run. Semver promises do **not** apply until
+1.0; treat `0.x` as a pre-release (the public API may still shift between minor
+versions).
 
 See the [roadmap](https://github.com/miguelju/vle/blob/main/ROADMAP.md) for
 what's shipped vs. planned, and the
@@ -31,7 +33,7 @@ for the phase-by-phase technical detail.
 
 ```toml
 [dependencies]
-vle-thermo = "0.1"
+vle-thermo = "0.8"
 ```
 
 Or with `cargo add`:
@@ -45,15 +47,25 @@ The crate is `no-pyo3` by default — PyO3 bindings are gated behind the optiona
 
 ## Quick look
 
+Compute the vapour-phase compressibility factor of methane with Peng-Robinson.
+All numerical kernels use the canonical internal units below (K, kPa):
+
 ```rust
-use vle_thermo::{CubicEos, ActivityModel, MixingRule, SatPressureModel};
+use vle_thermo::eos::{z_factor, PhaseId};
+use vle_thermo::{Component, CubicEos};
 
-let eos = CubicEos::PengRobinson;
-let activity = ActivityModel::Wilson;
-let mixing = MixingRule::WongSandler;
-let psat = SatPressureModel::Antoine;
+let methane = Component {
+    name: "methane".into(),
+    tc: 190.564, // K
+    pc: 4599.0,  // kPa
+    omega: 0.0115,
+    ..Component::default()
+};
 
-println!("using {eos:?} + {activity:?} + {mixing:?} + {psat:?}");
+// Vapour root at 200 K, 5000 kPa
+let z = z_factor(CubicEos::PR1976, 200.0, 5000.0, &methane, PhaseId::Vapor)
+    .expect("Z-factor converges");
+println!("Z_vapor = {z:.4}"); // ≈ 0.5234
 ```
 
 Full API docs: <https://docs.rs/vle-thermo>.

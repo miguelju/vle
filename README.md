@@ -246,7 +246,7 @@ Each milestone records which AI model was used (e.g., `Claude Opus 4.6 (1M conte
 
 ## Getting Started
 
-**Status**: The modernization plan is **complete** — Milestones 0–11 done. The full engine (22+ EOS, mixing rules with exact derivatives, energy properties, and the modern flash/regression suite), the high-level `vle.System` Python API with a parallel batch numpy layer, and 15 notebooks — all validated against the thesis's Chapter IV tables. Released as **v0.8.0** on PyPI + crates.io. Per-milestone detail: [ROADMAP.md](ROADMAP.md).
+**Status**: The modernization plan is **complete** — Milestones 0–11 done. The full engine (22+ EOS, mixing rules with exact derivatives, energy properties, and the modern flash/regression suite), the high-level `vle.System` Python API with a parallel batch numpy layer, and 15 notebooks — all validated against the thesis's Chapter IV tables. Released as **v0.8.1** on PyPI + crates.io. Per-milestone detail: [ROADMAP.md](ROADMAP.md).
 
 ### Prerequisites
 - Python 3.10+

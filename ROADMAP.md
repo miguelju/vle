@@ -201,7 +201,7 @@ benchmarks + engine mechanics land first (8.2), then the mixing rules arrive
 together with the analytic/AD derivative architecture (8.3) that Milestone 9's
 Newton loops depend on.
 
-### Milestone 8.1 — Activity Models + Liquid Volume (complete)
+### Milestone 8.1 — Activity Models + Liquid Volume (shipped in v0.7.0)
 *Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
 - [x] 5 activity coefficient models (Ideal, Margules, van Laar, Wilson, Scatchard-Hildebrand) with analytical excess enthalpy (§E)
@@ -210,7 +210,7 @@ Newton loops depend on.
 - [x] Create milestone notebook (`notebooks/03_activity_models.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: Chapter II §2.2 (activity models) snippets, gamma-vs-composition plots, excess Gibbs energy, ≥2 user exercises
 - [x] Update the notebook catalogue (`deploy/NOTEBOOKS.md`); touch `deploy/README.md` only if a distribution channel changed
 
-### Milestone 8.2 — Performance Foundation (complete)
+### Milestone 8.2 — Performance Foundation (shipped in v0.8.0)
 *Tracks C + E of PERFORMANCE_PROPOSAL.md — measure first, then the free wins. No thermodynamic behavior change.*
 *Executed by Claude Code using Claude Fable 5*
 
@@ -221,7 +221,7 @@ Newton loops depend on.
 - [x] `EosState` caching struct (α, dα/dTr, A, B, U, W computed once per state; Wilson Λ via `WilsonCache` + virial B matrix reuse)
 - [x] Stack-allocated composition arrays (n ≤ 8, `smallvec`); Broyden in-place Sherman–Morrison inverse update
 
-### Milestone 8.3 — Mixing Rules + Multicomponent Fugacity + Derivative Core (complete)
+### Milestone 8.3 — Mixing Rules + Multicomponent Fugacity + Derivative Core (shipped in v0.8.0)
 *Executed by Claude Code using Claude Fable 5*
 
 - [x] 8 a/b mixing rules (Classical, IVDW, IIVDW, Wong-Sandler (21), Huron-Vidal original/simplified, MHV1, MHV2) + 3 C-parameter rules, written once against the generalized (A, B, U, W) mixture core (26) in `engine/src/mixture.rs`
@@ -229,13 +229,13 @@ Newton loops depend on.
 - [x] Analytic ∂ln φ̂ᵢ/∂nⱼ for classical mixing; `num-dual` dual-number AD (27) for Wong-Sandler/MHV1/MHV2 and 3-parameter EOS (§L) — cross-validated against FD oracles. **Lands before any Milestone 9 flash code**
 - [x] 3-parameter EOS mixture fugacity (4) — Schmidt-Wenzel + Patel-Teja (linear & √B-weighted) C-mixing
 
-### Milestone 8.4 — Mixture Energy Properties + Validation (complete)
+### Milestone 8.4 — Mixture Energy Properties + Validation (shipped in v0.8.0)
 *Executed by Claude Code using Claude Fable 5*
 
 - [x] Enthalpy and entropy (ideal + departure + excess) — `engine/src/energy.rs`, analytic `T·dA_mix/dT` for every rule (no FD)
 - [x] Unit tests for all mixture calculations — Rust (`mixture.rs`, `energy.rs`) + Python (`test_m8_mixture.py`) validation, golden values + Gibbs-Duhem/Lewis-Randall/Euler invariants — validation tests pass
 
-## Milestone 9: Flash & Regression
+## Milestone 9: Flash & Regression (shipped in v0.8.0)
 **Goal**: All flash calculations pass Chapter IV validation, with guaranteed-convergence modern algorithms.
 *Phase 15 of MODERNIZATION_PLAN.md*
 
@@ -263,7 +263,7 @@ Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERF
   - `notebooks/09_3d_phase_surfaces.ipynb` — 3-D showcase: methane/ethane phase-envelope dome + critical locus and the methanol/water P–x–y sail (pre-computed CSVs in `notebooks/data/`), plus the README hero image (`docs/assets/phase_surfaces_hero.png`)
 - [x] Update the notebook catalogue (`deploy/NOTEBOOKS.md`) + rebuilt the landing index (`notebooks/index.ipynb`)
 
-## Milestone 10: Python Bindings, Wrapper & Batch API
+## Milestone 10: Python Bindings, Wrapper & Batch API (shipped in v0.8.0)
 **Goal**: Python package installable, high-level API usable, batch numpy API makes it "numpy for thermo".
 *Phases 16–17 of MODERNIZATION_PLAN.md*
 *Executed by Claude Code using Claude Opus 4.8 (1M context)*
@@ -289,7 +289,7 @@ Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERF
 
 > **Fixed (this milestone):** `bubble_temperature`/`dew_temperature` for *close-boiling* φ-φ systems (e.g. benzene/cyclohexane, α≈1.02) used to fail mid-bracket (`g(mid) failed`) because the real bubble T sits inside the K≈1 band the old `S(T)=1` objective filtered out as "trivial". `solve_temperature` now **inverts the robust, monotone saturation-pressure solver** (`engine/src/flash/incipient.rs`) — no trivial-K filter, works for φ-φ and γ-φ alike. Regression tests: `flash::bubble::bubble_temperature_close_boiling_phi_phi` + `test_system.py::test_bubble_temperature_close_boiling_txy`.
 
-## Milestone 11: Chapter IV Walkthrough
+## Milestone 11: Chapter IV Walkthrough (shipped in v0.8.0)
 **Goal**: One cohesive walkthrough of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md), tying every milestone notebook together.
 *Phase 18 of MODERNIZATION_PLAN.md*
 *Executed by Claude Code using Claude Opus 4.8 (1M context)*
