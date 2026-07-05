@@ -179,7 +179,7 @@ vle/
 │   ├── db/                  # Component database (connection, queries, models)
 │   │   └── sql/             # Bundled schema.sql + seed_chapter4.sql (ship in wheel)
 │   └── cli/                 # CLI tool (vle-db)
-├── notebooks/               # 14 Jupyter notebooks (00–09 + 01_introduction + index; see deploy/NOTEBOOKS.md)
+├── notebooks/               # 15 Jupyter notebooks (00–10 + 01_introduction + index; see deploy/NOTEBOOKS.md)
 │   └── data/                # Pre-computed 3-D surface datasets (CSV, committed)
 ├── units/                   # Independent units crate (dimensional analysis, gauge pressure, custom units)
 ├── engine/                  # Rust computation engine (complete: 22+ EOS, mixture core, flash suite, PyO3 bindings)
@@ -246,7 +246,7 @@ Each milestone records which AI model was used (e.g., `Claude Opus 4.6 (1M conte
 
 ## Getting Started
 
-**Status**: Milestones 0–9 are complete — the full engine (22+ EOS, mixing rules with exact derivatives, energy properties, and the modern flash/regression suite), Python bindings, and 13 notebooks, all validated against the thesis's Chapter IV tables. Milestones 10–11 (batch numpy API, final walkthrough) remain. Note the latest **published** release is v0.7.0 — the mixture core and flash suite are on `main` awaiting the next release, so build from source for those until then. Per-milestone detail: [ROADMAP.md](ROADMAP.md).
+**Status**: The modernization plan is **complete** — Milestones 0–11 done. The full engine (22+ EOS, mixing rules with exact derivatives, energy properties, and the modern flash/regression suite), the high-level `vle.System` Python API with a parallel batch numpy layer, and 15 notebooks — all validated against the thesis's Chapter IV tables. Released as **v0.8.0** on PyPI + crates.io. Per-milestone detail: [ROADMAP.md](ROADMAP.md).
 
 ### Prerequisites
 - Python 3.10+
