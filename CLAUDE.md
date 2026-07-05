@@ -280,8 +280,7 @@ the collection works as a coherent learning path for learners working through th
     ```python
     # Optional: pull the latest vle-thermo from PyPI.
     # Uncomment if you want the newest released version instead of
-    # whatever is currently in your kernel. On the hosted hub this
-    # install is ephemeral — it vanishes when your session is culled.
+    # whatever is currently in your kernel.
     # %pip install --upgrade vle-thermo
     ```
 

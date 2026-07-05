@@ -72,8 +72,7 @@ def build() -> nbf.NotebookNode:
     cells.append(code(
         "# Optional: pull the latest vle-thermo from PyPI.\n"
         "# Uncomment if you want the newest released version instead of\n"
-        "# whatever is currently in your kernel. On the hosted hub this\n"
-        "# install is ephemeral — it vanishes when your session is culled.\n"
+        "# whatever is currently in your kernel.\n"
         "# %pip install --upgrade vle-thermo"
     ))
 
