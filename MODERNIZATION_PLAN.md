@@ -82,6 +82,10 @@ Similarly, when implementing an algorithm from a specific paper below, cite the 
 
 (29) Wilson, G. M. A Modified Redlich-Kwong Equation of State, Application to General Physical Data Calculations. Paper 15c, 65th National AIChE Meeting, Cleveland, OH, 1969.
 
+*Reference (30) was added 2026-07-05 with the downstream derivative/database release plan ([DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md)); it is the provenance standard for the bundled component-property data (critical constants, ideal-gas Cp polynomials) added in Phase 19.*
+
+(30) Poling, B. E.; Prausnitz, J. M.; O'Connell, J. P. *The Properties of Gases and Liquids*, 5th ed.; McGraw-Hill: New York, 2001.
+
 ---
 
 ## Reference-to-Code Mapping
@@ -117,6 +121,7 @@ Similarly, when implementing an algorithm from a specific paper below, cite the 
 | (27) Rehner & Bauer (2021) | Dual-number automatic differentiation for exotic mixing-rule derivatives (§L) | `mixing/rules.rs` (generic scalar type) |
 | (28) Michelsen (1999) | State-function-based flash specifications (PH flash) (§M) | `flash/adiabatic.rs` |
 | (29) Wilson (1969) | Wilson K-value correlation for flash/bubble/dew initialization (§I) | `flash/init.rs` |
+| (30) Poling, Prausnitz & O'Connell (2001) | Property-data provenance: critical constants cross-check + ideal-gas Cp°/R polynomials for the bundled component DB (Phase 19) | `engine/data/components.json`, `python/src/vle/data/components.json` |
 
 ---
 
@@ -604,7 +609,7 @@ vle/
 - **Analytical** `T·dA_mix/dT` for **every** mixing rule (no 5-point stencil): classical/3-param via per-component `dαᵢ/dT`, GE rules via the exact `T·d(Gᴱ/RT)/dT = −Hᴱ/(RT)` identity. VB6's numerical stencil retained only as the test oracle — see §D
 - Reference state handling (ideal-gas reference; LiqSat/VapSat anchoring via the excess-property liquid path lands with the M9 γ-φ flash)
 - **Key source files:** `legacy/pascal/TERMOII.PAS`, `legacy/pascal/TERMOIII.PAS`
-- *Deferred to M9 (γ-φ flash):* condensation enthalpy via Clausius-Clapeyron (Pascal `TERMOIII.PAS:283`) and the full liquid residual H/S condensation+excess path (`TERMOIII.PAS:294`) — these feed the activity-model liquid enthalpy consumed by the adiabatic flash, so they ship alongside it
+- *Deferred:* condensation enthalpy via Clausius-Clapeyron (Pascal `TERMOIII.PAS:283`) and the full liquid residual H/S condensation+excess path (`TERMOIII.PAS:294`) — originally slated for M9's γ-φ flash but never packaged (M9's adiabatic flash shipped φ-φ/cubic-only enthalpy). **Now scheduled as the packaged γ-φ `phase_enthalpy_entropy` in Phase 19 (Milestone 12.4)** — see [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md)
 
 ### Phase 15: Flash Calculations *(Milestone 9)* — **done** (`engine/src/flash/`; notebooks 04–08 shipped)
 
@@ -665,6 +670,64 @@ Refreshing the hosted teaching hub after a release remains a separate, optional 
 | `07_kij_regression.ipynb`                   | Milestone 9  | Tables 4.11–4.12                             |
 | `08_aij_regression.ipynb`                   | Milestone 9  | Aij fitting (Pascal-origin)                  |
 | `10_chapter4_validation_walkthrough.ipynb`  | Milestone 11 | End-to-end Chapter IV walkthrough            |
+
+### Phase 19: Downstream Derivative & Database Release *(Milestone 12)* — **planned**
+
+*Added 2026-07-05. Full technical spec, current-state audit (with `path:line`
+anchors), design decisions, breaking-change register, and risks:
+[DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md). Prepared by Claude
+Code using Claude Fable 5 for execution by Claude Opus 4.8.*
+
+The first downstream consumer of the published `vle-thermo` crate/wheel — the
+planned `stages-thermo` staged-separation (distillation) library — audited the
+0.8.1 public API against what a rigorous column solver (MESH / Naphtali–Sandholm
+Newton with an exact block-tridiagonal Jacobian) needs per stage evaluation, and
+found five gaps. This phase closes them by **extending the §L exact-derivative
+architecture from composition to temperature and pressure**, and by making the
+bundled property data reachable from Rust:
+
+- **Component DB expansion (Milestone 12.1 → v0.8.2, fast-tracked)**: 15 → 24
+  bundled compounds (toluene, ethanol, acetone, chloroform, i-C4, i-C5, n-C8,
+  n-C9, n-C10 — the classic distillation/absorber validation set); every
+  compound gains `cp_coeffs` (dimensionless Cp°/R polynomial matching
+  `energy::ideal_cp`), `cp_t_range`, `cp_source` (30); the Python
+  `vle.components.Component` dataclass and `vle.System` thread `cp_coeffs`
+  through to the engine pyclass (fixing the silent zero-ideal-Cp defect for
+  DB-built systems); `vle-db` static seed grows to the same 24.
+- **Rust-side component database (Milestone 12.2)**: `engine/src/db.rs` behind a
+  new `component-db` cargo feature — vendored `engine/data/components.json`
+  (`include_str!`, one generator script for all copies, drift-guarded),
+  `component(name)` / `available()` with Python-parity name normalization.
+- **T/P derivatives of fugacity and K-values (Milestone 12.3)**: the generic
+  mixture core (`mixture_params<D>`, `ln_phi_all_generic<D>`, activity
+  `ge_terms`) becomes generic in `t: D, p: D` (breaking signature change →
+  0.9.0); new `d_ln_phi_d_t` / `d_ln_phi_d_p` with the §L two-branch dispatch
+  (analytic for classical + 2-parameter EOS via the existing `d_alpha_d_tr` /
+  `t_dln_a_dt_mix` machinery and implicit dZ; single-seed dual-number AD (27)
+  for WS/HV/MHV/3-parameter); `k_values_with_derivs` packaging
+  {K, ∂lnK/∂T, ∂lnK/∂P} for both the φ-φ and γ-φ paths. Invariant tests:
+  Gibbs–Helmholtz `Σxᵢ·∂lnφ̂ᵢ/∂T = −H^R/(RT²)`, volumetric
+  `Σxᵢ·∂lnφ̂ᵢ/∂P = (Z−1)/P`, plus `_fd` oracles (FD never ships in production
+  paths).
+- **Enthalpy derivatives + packaged γ-φ enthalpy (Milestone 12.4)**:
+  `partial_molar_enthalpy` via the identity `H̄ᵢ = h°ᵢ(T) − RT²·∂lnφ̂ᵢ/∂T`;
+  `phase_cp` (ideal + Cp^R via second-order duals through the T-generic core);
+  a `SystemSpec`-level `phase_enthalpy_entropy` whose γ-φ liquid branch finally
+  packages the Phase 14 deferred Clausius-Clapeyron condensation + excess path
+  (4) (`TERMOIII.PAS:283/294`). Euler-sum, FD-oracle, and ideal-gas-limit tests.
+- **Notebook + release (Milestone 12.5)**: milestone notebook
+  `11_derivatives_and_database.ipynb`, criterion benches for the new surface,
+  full doc sync, version **0.9.0**.
+
+Every new public function ships PyO3 bindings + wheel tests in the same commit
+series (M5+ rule), with units in every docstring. Deliberately out of scope:
+γ-φ adiabatic flash (enabled by 12.4, not needed downstream yet), ∂K/∂x
+packaging (already available via `d_ln_phi_d_n`), DB growth beyond the 24.
+
+**Key source files:** `engine/src/mixture.rs`, `engine/src/energy.rs`,
+`engine/src/flash/system.rs`, `engine/src/types.rs`,
+`scripts/build_components_json.py`, `python/src/vle/components.py`,
+`legacy/pascal/TERMOIII.PAS` (4)
 
 ---
 

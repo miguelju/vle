@@ -11,6 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 3. **TODO.md** — Check off completed tasks, update time estimates and summary table
 4. **MODERNIZATION_PLAN.md** — Update if architecture or phases changed
 4b. **PERFORMANCE_PROPOSAL.md** — Update if a performance track (A–E) decision changed
+4c. **DERIVATIVE_RELEASE_PLAN.md** — Update if a Milestone 12 scope, design, or release-sequencing decision changed (the downstream/`stages-thermo` upstream-gap plan)
 5. **CLAUDE.md** — Update if new conventions, paths, or tools were introduced
 6. **PASCAL_VB6_COMPARISON.md** — Update if new legacy code analysis was done
 7. **docs/en/research-paper/** — Update if translations were completed or links changed

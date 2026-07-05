@@ -192,7 +192,7 @@ vle/
 │   └── pascal/              # Original Pascal source (~2,500 lines, reference) (4)
 ├── ROADMAP.md               # Milestones and progress tracking
 ├── TODO.md                  # Tasks with time estimates
-├── MODERNIZATION_PLAN.md    # 18-phase implementation plan
+├── MODERNIZATION_PLAN.md    # 19-phase implementation plan
 ├── PASCAL_VB6_COMPARISON.md # Legacy codebase comparison
 └── CLAUDE.md                # Claude Code development guidance and conventions
 ```
@@ -205,7 +205,7 @@ This project is developed incrementally using [Claude Code](https://claude.ai/co
 |----------|---------|
 | [`ROADMAP.md`](ROADMAP.md) | Milestones — high-level goals and deliverables |
 | [`TODO.md`](TODO.md) | Tasks — actionable items with time estimates per milestone |
-| [`MODERNIZATION_PLAN.md`](MODERNIZATION_PLAN.md) | Phases — detailed technical implementation plan (18 phases) |
+| [`MODERNIZATION_PLAN.md`](MODERNIZATION_PLAN.md) | Phases — detailed technical implementation plan (19 phases) |
 
 ### Resuming work from a new machine
 
@@ -246,7 +246,7 @@ Each milestone records which AI model was used (e.g., `Claude Opus 4.6 (1M conte
 
 ## Getting Started
 
-**Status**: The modernization plan is **complete** — Milestones 0–11 done. The full engine (22+ EOS, mixing rules with exact derivatives, energy properties, and the modern flash/regression suite), the high-level `vle.System` Python API with a parallel batch numpy layer, and 15 notebooks — all validated against the thesis's Chapter IV tables. Released as **v0.8.1** on PyPI + crates.io. Per-milestone detail: [ROADMAP.md](ROADMAP.md).
+**Status**: Milestones 0–11 are **complete**. The full engine (22+ EOS, mixing rules with exact derivatives, energy properties, and the modern flash/regression suite), the high-level `vle.System` Python API with a parallel batch numpy layer, and 15 notebooks — all validated against the thesis's Chapter IV tables. Released as **v0.8.1** on PyPI + crates.io. Next up: Milestone 12 — the downstream derivative & database release (T/P derivatives of fugacity/K-values, real-mixture Cp, expanded component DB → v0.9.0), planned in [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md). Per-milestone detail: [ROADMAP.md](ROADMAP.md).
 
 ### Prerequisites
 - Python 3.10+
@@ -283,7 +283,7 @@ pytest python/tests/                  # Run the Python test suite
 
 ## Academic References
 
-The implementation cites 29 academic references (ACS format). Key ones include:
+The implementation cites 30 academic references (ACS format). Key ones include:
 
 - **(4)** Da Silva, F. A.; Báez, L. Thesis, Universidad Simón Bolívar, 1989. — Pascal codebase origin
 - **(5)** Abbott, M. M. In *Equations of State in Engineering and Research*; ACS, 1979. — General cubic EOS form

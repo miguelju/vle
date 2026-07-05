@@ -10,8 +10,8 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Analyze legacy VB6 codebase (~15,000 lines)
 - [x] Analyze legacy Pascal codebase (~2,500 lines)
 - [x] Create Pascal vs VB6 comparison document
-- [x] Create modernization plan with 18 implementation phases *(originally 17; Phase 11 — Performance Foundation — added 2026-07-01)*
-- [x] Map algorithms to 29 academic references (ACS format) *(originally 22; (23)–(29) added 2026-07-01 with PERFORMANCE_PROPOSAL.md)*
+- [x] Create modernization plan with 19 implementation phases *(originally 17; Phase 11 — Performance Foundation — added 2026-07-01; Phase 19 — Downstream Derivative & Database Release — added 2026-07-05)*
+- [x] Map algorithms to 30 academic references (ACS format) *(originally 22; (23)–(29) added 2026-07-01 with PERFORMANCE_PROPOSAL.md; (30) added 2026-07-05 with DERIVATIVE_RELEASE_PLAN.md)*
 - [x] Propose 8 algorithm performance improvements (A–H) *(extended to §A–§M + Performance Engineering tracks 2026-07-01 — see [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md))*
 - [x] Initialize git repository
 - [x] Create README, LICENSE (MIT), .gitignore
@@ -299,6 +299,54 @@ Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERF
 - [x] Re-run every existing milestone notebook top-to-bottom in a fresh kernel — all 15 pass (the lone `09` "failure" under batch execution is a relative-`data/` CWD artifact; it runs cleanly from `notebooks/`)
 - [x] Create `notebooks/10_chapter4_validation_walkthrough.ipynb` — per CLAUDE.md *Notebook Conventions*; reproduces all seven Chapter IV cases (Tables 4.1–4.12) through the high-level `vle.System`, quotes the paper tables, reports % error vs. published values (critical <0.25%, van Laar bubble-P <0.5%, Raoult bubble-T 0.08%, isothermal flash ~1%; §4.4 Wilson dew a solver demo since the thesis's exact Wilson constants aren't bundled; §4.7 kij lands in the sub-critical neighborhood of 0.1357), ≥2 exercises. Executes top-to-bottom.
 - [x] Update the notebook catalogue (`deploy/NOTEBOOKS.md`) — marked the 15-notebook collection complete; rebuilt `notebooks/index.ipynb`
+
+## Milestone 12: Downstream Derivative & Database Release (vle-thermo 0.9.x)
+**Goal**: Close the five upstream gaps identified by `stages-thermo` (the planned staged-separation library — the first downstream consumer of the published crate/wheel): expanded component database with ideal-gas Cp coefficients, a Rust-side component database, analytic/dual T and P derivatives of fugacity and K-values, real-mixture heat capacity + partial molar enthalpy, and a packaged γ-φ phase enthalpy.
+*Phase 19 of MODERNIZATION_PLAN.md*
+
+Full technical detail, current-state audit, and design decisions live in
+[DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md). Ships in **two
+releases**: v0.8.2 (M12.1 — data-only fast-track that unblocks the downstream
+McCabe–Thiele milestone) and v0.9.0 (M12.2–12.5 — Rust DB + the derivative
+core). Execution order 12.1 → 12.5; 12.4 depends on 12.3.
+
+### Milestone 12.1 — Component DB Expansion + Cp Coefficients (→ v0.8.2)
+
+- [ ] Add 9 compounds to the bundled DB (toluene, ethanol, acetone, chloroform, isobutane, isopentane, n-octane, n-nonane, n-decane) via `scripts/build_components_json.py` — 15 → 24 compounds
+- [ ] Add `cp_coeffs` (Cp°/R polynomial), `cp_t_range`, `cp_source` to the JSON schema for **all 24** compounds (engine convention: `Cp°(T) = R·Σ aₖ·Tᵏ`, R = 8.31451)
+- [ ] Thread `cp_coeffs` Python → engine: `vle.components.Component` dataclass + `vle.System` → `_engine.System(cp_coeffs=...)` (fixes the silent-zero ideal-Cp bug for DB-built systems)
+- [ ] Extend the `vle-db` static SQLite seed to the same 24 compounds
+- [ ] Tests: `psat(tb) ≈ 101.325 kPa` per compound; pinned literature Cp°(298.15 K) per compound (±1%); benzene–toluene bubble-T smoke; nonzero-ideal-Cp regression test
+- [ ] Docs (parameter reference, READMEs) + bump + tag **v0.8.2**
+
+### Milestone 12.2 — Rust-Side Component Database
+
+- [ ] `engine/data/components.json` becomes the canonical generated copy (`include_str!`), script emits all three copies; byte-identical drift test
+- [ ] `engine/src/db.rs` behind a new `component-db` feature (optional serde/serde_json; `python` feature enables it): `component(name) -> Option<Component>`, `available()`, OnceLock-cached, name normalization matching `vle.components`
+- [ ] PyO3 bindings (`db_component`, `db_available`) + wheel tests (M5+ rule)
+- [ ] Rust tests: lookup/alias/case, all 24 parse, spot-checks vs JSON literals
+
+### Milestone 12.3 — T/P Derivatives of Fugacity & K-Values
+
+- [ ] Generalize the §L core in T and P: `mixture_params<D>` / `ln_phi_all_generic<D>` (+ activity `ge_terms`, `three_param_uw`, α evaluation) take `t: D, p: D` *(breaking signature change — 0.9.0)*
+- [ ] `d_ln_phi_d_t` / `d_ln_phi_d_p` in `mixture.rs` — analytic branch (classical + 2-param, via existing `d_alpha_d_tr` / `t_dln_a_dt_mix` + implicit dZ), dual branch (WS/HV/MHV/3-param), same dispatch as `d_ln_phi_d_n`
+- [ ] `k_values_with_derivs` in `flash/system.rs` returning `{k, d_ln_k_d_t, d_ln_k_d_p}` for both φ-φ and γ-φ paths (γ-φ: term-by-term with `gamma_phi_k`, incl. dlnγ/dT, dlnPsat/dT, Poynting)
+- [ ] Invariant tests: FD oracles; Gibbs–Helmholtz `Σxᵢ·∂lnφ̂ᵢ/∂T = −H^R/(RT²)`; `Σxᵢ·∂lnφ̂ᵢ/∂P = (Z−1)/P`; K-parity with `k_values`
+- [ ] PyO3 bindings + wheel tests (batch variant optional)
+
+### Milestone 12.4 — Real Cp, Partial Molar Enthalpy & γ-φ Phase Enthalpy
+
+- [ ] `partial_molar_enthalpy` via `H̄ᵢ = h°ᵢ(T) − RT²·∂lnφ̂ᵢ/∂T` (identity over M12.3, no new differentiation)
+- [ ] `phase_cp` = Σxᵢ·Cp°ᵢ + Cp^R via second-order duals through the T-generic core (fallback documented in DERIVATIVE_RELEASE_PLAN.md §M12.4)
+- [ ] Packaged `SystemSpec`-level `phase_enthalpy_entropy` — φ-φ delegates to `energy::`; γ-φ liquid assembles ideal + Clausius–Clapeyron condensation (Ref (4), `TERMOIII.PAS:283/294` — the Phase 14 deferred path) + excess
+- [ ] Tests: Euler `Σxᵢ·H̄ᵢ = H`; Cp FD oracle + ideal-gas limit; pinned γ-φ methanol/water liquid enthalpy
+- [ ] PyO3: `System.phase_cp`, `System.partial_molar_enthalpy`; route `System.enthalpy_entropy` through the new dispatch (document the γ-φ behavior change)
+
+### Milestone 12.5 — Notebook, Benches & v0.9.0 Release
+
+- [ ] Create milestone notebook `notebooks/11_derivatives_and_database.ipynb` (build script `scripts/build_notebook_m12.py`) per CLAUDE.md *Notebook Conventions* — DB tour, K(T) tangent plot, mixture Cp, partial-molar Euler assertion, ≥2 exercises
+- [ ] Extend criterion benches: `k_values_with_derivs` vs `k_values` (analytic ≤1.5×, dual ≤2.5×), `phase_cp`
+- [ ] Full doc sync (README, package READMEs verified against the 0.9.0 artifacts before tagging, `deploy/NOTEBOOKS.md`, parameter reference) + bump + tag **v0.9.0**
 
 ---
 
