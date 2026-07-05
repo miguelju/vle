@@ -77,8 +77,8 @@ of the research paper's Chapter IV validation cases.
 | `09_3d_phase_surfaces.ipynb`                        | 9         | 3-D showcase: phase-envelope dome + critical locus, P–x–y sail (pre-computed CSVs in `notebooks/data/`) |
 | `10_chapter4_validation_walkthrough.ipynb`          | 11        | End-to-end walkthrough of Chapter IV            |
 
-Notebooks appear in the table as they are authored; a missing file means the
-corresponding milestone has not shipped its notebook yet.
+The collection is **complete** — all 15 notebooks above ship with the
+repository and execute top-to-bottom in a fresh kernel.
 
 ## Data
 

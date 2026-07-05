@@ -260,6 +260,7 @@ Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERF
   - `notebooks/06_critical_points.ipynb` — Tables 4.1–4.2 mixtures reproduced within the thesis band (Tc < 2%, Pc < 6%)
   - `notebooks/07_kij_regression.ipynb` — Tables 4.11–4.12 CO₂/butane fit on the sub-critical subset (~0.14, near the literature 0.1357)
   - `notebooks/08_aij_regression.ipynb` — Levenberg-Marquardt recovers the Table 4.5 van Laar parameters from the Table 4.6 data
+  - `notebooks/09_3d_phase_surfaces.ipynb` — 3-D showcase: methane/ethane phase-envelope dome + critical locus and the methanol/water P–x–y sail (pre-computed CSVs in `notebooks/data/`), plus the README hero image (`docs/assets/phase_surfaces_hero.png`)
 - [x] Update the notebook catalogue (`deploy/NOTEBOOKS.md`) + rebuilt the landing index (`notebooks/index.ipynb`)
 
 ## Milestone 10: Python Bindings, Wrapper & Batch API
@@ -291,12 +292,13 @@ Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERF
 ## Milestone 11: Chapter IV Walkthrough
 **Goal**: One cohesive walkthrough of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md), tying every milestone notebook together.
 *Phase 18 of MODERNIZATION_PLAN.md*
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
 > Notebooks 01–08 ship incrementally through Milestones 4–10 (each milestone produces the notebook for the feature it built). This milestone is the capstone: it adds the Chapter IV walkthrough and re-verifies every notebook runs top-to-bottom in a fresh kernel.
 
-- [ ] Re-run every existing milestone notebook top-to-bottom in a fresh kernel — validation pass
-- [ ] Create `notebooks/10_chapter4_validation_walkthrough.ipynb` — professional structure per CLAUDE.md *Notebook Conventions*; walks a reader through all seven Chapter IV cases (Tables 4.1–4.12), pulls quoted snippets from [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md), runs the `vle` library against each table, reports % error vs. published values, and ends with ≥2 user exercises (e.g. "repeat the kij regression for a different binary").
-- [ ] Update the notebook catalogue (`deploy/NOTEBOOKS.md`) — mark the full catalogue as published
+- [x] Re-run every existing milestone notebook top-to-bottom in a fresh kernel — all 15 pass (the lone `09` "failure" under batch execution is a relative-`data/` CWD artifact; it runs cleanly from `notebooks/`)
+- [x] Create `notebooks/10_chapter4_validation_walkthrough.ipynb` — per CLAUDE.md *Notebook Conventions*; reproduces all seven Chapter IV cases (Tables 4.1–4.12) through the high-level `vle.System`, quotes the paper tables, reports % error vs. published values (critical <0.25%, van Laar bubble-P <0.5%, Raoult bubble-T 0.08%, isothermal flash ~1%; §4.4 Wilson dew a solver demo since the thesis's exact Wilson constants aren't bundled; §4.7 kij lands in the sub-critical neighborhood of 0.1357), ≥2 exercises. Executes top-to-bottom.
+- [x] Update the notebook catalogue (`deploy/NOTEBOOKS.md`) — marked the 15-notebook collection complete; rebuilt `notebooks/index.ipynb`
 
 ---
 

@@ -256,6 +256,7 @@ every Newton loop consumes the M8.3 analytic/AD Jacobians (§L).
   - `notebooks/06_critical_points.ipynb` — Tables 4.1–4.2 (within the thesis band)
   - `notebooks/07_kij_regression.ipynb` — Tables 4.11–4.12 (sub-critical subset)
   - `notebooks/08_aij_regression.ipynb` — recovers the Table 4.5 van Laar parameters by LM
+  - `notebooks/09_3d_phase_surfaces.ipynb` — 3-D showcase (phase-envelope dome + critical locus + P–x–y sail from pre-computed CSVs) + README hero image
 - [x] **Update the notebook catalogue** — `deploy/NOTEBOOKS.md` rows present; rebuilt `notebooks/index.ipynb`
 
 ## Milestone 10: Python Bindings, Wrapper & Batch API
@@ -276,11 +277,13 @@ every Newton loop consumes the M8.3 analytic/AD Jacobians (§L).
 
 ## Milestone 11: Chapter IV Walkthrough
 
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
+
 Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone is the capstone: one new walkthrough notebook covering all Chapter IV results.
 
-- [ ] **Re-run all prior milestone notebooks** (~1–2h) — fresh kernel, Run All, verify no cell errors — validation pass
-- [ ] **Create `notebooks/10_chapter4_validation_walkthrough.ipynb`** (~4–6h) — per CLAUDE.md *Notebook Conventions*: narrated end-to-end walkthrough of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md) §4.1–§4.7, running the library against every Table 4.1–4.12 and reporting % error vs. published values, ≥2 user exercises
-- [ ] **Update the notebook catalogue** (~0.3h) — `deploy/NOTEBOOKS.md` catalogue marked complete
+- [x] **Re-run all prior milestone notebooks** (~1–2h) — fresh kernel via nbclient; all 15 pass (notebook `09`'s relative-`data/` path only resolves from `notebooks/` CWD)
+- [x] **Create `notebooks/10_chapter4_validation_walkthrough.ipynb`** (~4–6h) — per CLAUDE.md *Notebook Conventions*: narrated §4.1–§4.7 through `vle.System`, % error vs. published values, 2 exercises; executes top-to-bottom
+- [x] **Update the notebook catalogue** (~0.3h) — `deploy/NOTEBOOKS.md` marked complete; rebuilt `notebooks/index.ipynb`
 
 ---
 
@@ -297,9 +300,9 @@ Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone i
 | 6. Numerics | ~16–20h | **Done** |
 | 7. Pure Component Models | ~28–37h | **Done** (7.1–7.4 shipped; v0.3.0–v0.6.0) |
 | 8. Mixture Models + Performance Foundation | ~41–57h | **Done** (8.1–8.4 complete; unreleased) |
-| 9. Flash & Regression | ~44–62h | **Done** (all algorithms + bindings + tests + Ch. IV validation + notebooks 04–08; unreleased) |
+| 9. Flash & Regression | ~44–62h | **Done** (all algorithms + bindings + tests + Ch. IV validation + notebooks 04–09; unreleased) |
 | 10. Python Bindings, Wrapper & Batch API | ~25–36h | **Done** (System wrapper + batch API + component DB + plots + tests + intro notebook; external thermo/CoolProp bench deferred; unreleased) |
-| 11. Ch. IV Walkthrough & Final Deploy | ~7–11h | Not started |
+| 11. Chapter IV Walkthrough | ~5–8h | **Done** (walkthrough notebook 10 + all 15 notebooks re-verified + catalogue complete; unreleased) |
 | **Total** | **~237–326h** | |
 
 Each active milestone's total now includes: milestone notebook (~2–4h) + notebook-catalogue update (~0.3h). Deploying to the hosted hub is a separate operator-side step in the `homelab-iac` repo, not counted here.
