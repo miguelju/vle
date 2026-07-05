@@ -286,18 +286,17 @@ Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERF
 - [x] Create milestone notebook (`notebooks/01_introduction.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: Chapter I + Appendix B snippets, `vle.System` tour, unit-aware inputs, batch API + plot, 2 exercises; executes top-to-bottom
 - [x] Update the notebook catalogue (`deploy/NOTEBOOKS.md`) + rebuilt the landing index (`notebooks/index.ipynb`)
 
-> **Known follow-up (pre-existing M9 engine gap, surfaced by the M10 Txy helper):** `bubble_temperature` for *close-boiling* φ-φ systems (e.g. benzene/cyclohexane, α≈1.02) fails mid-bracket (`g(mid) failed`) because the real bubble T sits inside the K≈1 trivial-solution band that `solve_temperature` filters out. `bubble_pressure` is robust. Fixing needs a trivial-band-aware bracketing/bisection in `engine/src/flash/incipient.rs`, re-validated against Chapter IV.
+> **Fixed (this milestone):** `bubble_temperature`/`dew_temperature` for *close-boiling* φ-φ systems (e.g. benzene/cyclohexane, α≈1.02) used to fail mid-bracket (`g(mid) failed`) because the real bubble T sits inside the K≈1 band the old `S(T)=1` objective filtered out as "trivial". `solve_temperature` now **inverts the robust, monotone saturation-pressure solver** (`engine/src/flash/incipient.rs`) — no trivial-K filter, works for φ-φ and γ-φ alike. Regression tests: `flash::bubble::bubble_temperature_close_boiling_phi_phi` + `test_system.py::test_bubble_temperature_close_boiling_txy`.
 
-## Milestone 11: Chapter IV Walkthrough & Final Deployment
-**Goal**: One cohesive walkthrough of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md) and a final full-stack redeploy of every milestone notebook.
+## Milestone 11: Chapter IV Walkthrough
+**Goal**: One cohesive walkthrough of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md), tying every milestone notebook together.
 *Phase 18 of MODERNIZATION_PLAN.md*
 
-> Notebooks 01–08 ship incrementally through Milestones 4–10 (each milestone produces the notebook for the feature it built). This milestone is the capstone: it adds the Chapter IV walkthrough and verifies every notebook is still reachable after a fresh deploy.
+> Notebooks 01–08 ship incrementally through Milestones 4–10 (each milestone produces the notebook for the feature it built). This milestone is the capstone: it adds the Chapter IV walkthrough and re-verifies every notebook runs top-to-bottom in a fresh kernel.
 
 - [ ] Re-run every existing milestone notebook top-to-bottom in a fresh kernel — validation pass
 - [ ] Create `notebooks/10_chapter4_validation_walkthrough.ipynb` — professional structure per CLAUDE.md *Notebook Conventions*; walks a reader through all seven Chapter IV cases (Tables 4.1–4.12), pulls quoted snippets from [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md), runs the `vle` library against each table, reports % error vs. published values, and ends with ≥2 user exercises (e.g. "repeat the kij regression for a different binary").
 - [ ] Update the notebook catalogue (`deploy/NOTEBOOKS.md`) — mark the full catalogue as published
-- [ ] Final hub refresh (operator-side) — run `deploy-vle` (mode=full) in `homelab-iac`, verify every notebook in the catalogue opens and Runs-All cleanly on the hub
 
 ---
 

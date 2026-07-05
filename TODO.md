@@ -274,14 +274,13 @@ every Newton loop consumes the M8.3 analytic/AD Jacobians (§L).
 - [x] **Create milestone notebook** (~2–3h) — `notebooks/01_introduction.ipynb` per CLAUDE.md *Notebook Conventions*; executes top-to-bottom, 2 exercises with solutions
 - [x] **Update the notebook catalogue** (~0.3h) — `deploy/NOTEBOOKS.md` + rebuilt `notebooks/index.ipynb`
 
-## Milestone 11: Chapter IV Walkthrough & Final Deployment
+## Milestone 11: Chapter IV Walkthrough
 
-Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone is the capstone: one new walkthrough notebook covering all Chapter IV results, plus a final operator-side hub refresh of every notebook.
+Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone is the capstone: one new walkthrough notebook covering all Chapter IV results.
 
 - [ ] **Re-run all prior milestone notebooks** (~1–2h) — fresh kernel, Run All, verify no cell errors — validation pass
 - [ ] **Create `notebooks/10_chapter4_validation_walkthrough.ipynb`** (~4–6h) — per CLAUDE.md *Notebook Conventions*: narrated end-to-end walkthrough of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md) §4.1–§4.7, running the library against every Table 4.1–4.12 and reporting % error vs. published values, ≥2 user exercises
 - [ ] **Update the notebook catalogue** (~0.3h) — `deploy/NOTEBOOKS.md` catalogue marked complete
-- [ ] **Final hub refresh** (~0.5h) — operator-side: run `deploy-vle` (mode=full) in `homelab-iac`, verify every notebook in the catalogue opens and Run-All succeeds on the hub
 
 ---
 

@@ -642,12 +642,13 @@ vle/
 - Convenience API: `system.bubble_point_T()`, `system.flash_isothermal()`, etc.
 - Boundary benchmark rerun (Phase 11 baseline vs batch API) + external comparison benches vs `thermo` / CoolProp
 
-### Phase 18: Chapter IV Walkthrough & Final Deployment *(Milestone 11)*
+### Phase 18: Chapter IV Walkthrough *(Milestone 11)*
 
-Notebooks 01–08 are produced by the milestone that builds the underlying feature (see table below), each following CLAUDE.md *Notebook Conventions*. Phase 18 is the capstone that adds the Chapter IV walkthrough notebook and performs a final clean-state redeployment:
+Notebooks 01–08 are produced by the milestone that builds the underlying feature (see table below), each following CLAUDE.md *Notebook Conventions*. Phase 18 is the capstone that adds the Chapter IV walkthrough notebook:
 
 - **10_chapter4_validation_walkthrough**: Single end-to-end notebook that narrates every section of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md). For each of §4.1–§4.7 it quotes the research-paper text, runs the `vle` library against the referenced table (4.1–4.12), reports absolute and percent error against published values, and presents ≥2 user exercises (e.g. "repeat the kij regression for a different binary pair").
-- **Final hub refresh**: run the `deploy-vle` workflow in `homelab-iac` with `mode=full` (rebuilds the engine-from-source image and restarts the stack on both hub hosts), then verify every notebook listed in [`deploy/NOTEBOOKS.md`](../deploy/NOTEBOOKS.md) opens and Runs-All without error on the hub.
+
+Refreshing the hosted teaching hub after a release remains a separate, optional operator step in `homelab-iac` (run `deploy-vle`), not part of this milestone — see `CLAUDE.md` → *Deployment Rules*.
 
 **Notebook-to-milestone map (produced incrementally through Milestones 4–9):**
 

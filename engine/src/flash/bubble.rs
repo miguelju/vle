@@ -175,6 +175,50 @@ mod tests {
     }
 
     #[test]
+    fn bubble_temperature_close_boiling_phi_phi() {
+        // Regression: a *close-boiling* φ-φ pair (benzene/cyclohexane, both
+        // boiling ~353 K at 1 atm, relative volatility ≈ 1.02) has its true
+        // bubble T sitting inside the K≈1 band. The old S(T)=1 objective
+        // filtered that band out as "trivial" and died mid-bracket
+        // (`g(mid) failed`); the pressure-inversion solver must converge across
+        // the whole composition range. See `flash/incipient.rs`.
+        let benzene = Component {
+            name: "benzene".into(),
+            tc: 562.02,
+            pc: 4907.277,
+            omega: 0.211,
+            tb: 353.219,
+            ..Component::default()
+        };
+        let cyclohexane = Component {
+            name: "cyclohexane".into(),
+            tc: 553.6,
+            pc: 4080.5,
+            omega: 0.2096,
+            tb: 353.865,
+            ..Component::default()
+        };
+        let comps = [benzene, cyclohexane];
+        let spec = rks(&comps);
+        // Sweep the whole composition range at 1 atm — every point must solve
+        // and land near the components' shared ~353 K boiling point.
+        for i in 0..=10 {
+            let x1 = 0.001 + 0.998 * i as f64 / 10.0;
+            let x = [x1, 1.0 - x1];
+            let res = bubble_temperature(&spec, 101.325, &x, 1e-9, 200)
+                .unwrap_or_else(|e| panic!("x1={x1}: {e}"));
+            let k = k_values(&spec, res.value, 101.325, &x, &res.incipient).unwrap();
+            let s: f64 = (0..2).map(|j| k[j] * x[j]).sum();
+            assert!((s - 1.0).abs() < 1e-4, "x1={x1}: Σ Kx = {s}");
+            assert!(
+                res.value > 345.0 && res.value < 362.0,
+                "x1={x1}: bubble T {} K off the ~353 K band",
+                res.value
+            );
+        }
+    }
+
+    #[test]
     fn bubble_pressure_between_pure_component_vapor_pressures() {
         // A bubble pressure of a binary must lie between the two pure-
         // component saturation pressures at the same T (ideal-ish bound).

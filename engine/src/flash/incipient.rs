@@ -155,34 +155,20 @@ pub(crate) fn solve_pressure(
     unreachable!("loop returns via convergence or NoConvergence")
 }
 
-/// `(S, non_trivial)` at `(t, p)` from a fresh Wilson K start — the
-/// temperature-solve objective (the saturation condition is `S = 1`).
-///
-/// `non_trivial` is `false` when the converged K collapse to ≈1, which for a
-/// φ-φ cubic system marks the single-root region where the "vapor" and
-/// "liquid" roots coincide and `S = Σx = 1` *spuriously*. The scan skips
-/// those points so the bisection can't latch onto that false crossing.
-fn s_at(
-    spec: &SystemSpec,
-    t: f64,
-    p: f64,
-    known: &[f64],
-    point: Point,
-) -> Result<(f64, bool), FlashError> {
-    let mut k = wilson_k_init(spec, t, p);
-    let (s, _) = incipient_sum(spec, t, p, known, point, &mut k, 40)?;
-    let max_abs_ln_k = k.iter().map(|ki| ki.ln().abs()).fold(0.0_f64, f64::max);
-    Ok((s, max_abs_ln_k > 0.02))
-}
-
 /// Solve for the saturation **temperature** at fixed `p` (bubble-T or dew-T).
 ///
-/// `g(T) = ln S(T)` is monotone in T (increasing for a bubble point —
-/// higher T ⇒ larger `Σ Kx`; decreasing for a dew point — larger `Σ y/K` at
-/// low T). We scan a wide temperature range for a sign change of `g` (in
-/// **either** direction), skipping the trivial single-root region, then
-/// bisect — derivative-free and guaranteed to converge once bracketed. A
-/// final incipient solve at `T*` returns the composition + K.
+/// Rather than root-find the sum condition `S(T) = 1` directly, we invert the
+/// robust saturation-**pressure** solver: `P_sat(T)` is smooth and strictly
+/// increasing in T, so we bracket-bisect for the `T*` where `P_sat(T*) = p`.
+/// This deliberately avoids the trivial-K filtering a direct `S(T)` objective
+/// needs — that filter rejects the real root for *close-boiling* φ-φ systems
+/// (relative volatility α≈1) whose equilibrium K genuinely sit near 1, which
+/// is exactly where the true bubble/dew T lives. [`solve_pressure`] carries
+/// no such filter and converges wherever a saturation pressure exists.
+///
+/// The wide bracketing scan uses the cheap closed-form Wilson pressure
+/// estimate (no inner iteration); the bisection refines with the accurate
+/// solver. A final incipient solve at `(T*, p)` returns the composition + K.
 pub(crate) fn solve_temperature(
     spec: &SystemSpec,
     p: f64,
@@ -191,53 +177,59 @@ pub(crate) fn solve_temperature(
     tol: f64,
     max_iter: usize,
 ) -> Result<SatPoint, FlashError> {
-    // Only a cubic (φ-φ) liquid exhibits the trivial single-root crossing;
-    // for a γ-φ liquid every point is "non-trivial" so no point is skipped.
-    let filter_trivial = matches!(spec.liquid, crate::eos::LiquidModel::Cubic(_));
-    let g = |t: f64| -> Option<f64> {
-        match s_at(spec, t, p, known, point) {
-            Ok((s, nt)) if s.is_finite() && s > 0.0 && (nt || !filter_trivial) => Some(s.ln()),
-            _ => None,
-        }
+    // Objective: h(T) = ln(P_sat(T) / p), strictly increasing in T and zero
+    // at the saturation temperature. `None` where the pressure solve can't
+    // converge (well outside the physical saturation range — e.g. T ≳ the
+    // mixture pseudo-critical). Works for both φ-φ and γ-φ liquids because
+    // `solve_pressure` handles both; no trivial-K filtering is involved.
+    let h = |t: f64| -> Option<f64> {
+        solve_pressure(spec, t, known, point, tol, max_iter)
+            .ok()
+            .map(|sp| sp.var)
+            .filter(|pt| pt.is_finite() && *pt > 0.0)
+            .map(|pt| (pt / p).ln())
     };
+    // Scan upward for the first sign change; since h is monotone we stop at
+    // the (unique) bracket around the root, keeping the endpoint values so we
+    // don't re-solve there.
     let (t_start, t_end, steps) = (50.0, 1000.0, 96);
     let mut prev: Option<(f64, f64)> = None;
-    let mut bracket: Option<(f64, f64)> = None;
+    let mut bracket: Option<(f64, f64, f64)> = None; // (lo, hi, h_lo)
     for i in 0..=steps {
         let t = t_start + (t_end - t_start) * i as f64 / steps as f64;
-        let gt = match g(t) {
+        let ht = match h(t) {
             Some(v) => v,
             None => {
                 prev = None;
                 continue;
             }
         };
-        if let Some((tp, gp)) = prev {
-            // Sign change in either direction brackets the root.
-            if gp * gt <= 0.0 {
-                bracket = Some((tp, t));
+        if let Some((tp, hp)) = prev {
+            if hp * ht <= 0.0 {
+                bracket = Some((tp, t, hp));
                 break;
             }
         }
-        prev = Some((t, gt));
+        prev = Some((t, ht));
     }
-    let (mut lo, mut hi) = bracket.ok_or(FlashError::NoConvergence {
+    let (mut lo, mut hi, mut h_lo) = bracket.ok_or(FlashError::NoConvergence {
         what: "saturation temperature bracket",
         iters: steps,
         residual: f64::NAN,
     })?;
-    // Direction-agnostic bisection: track the sign at `lo`.
-    let mut g_lo = g(lo).ok_or(FlashError::Thermo("g(lo) failed".into()))?;
     let mut t_star = 0.5 * (lo + hi);
     for iter in 0..max_iter {
         t_star = 0.5 * (lo + hi);
-        let gt = g(t_star).ok_or(FlashError::Thermo("g(mid) failed".into()))?;
-        if gt.abs() < tol || (hi - lo) < 1e-9 {
+        // The scan already proved h is defined at both ends; within a physical
+        // saturation bracket the pressure solve converges at the midpoint too.
+        // A failure here is unexpected — surface it rather than guess.
+        let ht = h(t_star).ok_or(FlashError::Thermo("P_sat(mid) failed".into()))?;
+        if ht.abs() < tol || (hi - lo) < 1e-9 {
             break;
         }
-        if gt * g_lo > 0.0 {
+        if ht * h_lo > 0.0 {
             lo = t_star;
-            g_lo = gt;
+            h_lo = ht;
         } else {
             hi = t_star;
         }
@@ -245,7 +237,7 @@ pub(crate) fn solve_temperature(
             return Err(FlashError::NoConvergence {
                 what: "saturation temperature",
                 iters: max_iter,
-                residual: gt.abs(),
+                residual: ht.abs(),
             });
         }
     }

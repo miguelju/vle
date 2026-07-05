@@ -138,6 +138,22 @@ def test_activity_model_gamma_phi_construction():
     assert isinstance(r, FlashResult)
 
 
+def test_bubble_temperature_close_boiling_txy():
+    """Regression (M10 fix): bubble_temperature must converge across the whole
+    composition range for a close-boiling φ-φ pair (benzene/cyclohexane), where
+    the true bubble T sits in the K≈1 band. Exercises the batch path the Txy
+    plot helper uses."""
+    import numpy as np
+
+    sys = System(["benzene", "cyclohexane"], eos="RKS")
+    x1 = np.linspace(1e-3, 1 - 1e-3, 25)
+    xs = np.column_stack([x1, 1 - x1])
+    res = sys.bubble_temperature_batch(xs, np.array([101.325]))
+    assert np.isfinite(res.value).all(), "some close-boiling bubble-T points failed"
+    # Both components boil ~353 K at 1 atm, so the whole curve sits in that band.
+    assert np.all((res.value > 345.0) & (res.value < 362.0))
+
+
 def test_properties_z_and_lnphi():
     sys = System(["n-heptane", "n-butane"], eos="RKS")
     zv = sys.z_factor(300.0, 100.0, [0.5, 0.5], "vapor")
