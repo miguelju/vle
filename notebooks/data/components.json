@@ -1,0 +1,282 @@
+{
+  "_meta": {
+    "description": "vle-thermo bundled component database (Milestone 10)",
+    "units": {
+      "tc": "K",
+      "pc": "kPa (absolute)",
+      "vc": "cm3/mol",
+      "tb": "K",
+      "mw": "g/mol",
+      "liquid_volume": "cm3/mol at ~298 K",
+      "psat_coeffs": "reduced Antoine ln(Psat/Pc) = a1 - a2/(a3 + T), T in K"
+    },
+    "generated_by": "scripts/build_components_json.py (do not edit by hand)"
+  },
+  "compounds": {
+    "methane": {
+      "formula": "CH4",
+      "cas": "74-82-8",
+      "mw": 16.0425,
+      "tc": 190.564,
+      "pc": 4599.2,
+      "omega": 0.01142,
+      "zc": 0.28629,
+      "vc": 98.628,
+      "tb": 111.667,
+      "psat_coeffs": [
+        5.357696,
+        1020.109669,
+        -0.49
+      ],
+      "psat_source": "NIST WebBook Antoine (log10, bar) A=3.9895, B=443.028, C=-0.49, converted exactly"
+    },
+    "ethane": {
+      "formula": "C2H6",
+      "cas": "74-84-0",
+      "mw": 30.069,
+      "tc": 305.322,
+      "pc": 4872.2,
+      "omega": 0.0995,
+      "zc": 0.2799,
+      "vc": 145.839,
+      "tb": 184.569,
+      "psat_coeffs": [
+        5.182255,
+        1519.105187,
+        -16.719
+      ],
+      "psat_source": "NIST WebBook Antoine (log10, bar) A=3.93835, B=659.739, C=-16.719, converted exactly"
+    },
+    "propane": {
+      "formula": "C3H8",
+      "cas": "74-98-6",
+      "mw": 44.0956,
+      "tc": 369.89,
+      "pc": 4251.2,
+      "omega": 0.1521,
+      "zc": 0.27646,
+      "vc": 200.0,
+      "tb": 231.036,
+      "psat_coeffs": [
+        5.421226,
+        1886.498756,
+        -24.417
+      ],
+      "psat_source": "NIST WebBook Antoine (log10, bar) A=3.98292, B=819.296, C=-24.417, converted exactly"
+    },
+    "n-butane": {
+      "formula": "C4H10",
+      "cas": "106-97-8",
+      "mw": 58.1222,
+      "tc": 425.125,
+      "pc": 3796.0,
+      "omega": 0.201,
+      "zc": 0.27377,
+      "vc": 254.922,
+      "tb": 272.66,
+      "psat_coeffs": [
+        6.392975,
+        2706.875286,
+        -2.071
+      ],
+      "psat_source": "NIST WebBook Antoine (log10, bar) A=4.35576, B=1175.581, C=-2.071, converted exactly",
+      "liquid_volume": 100.4
+    },
+    "n-pentane": {
+      "formula": "C5H12",
+      "cas": "109-66-0",
+      "mw": 72.1488,
+      "tc": 469.7,
+      "pc": 3367.5,
+      "omega": 0.251,
+      "zc": 0.26863,
+      "vc": 311.526,
+      "tb": 309.209,
+      "psat_coeffs": [
+        5.668717,
+        2465.186745,
+        -40.454
+      ],
+      "psat_source": "NIST WebBook Antoine (log10, bar) A=3.9892, B=1070.617, C=-40.454, converted exactly",
+      "liquid_volume": 116.1
+    },
+    "carbon dioxide": {
+      "formula": "CO2",
+      "cas": "124-38-9",
+      "mw": 44.0095,
+      "tc": 304.1282,
+      "pc": 7377.3,
+      "omega": 0.22394,
+      "zc": 0.27459,
+      "vc": 94.118,
+      "tb": 194.67,
+      "psat_coeffs": [
+        6.561916,
+        1997.225521,
+        0.0
+      ],
+      "psat_source": "two-point Clausius-Clapeyron fit through (273.15 K, 3485.1 kPa) and (298.15 K, 6434.0 kPa)"
+    },
+    "hydrogen sulfide": {
+      "formula": "H2S",
+      "cas": "7783-06-4",
+      "mw": 34.0809,
+      "tc": 373.1,
+      "pc": 9000.0,
+      "omega": 0.1005,
+      "zc": 0.28471,
+      "vc": 98.135,
+      "tb": 212.855,
+      "psat_coeffs": [
+        6.018862,
+        2236.150012,
+        0.0
+      ],
+      "psat_source": "two-point Clausius-Clapeyron fit through (212.855 K, 101.325 kPa) and (273.15 K, 1030.0 kPa)"
+    },
+    "benzene": {
+      "formula": "C6H6",
+      "cas": "71-43-2",
+      "mw": 78.1118,
+      "tc": 562.02,
+      "pc": 4907.277,
+      "omega": 0.211,
+      "zc": 0.2692,
+      "vc": 256.345,
+      "tb": 353.219,
+      "psat_coeffs": [
+        5.358805,
+        2771.932525,
+        -53.226
+      ],
+      "psat_source": "NIST WebBook Antoine (log10, bar) A=4.01814, B=1203.835, C=-53.226, converted exactly",
+      "liquid_volume": 89.4
+    },
+    "cyclohexane": {
+      "formula": "C6H12",
+      "cas": "110-82-7",
+      "mw": 84.1595,
+      "tc": 553.6,
+      "pc": 4080.5,
+      "omega": 0.2096,
+      "zc": 0.27497,
+      "vc": 310.174,
+      "tb": 353.865,
+      "psat_coeffs": [
+        5.432182,
+        2771.221027,
+        -50.287
+      ],
+      "psat_source": "NIST WebBook Antoine (log10, bar) A=3.96988, B=1203.526, C=-50.287, converted exactly",
+      "liquid_volume": 108.7
+    },
+    "methylcyclohexane": {
+      "formula": "C7H14",
+      "cas": "108-87-2",
+      "mw": 98.1861,
+      "tc": 572.2,
+      "pc": 3470.0,
+      "omega": 0.234,
+      "zc": 0.26815,
+      "vc": 367.647,
+      "tb": 374.01,
+      "psat_coeffs": [
+        6.916799,
+        3908.544899,
+        0.0
+      ],
+      "psat_source": "two-point fit through Psat(Tb) = 101.325 kPa and the acentric-factor definition Psat(0.7 Tc) = Pc*10^(-1-w)",
+      "liquid_volume": 128.3
+    },
+    "n-hexane": {
+      "formula": "C6H14",
+      "cas": "110-54-3",
+      "mw": 86.1754,
+      "tc": 507.82,
+      "pc": 3044.1,
+      "omega": 0.3,
+      "zc": 0.26643,
+      "vc": 369.549,
+      "tb": 341.866,
+      "psat_coeffs": [
+        5.800675,
+        2697.547514,
+        -48.784
+      ],
+      "psat_source": "NIST WebBook Antoine (log10, bar) A=4.00266, B=1171.53, C=-48.784, converted exactly",
+      "liquid_volume": 131.6
+    },
+    "n-heptane": {
+      "formula": "C7H16",
+      "cas": "142-82-5",
+      "mw": 100.2019,
+      "tc": 540.2,
+      "pc": 2735.73,
+      "omega": 0.349,
+      "zc": 0.26141,
+      "vc": 429.185,
+      "tb": 371.55,
+      "psat_coeffs": [
+        5.966566,
+        2921.142342,
+        -56.199
+      ],
+      "psat_source": "NIST WebBook Antoine (log10, bar) A=4.02832, B=1268.636, C=-56.199, converted exactly",
+      "liquid_volume": 147.5
+    },
+    "methanol": {
+      "formula": "CH4O",
+      "cas": "67-56-1",
+      "mw": 32.0419,
+      "tc": 513.38,
+      "pc": 8215.85,
+      "omega": 0.5625,
+      "zc": 0.21909,
+      "vc": 113.828,
+      "tb": 337.632,
+      "psat_coeffs": [
+        7.57421,
+        3641.172214,
+        -33.5
+      ],
+      "psat_source": "NIST WebBook Antoine (log10, bar) A=5.20409, B=1581.341, C=-33.5, converted exactly",
+      "liquid_volume": 40.7
+    },
+    "water": {
+      "formula": "H2O",
+      "cas": "7732-18-5",
+      "mw": 18.0153,
+      "tc": 647.096,
+      "pc": 22064.0,
+      "omega": 0.3443,
+      "zc": 0.22944,
+      "vc": 55.948,
+      "tb": 373.124,
+      "psat_coeffs": [
+        5.320389,
+        3304.817491,
+        -64.848
+      ],
+      "psat_source": "NIST WebBook Antoine (log10, bar) A=4.6543, B=1435.264, C=-64.848, converted exactly",
+      "liquid_volume": 18.07
+    },
+    "2-propanol": {
+      "formula": "C3H8O",
+      "cas": "67-63-0",
+      "mw": 60.095,
+      "tc": 508.3,
+      "pc": 4764.0,
+      "omega": 0.665,
+      "zc": 0.25025,
+      "vc": 222.0,
+      "tb": 355.36,
+      "psat_coeffs": [
+        7.329193,
+        3125.591175,
+        -75.814
+      ],
+      "psat_source": "NIST WebBook Antoine (log10, bar) A=4.861, B=1357.427, C=-75.814, converted exactly",
+      "liquid_volume": 76.92
+    }
+  }
+}

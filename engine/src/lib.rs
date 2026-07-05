@@ -101,6 +101,13 @@ pub mod virial;
 #[cfg(feature = "python")]
 mod py_bindings;
 
+// The persistent `System` pyclass + batch numpy API (Milestone 10, Track D
+// of PERFORMANCE_PROPOSAL.md). Separate module so the M5–M9 free-function
+// binding surface and the M10 stateful/batch surface stay independently
+// readable; registered into the same `_engine` module by py_bindings.rs.
+#[cfg(feature = "python")]
+mod py_system;
+
 // `pub use` re-exports an item from a sub-module, making it available
 // directly at this crate's top level. Without these lines, users would
 // have to write the full path: `vle_thermo::eos::CubicEos`. With them,

@@ -265,6 +265,7 @@ Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERF
 ## Milestone 10: Python Bindings, Wrapper & Batch API
 **Goal**: Python package installable, high-level API usable, batch numpy API makes it "numpy for thermo".
 *Phases 16–17 of MODERNIZATION_PLAN.md*
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
 > Note: The first `#[pymodule]` shipped in M5. This milestone is the
 > end-user `vle.System` high-level API, plotting helpers, and the
@@ -272,18 +273,20 @@ Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERF
 > that have been accumulating since M5 under the PyO3 Bindings Rule —
 > plus the Track-D batch layer (PERFORMANCE_PROPOSAL.md).
 
-- [ ] PyO3 bindings for core types and calculation functions
-- [ ] Python `System` class (high-level API) backed by a persistent `#[pyclass]` handle (cached components/model state, no per-call rebuild)
-- [ ] Batch numpy API via rust-numpy — array-in/array-out for every property and flash, zero-copy
-- [ ] GIL release (`allow_threads`) + rayon parallelism in batch kernels; warm-start plumbing across batch points
-- [ ] Boundary benchmark rerun (vs Milestone 8.2 baseline) + external comparison vs `thermo` / CoolProp
-- [ ] Result dataclasses (FlashResult, BubbleResult, DewResult) + batch result arrays
-- [ ] Component database (JSON)
-- [ ] Plotting helpers (Pxy, Txy diagrams via matplotlib)
-- [ ] Python test suite (reproduce Chapter IV validation) — validation tests pass
-- [ ] Write end-user installation guide
-- [ ] Create milestone notebook (`notebooks/01_introduction.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: Chapter I + Appendix B (User Manual) snippets, installation walk-through, `vle.System` basic API tour, ≥2 user exercises
-- [ ] Update the notebook catalogue (`deploy/NOTEBOOKS.md`); touch `deploy/README.md` only if a distribution channel changed
+- [x] PyO3 bindings for core types and calculation functions (M5–M9 free-function surface + the M10 `System` pyclass in `engine/src/py_system.rs`)
+- [x] Python `System` class (high-level API) backed by a persistent `#[pyclass]` handle — `python/src/vle/system.py`: name-based construction from the bundled DB, friendly EOS/activity/mixing aliases, unit-aware T/P inputs, dataclass results
+- [x] Batch numpy API via rust-numpy — array-in/array-out for every property and flash, zero-copy (`engine/src/py_system.rs` `*_batch` methods)
+- [x] GIL release (`allow_threads`) + rayon parallelism in batch kernels; warm-start plumbing across batch points (chunked warm-start chains; ~10× flash speedup, 20% fewer iterations on smooth sweeps)
+- [x] Boundary benchmark rerun (`scripts/bench_batch_api.py`: z_factor 16×, flash_pt 10× parallel vs scalar loop). *External comparison vs `thermo` / CoolProp deferred — those libs aren't in the env; tracked as a follow-up.*
+- [x] Result dataclasses (FlashResult, BubbleResult, DewResult, CriticalResult) + batch result arrays — `python/src/vle/results.py`
+- [x] Component database (JSON) — `scripts/build_components_json.py` → `vle/data/components.json` (15 compounds), read via `vle.components`
+- [x] Plotting helpers (Pxy, Txy, phase-envelope via matplotlib) — `python/src/vle/plots.py`
+- [x] Python test suite (reproduce Chapter IV validation) — `test_system.py`, `test_components.py`, `test_batch.py`, `test_validation.py` (Tables 4.1–4.2, 4.10, 4.11–4.12); 337 tests pass
+- [x] Write end-user installation guide — README Quickstart (`vle.System` + batch tour) + `deploy/NOTEBOOKS.md` corrections
+- [x] Create milestone notebook (`notebooks/01_introduction.ipynb`) — professional structure per CLAUDE.md *Notebook Conventions*: Chapter I + Appendix B snippets, `vle.System` tour, unit-aware inputs, batch API + plot, 2 exercises; executes top-to-bottom
+- [x] Update the notebook catalogue (`deploy/NOTEBOOKS.md`) + rebuilt the landing index (`notebooks/index.ipynb`)
+
+> **Known follow-up (pre-existing M9 engine gap, surfaced by the M10 Txy helper):** `bubble_temperature` for *close-boiling* φ-φ systems (e.g. benzene/cyclohexane, α≈1.02) fails mid-bracket (`g(mid) failed`) because the real bubble T sits inside the K≈1 trivial-solution band that `solve_temperature` filters out. `bubble_pressure` is robust. Fixing needs a trivial-band-aware bracketing/bisection in `engine/src/flash/incipient.rs`, re-validated against Chapter IV.
 
 ## Milestone 11: Chapter IV Walkthrough & Final Deployment
 **Goal**: One cohesive walkthrough of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md) and a final full-stack redeploy of every milestone notebook.

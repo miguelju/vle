@@ -26,7 +26,7 @@ supported.
 ```sh
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install vle jupyterlab numpy scipy matplotlib
+pip install vle-thermo jupyterlab numpy scipy matplotlib
 ```
 
 ### Option B — from source (for development)
@@ -93,7 +93,7 @@ vle-db seed --source chapter4  # seed 15 Chapter IV compounds + kij + van Laar +
 vle-db validate chapter4       # sanity-check that everything landed
 ```
 
-`vle-db` is installed as a console script by `pip install vle`; as a fallback
+`vle-db` is installed as a console script by `pip install vle-thermo`; as a fallback
 you can always run `python -m vle.cli.main ...` instead. The default database
 location is `data/components.db` relative to the repo root. Override with the
 `VLE_DB_PATH` environment variable if you need it elsewhere.
@@ -102,7 +102,7 @@ For a larger compound pool (~70 k DIPPR/ChemSep compounds) install the
 optional `thermo` dependency and seed from it:
 
 ```sh
-pip install 'vle[db]'          # installs the thermo library
+pip install 'vle-thermo[db]'   # installs the thermo library
 vle-db seed --source thermo    # seeds ~40 common industrial compounds by default
 ```
 

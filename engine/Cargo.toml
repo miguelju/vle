@@ -48,6 +48,15 @@ vle-units = { path = "../units", version = "0.7.0" }
 # future 3.x — no rebuild per Python version. See docs/ci.md and
 # MODERNIZATION_PLAN.md M5 phase notes for the performance analysis.
 pyo3 = { version = "0.22", features = ["extension-module", "abi3-py310"], optional = true }
+# rust-numpy (M10, PERFORMANCE_PROPOSAL Track D): zero-copy ndarray views
+# across the FFI boundary for the batch API — one crossing per *array*
+# instead of one per state point. Version tracks pyo3 (0.22 ↔ 0.22).
+numpy = { version = "0.22", optional = true }
+# rayon (M10, Track D): data-parallel batch kernels. The GIL is released
+# via `Python::allow_threads` around the rayon loops, so a batch flash
+# saturates every core while other Python threads keep running. Gated
+# behind the `python` feature — the pure-Rust crate stays single-threaded.
+rayon = { version = "1", optional = true }
 
 [dev-dependencies]
 approx = "0.5"
@@ -68,4 +77,4 @@ default = []
 # Gate all PyO3 bindings behind this feature so `cargo add vle-thermo` pulls a
 # pure-Rust crate without dragging in Python. Maturin enables it automatically
 # from python/pyproject.toml when building the wheel.
-python = ["pyo3"]
+python = ["dep:pyo3", "dep:numpy", "dep:rayon"]

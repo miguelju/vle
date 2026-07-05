@@ -95,6 +95,33 @@ Optional extras: `pip install "vle-thermo[plot]"` (matplotlib),
 `"vle-thermo[db]"` (extended component-database seeding via `thermo`).
 See [python/README.md](python/README.md).
 
+#### Quickstart
+
+Build a system from component names (critical constants come from the bundled
+database), then flash it. Temperatures are **K** and pressures **kPa absolute**
+by default, but any input accepts a unit-aware value:
+
+```python
+from vle import System
+from vle.units import Q_
+
+# n-heptane / n-butane with the RKS equation of state (Chapter IV, Table 4.10).
+sys = System(["n-heptane", "n-butane"], eos="RKS")
+
+res = sys.flash_pt(300.0, 100.0, z=[0.5, 0.5])     # or flash_pt(Q_(26.85, "degC"), "1 bar", ...)
+print(res.beta, res.x, res.y)                        # vapor fraction, liquid & vapor comps
+
+# The batch API is the "numpy for thermo" path: one FFI crossing per array,
+# GIL released, parallel across cores, warm-started along the sweep.
+import numpy as np
+ts = np.linspace(290.0, 340.0, 100_000)
+out = sys.flash_pt_batch(ts, ps=np.array([100.0]), z=[0.5, 0.5])   # ~10× a Python loop
+print(out.beta.shape, out.converged.sum())
+```
+
+A full guided tour — installation, the `System` API, unit handling, the batch
+API, and plotting — is in [`notebooks/01_introduction.ipynb`](notebooks/01_introduction.ipynb).
+
 ### Rust (crates.io)
 
 ```sh
@@ -144,10 +171,15 @@ vle/
 │   └── components.db        # SQLite database (generated, gitignored)
 ├── scripts/                 # Data extraction utilities (see scripts/README.md)
 ├── python/src/vle/          # Python package
+│   ├── system.py            # High-level vle.System API (persistent handle, unit-aware)
+│   ├── components.py        # Bundled JSON component DB loader (name-based lookup)
+│   ├── results.py           # Result dataclasses (Flash/Bubble/Dew/Critical + batch)
+│   ├── plots.py             # Pxy / Txy / phase-envelope helpers (matplotlib)
+│   ├── data/               # Bundled components.json (ships in wheel)
 │   ├── db/                  # Component database (connection, queries, models)
 │   │   └── sql/             # Bundled schema.sql + seed_chapter4.sql (ship in wheel)
 │   └── cli/                 # CLI tool (vle-db)
-├── notebooks/               # 13 Jupyter notebooks (00–09 + index; see deploy/NOTEBOOKS.md)
+├── notebooks/               # 14 Jupyter notebooks (00–09 + 01_introduction + index; see deploy/NOTEBOOKS.md)
 │   └── data/                # Pre-computed 3-D surface datasets (CSV, committed)
 ├── units/                   # Independent units crate (dimensional analysis, gauge pressure, custom units)
 ├── engine/                  # Rust computation engine (complete: 22+ EOS, mixture core, flash suite, PyO3 bindings)

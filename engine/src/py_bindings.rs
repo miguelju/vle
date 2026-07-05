@@ -1964,5 +1964,8 @@ fn _engine(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fit_kij_py, m)?)?;
     m.add_function(wrap_pyfunction!(fit_aij_py, m)?)?;
 
+    // M10 — the persistent System handle + batch numpy API (Track D).
+    m.add_class::<crate::py_system::System>()?;
+
     Ok(())
 }

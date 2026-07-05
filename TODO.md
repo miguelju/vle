@@ -260,17 +260,19 @@ every Newton loop consumes the M8.3 analytic/AD Jacobians (§L).
 
 ## Milestone 10: Python Bindings, Wrapper & Batch API
 
-- [ ] **Create PyO3 bindings** (~4–6h) — expose core types as `#[pyclass]`, calculation functions as `#[pyfunction]`, `VleEngine` class
-- [ ] **Build Python `System` class** (~3–4h) — high-level API: `system.bubble_point_T()`, `system.flash_isothermal()`, etc., backed by a persistent `#[pyclass]` handle (cached components/model state, no per-call `Component` rebuild)
-- [ ] **Build batch numpy API** (~5–7h) — rust-numpy array-in/array-out for every property + flash (zero-copy, one FFI crossing per array); `allow_threads` + rayon over state points; warm-start plumbing across batch points (Track D)
-- [ ] **Rerun boundary benchmark + external comparison** (~1–2h) — vs the M8.2 baseline; comparison benches vs `thermo` / CoolProp
-- [ ] **Create result dataclasses** (~1–2h) — FlashResult, BubbleResult, DewResult with fields matching thesis notation, + batch result arrays
-- [ ] **Build component database** (~2–3h) — `notebooks/data/components.json` with common substances (Tc, Pc, w, Cp coefficients, etc.)
-- [ ] **Build plotting helpers** (~2–3h) — Pxy, Txy, phase envelope diagrams via matplotlib
-- [ ] **Write Python test suite** (~2–3h) — `test_validation.py` reproducing all Chapter IV results — validation tests pass
-- [ ] **Write installation guide** (~1h) — end-user: `pip install`, basic usage example
-- [ ] **Create milestone notebook** (~2–3h) — `notebooks/01_introduction.ipynb` per CLAUDE.md *Notebook Conventions*: Chapter I + Appendix B snippets, `vle.System` API tour, first flash calculation end-to-end, ≥2 user exercises
-- [ ] **Update the notebook catalogue** (~0.3h) — add to `deploy/NOTEBOOKS.md`; touch `deploy/README.md` only if a distribution channel changed
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
+
+- [x] **Create PyO3 bindings** (~4–6h) — M5–M9 free-function surface + the M10 persistent `System` `#[pyclass]` (`engine/src/py_system.rs`, registered in `py_bindings.rs`)
+- [x] **Build Python `System` class** (~3–4h) — `python/src/vle/system.py`: `flash_pt`/`flash_ph`, `bubble_*`/`dew_*`, `critical_point`, `phase_envelope`, all backed by the persistent pyclass; name-based construction, friendly aliases, unit-aware inputs
+- [x] **Build batch numpy API** (~5–7h) — rust-numpy array-in/array-out for every property + flash (zero-copy); `allow_threads` + rayon over state points; chunked warm-start chains (Track D)
+- [x] **Rerun boundary benchmark** (~1–2h) — `scripts/bench_batch_api.py` vs the M8.2 baseline: z_factor 16×, flash_pt 10× (parallel) vs a scalar loop, 20% fewer iterations warm-started. *External comparison vs `thermo` / CoolProp deferred (libs not in env).*
+- [x] **Create result dataclasses** (~1–2h) — `python/src/vle/results.py`: FlashResult, BubbleResult, DewResult, CriticalResult + BatchFlashResult / BatchSaturationResult
+- [x] **Build component database** (~2–3h) — `scripts/build_components_json.py` → `vle/data/components.json` + `notebooks/data/components.json` (15 compounds); read via `vle.components`, shipped in the wheel
+- [x] **Build plotting helpers** (~2–3h) — `python/src/vle/plots.py`: Pxy, Txy, phase-envelope diagrams (matplotlib, optional dep)
+- [x] **Write Python test suite** (~2–3h) — `test_system.py`, `test_components.py`, `test_batch.py` (scalar↔batch parity), `test_validation.py` (Chapter IV Tables 4.1–4.2, 4.10, 4.11–4.12); 337 tests pass
+- [x] **Write installation guide** (~1h) — README Quickstart (`vle.System` + batch tour) + `deploy/NOTEBOOKS.md` `vle`→`vle-thermo` fixes
+- [x] **Create milestone notebook** (~2–3h) — `notebooks/01_introduction.ipynb` per CLAUDE.md *Notebook Conventions*; executes top-to-bottom, 2 exercises with solutions
+- [x] **Update the notebook catalogue** (~0.3h) — `deploy/NOTEBOOKS.md` + rebuilt `notebooks/index.ipynb`
 
 ## Milestone 11: Chapter IV Walkthrough & Final Deployment
 
@@ -297,7 +299,7 @@ Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone i
 | 7. Pure Component Models | ~28–37h | **Done** (7.1–7.4 shipped; v0.3.0–v0.6.0) |
 | 8. Mixture Models + Performance Foundation | ~41–57h | **Done** (8.1–8.4 complete; unreleased) |
 | 9. Flash & Regression | ~44–62h | **Done** (all algorithms + bindings + tests + Ch. IV validation + notebooks 04–08; unreleased) |
-| 10. Python Bindings, Wrapper & Batch API | ~25–36h | Not started |
+| 10. Python Bindings, Wrapper & Batch API | ~25–36h | **Done** (System wrapper + batch API + component DB + plots + tests + intro notebook; external thermo/CoolProp bench deferred; unreleased) |
 | 11. Ch. IV Walkthrough & Final Deploy | ~7–11h | Not started |
 | **Total** | **~237–326h** | |
 
