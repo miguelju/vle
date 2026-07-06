@@ -158,13 +158,79 @@ foundation of the mixture layer before writing any flash code.**
   and flash accepts numpy arrays of state points and returns arrays — one FFI crossing,
   zero-copy views, results written into pre-allocated output arrays.
 - **D2** — **Release the GIL** (`Python::allow_threads`) and parallelize batch kernels
-  with **rayon**. State points are embarrassingly parallel.
+  with **rayon**. State points are embarrassingly parallel. (What the GIL is, why a
+  *numerical* library is the ideal case for releasing it, and which routines gain the
+  most: see the **sidebar** below.)
 - **D3** — A persistent **`System` `#[pyclass]` handle** holding components, model
   selections, and cached T-independent data — kills per-call `Component`
   reconstruction; scalar convenience methods become batch-of-one.
 - **D4** — **Warm-start plumbing**: batch flash seeds each point from its neighbor's
   converged K — the natural access pattern of envelope tracing and regression, often
   3–5× fewer iterations across a grid.
+
+### Sidebar (D2): "release the GIL", and why a numerical library is the ideal case
+
+**What the GIL is.** CPython carries a **Global Interpreter Lock** — one process-wide
+mutex that lets **only a single thread execute Python bytecode at a time**. It exists to
+keep CPython's reference-counting memory management thread-safe. The practical cost: you
+can start eight threads on eight cores and, for CPU-bound *Python* code, they still run
+one at a time, taking turns holding the lock. Threads buy you concurrency for I/O waits,
+not parallel arithmetic — which is why CPU-heavy Python usually reaches for
+`multiprocessing` (separate processes, separate GILs) instead.
+
+**What "releasing" it means.** The GIL only protects **Python objects and bytecode**.
+Code running in a native extension that touches *no* Python objects — a Rust routine
+crunching `f64`s in and out of numpy's raw buffers — does not need the lock. So the
+extension can hand the GIL back for the duration of that native work and reacquire it
+before returning. While it is released, other Python threads run, and — the part that
+matters here — the native side is free to spin up **real OS threads across every core in
+true parallel**, because none of that work goes through the interpreter. In PyO3 that is
+`py.allow_threads(|| { … })`; the whole rayon-parallel kernel lives inside the closure,
+and the lock is automatically retaken on the way out.
+
+**Why the *numerical* nature of this library makes it the ideal case.** Releasing the
+GIL only pays off to the extent that real time is spent in native code that ignores
+Python. `vle-thermo` is almost nothing *but* that. A single flash point is Cardano cubic
+root-solving, Wilson-correlation K initialization, TPD stability analysis, GDEM-
+accelerated successive substitution, then Newton on lnK with an **exact** analytic /
+`num-dual` Jacobian and an nalgebra linear solve (Tracks A–B) — hundreds of pure
+floating-point EOS evaluations, zero Python objects in the loop. That is exactly the
+work `allow_threads` is meant to cover: the arithmetic is the payload, not a thin wrapper
+around it. A library that spent most of its time manipulating Python lists/dicts would
+see almost no benefit; a solver whose runtime *is* the f64 iteration sees near-linear
+core scaling. The batch layer is structured to preserve this — inputs are read as
+zero-copy numpy slices, every point's result is collected into plain Rust structs, and
+all Python-API calls (building the output arrays) happen **outside** the released region,
+which is both a PyO3 requirement and the reason the parallel section stays pure math
+(`engine/src/py_system.rs`, module doc + `PointOut`).
+
+**Which routines gain the most** (all in the persistent `System` handle, `python/src/vle/system.py`
+→ `engine/src/py_system.rs`; each has a `parallel=` switch, default on):
+
+- **Tier 1 — iterative flash & saturation solvers (largest win).** `flash_pt_batch`
+  (isothermal PT flash) and the four saturation batches — `bubble_pressure_batch`,
+  `bubble_temperature_batch`, `dew_pressure_batch`, `dew_temperature_batch` (all through
+  the shared `sat_batch`/`chunked_run` rayon kernel). Each point is a full iterative
+  solve — tens to hundreds of EOS evaluations, Newton steps, and matrix factorizations —
+  and points are independent, so the compute-per-point is high and the per-array FFI
+  overhead is negligible. This is where GIL-release + rayon converts a Python `for`-loop
+  into near-linear multi-core throughput. **kij/Aij regression** (`flash/kij_regression.rs`,
+  `flash/aij_regression.rs`) sits here too: its dominant cost is a per-data-point bubble-P
+  objective, an embarrassingly parallel fan-out (and it compounds with the D4 warm-start,
+  cutting the iteration count on top of the parallelism). Grid workloads —
+  **phase-envelope tracing** (`flash/envelope.rs`) and T–P property grids — are the
+  canonical consumers.
+- **Tier 2 — batch property evaluations (still worthwhile).** `z_factor_batch`,
+  `ln_phi_batch`, `enthalpy_entropy_batch`. These are cheap per point (one `EosState`
+  build + a departure evaluation, no iteration), so for these the **D1** win — one FFI
+  crossing per array instead of per point, plus killing per-call `Component` rebuilds via
+  the `System` handle (**D3**) — usually dominates the parallelism win. They still scale
+  across cores on large arrays; the lock simply isn't the bottleneck the way it is for the
+  iterative solvers.
+
+**Nuance.** Python 3.13+ has an experimental **free-threaded ("no-GIL")** build, but the
+standard CPython wheels `vle-thermo` ships still carry the GIL, so explicitly releasing it
+around the native batch kernels remains the correct and necessary technique.
 
 ## 7. Track E — Measure first (Milestone 8.2)
 
