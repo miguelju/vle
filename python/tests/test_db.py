@@ -179,20 +179,25 @@ class TestChapter4SeedArtifact:
     ``data/components.db`` currently contains on the developer machine.
     """
 
-    def test_seed_produces_all_15_chapter4_compounds(self, tmp_db):
+    def test_seed_produces_all_24_compounds(self, tmp_db):
         from vle.db.seed import seed_chapter4
 
+        # 15 Chapter IV compounds + the 9 M12.1 distillation/absorber additions.
         count = seed_chapter4()
-        assert count == 15
+        assert count == 24
 
-        expected = [
+        chapter4 = [
             "methane", "ethane", "propane", "n-butane", "n-pentane",
             "carbon dioxide", "hydrogen sulfide",
             "benzene", "cyclohexane", "methylcyclohexane",
             "n-hexane", "n-heptane",
             "methanol", "water", "2-propanol",
         ]
-        for name in expected:
+        m12_1 = [
+            "toluene", "ethanol", "acetone", "chloroform", "isobutane",
+            "isopentane", "n-octane", "n-nonane", "n-decane",
+        ]
+        for name in chapter4 + m12_1:
             comp = get_component(name)
             assert comp is not None, f"missing compound: {name}"
             assert comp.has_critical_props(), f"incomplete: {name}"

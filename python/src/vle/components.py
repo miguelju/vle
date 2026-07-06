@@ -20,6 +20,8 @@ lookup that the high-level :class:`vle.System` uses to turn a component
 - ``liquid_volume`` — saturated-liquid molar volume near 298 K, **cm³/mol**
 - ``psat_coeffs`` — reduced Antoine ``ln(Psat/Pc) = a1 − a2/(a3 + T)`` with
   T in **K** (so ``Psat`` comes out in the same units as ``pc``, kPa)
+- ``cp_coeffs`` — dimensionless ideal-gas ``Cp°/R = Σₖ aₖ·Tᵏ`` polynomial,
+  T in **K** (matches the engine convention; empty ⇒ no ideal-Cp data)
 
 Example
 -------
@@ -56,6 +58,12 @@ class Component:
     ``psat_coeffs`` is the 3-entry reduced-Antoine coefficient list; an
     empty list means "no vapor-pressure correlation shipped for this
     component" (the engine then falls back to whatever the EOS provides).
+
+    ``cp_coeffs`` is the 5-entry dimensionless ideal-gas Cp°/R polynomial
+    ``Cp°(T)/R = Σₖ aₖ·Tᵏ`` (T in **K**, R = 8.31451 kJ/(kmol·K)), matching
+    the engine convention; an empty list means "no ideal-Cp data" and the
+    engine treats the ideal-gas heat-capacity contribution as zero.
+    ``cp_t_range`` is the ``[t_min, t_max]`` K validity window of that fit.
     """
 
     name: str
@@ -71,6 +79,9 @@ class Component:
     psat_coeffs: list[float] = field(default_factory=list)
     liquid_volume: float = 0.0  # cm³/mol at ~298 K
     psat_source: str = ""
+    cp_coeffs: list[float] = field(default_factory=list)  # Cp°/R = Σ aₖ Tᵏ, T in K
+    cp_t_range: list[float] = field(default_factory=list)  # [t_min, t_max] K
+    cp_source: str = ""
 
 
 @lru_cache(maxsize=1)

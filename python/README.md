@@ -36,12 +36,13 @@ import vle
 
 ## Status
 
-`0.8.1` — pre-1.0, but the numerical core is live. Flash algorithms
+`0.8.2` — pre-1.0, but the numerical core is live. Flash algorithms
 (isothermal, bubble/dew *T* and *P*, adiabatic *PH*), 22+ cubic
 equations of state, the five activity models, the mixture critical point,
 and kij/Aij parameter regression all run through the Rust engine, exposed
 through a unit-aware Python facade (`vle.System`) and a vectorized numpy
-**batch API**. The component database, CLI, and units layer round it out.
+**batch API**. The bundled component database (24 compounds, now with
+ideal-gas Cp°/R coefficients), CLI, and units layer round it out.
 Treat `0.x` as pre-release; semver promises begin at 1.0.
 
 See the [roadmap](https://github.com/miguelju/vle/blob/main/ROADMAP.md) for
@@ -97,8 +98,8 @@ print(batch.converged)   # per-point convergence flags
 ## Component database & units
 
 ```sh
-# Initialize the bundled component database (SQLite) and seed with the 15
-# compounds from Chapter IV of the source thesis.
+# Initialize the bundled component database (SQLite) and seed with the 24
+# bundled compounds (15 Chapter IV + 9 distillation/absorber additions).
 vle-db init
 vle-db seed --source chapter4
 
@@ -112,7 +113,7 @@ vle-db validate chapter4
 from vle.db import list_components, get_component
 
 for c in list_components():
-    print(c.name, c.tc, c.pc, c.omega)
+    print(c.name, c.tc, c.pc, c.w)  # w = acentric factor
 
 methane = get_component("methane")
 ```

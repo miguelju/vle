@@ -116,6 +116,26 @@ Cp⁰ = A + B·T + C·T² + D·T³ (+ E·T⁴ for some sources)
 
 **Note**: Temperature in K; Cp in kJ/(kmol·K). Coefficients vary by source — ensure consistent units.
 
+### Bundled `cp_coeffs` (Milestone 12.1)
+
+As of M12.1 the bundled component database (all **24** compounds, both the JSON
+copy read by `vle.components` and the `vle-db` SQLite seed) ships a
+**dimensionless** ideal-gas heat-capacity polynomial, matching the engine's
+internal convention (`engine/src/energy.rs` `ideal_cp`):
+
+```
+Cp°(T) / R = a₀ + a₁·T + a₂·T² + a₃·T³ + a₄·T⁴      (T in K, R = 8.31451 kJ/(kmol·K))
+```
+
+stored as the 5-entry `cp_coeffs` field with a `cp_t_range` validity window and
+a `cp_source` provenance string. The coefficients are degree-4 fits of the
+Poling `POLING_POLY` correlation — reference **(30)** Poling, Prausnitz &
+O'Connell, *The Properties of Gases and Liquids*, 5th ed. (2001) — sampled via
+the CalebBell/`chemicals` library; because `POLING_POLY` is itself a quartic the
+fit is machine-exact. Each compound's `Cp°(298.15 K)` is pinned against a
+literature value in `python/tests/test_components_cp.py`. Divide by `R` when
+converting a dimensional `A + B·T + …` table into `cp_coeffs`.
+
 ---
 
 ## Liquid Molar Volume

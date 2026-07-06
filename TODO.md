@@ -291,15 +291,16 @@ Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone i
 Closes the five upstream gaps identified by `stages-thermo` (planned first
 downstream consumer). Full technical spec: [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md).
 Two releases: **v0.8.2** (12.1 fast-track) then **v0.9.0** (12.2–12.5).
-Total ~25–38h. Not started — planned 2026-07-05 for execution by Claude Opus 4.8.
+Total ~25–38h. M12.1 **done** 2026-07-05 (Claude Opus 4.8); 12.2–12.5 not started.
 
-### Milestone 12.1 — Component DB Expansion + Cp Coefficients (→ v0.8.2, ~4–6h)
+### Milestone 12.1 — Component DB Expansion + Cp Coefficients (→ v0.8.2, ~4–6h) — **Done**
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
-- [ ] **Extend `scripts/build_components_json.py`** (~1.5–2h) — add toluene, ethanol, acetone, chloroform, isobutane, isopentane, n-octane, n-nonane, n-decane (15 → 24 compounds); add `cp_coeffs` (dimensionless Cp°/R polynomial matching `energy::ideal_cp`), `cp_t_range`, `cp_source` for all 24; source via `thermo`/DIPPR, cross-check vs Poling 5th ed. (30); regenerate both JSON copies (never hand-edit)
-- [ ] **Thread `cp_coeffs` Python → engine** (~1h) — extend the frozen `vle.components.Component` dataclass + `_to_component`; pass through `vle.System` into `_engine.System(cp_coeffs=...)` (parameter already exists, `py_system.rs:308`; fixes silently-zero ideal Cp for DB-built systems)
-- [ ] **Extend the `vle-db` static seed** (~0.5h) — same 9 compounds in `python/src/vle/db/seed.py`; `vle-db validate chapter4` unaffected
-- [ ] **Tests** (~1h) — per-compound `psat(tb)` round-trip + pinned Cp°(298.15 K) literature values (±1%); benzene–toluene bubble-T smoke (355–370 K band at 1 atm, x=0.5); nonzero-ideal-Cp regression on `enthalpy_entropy`
-- [ ] **Docs + release** (~0.5–1h) — parameter reference, README/package-README compound counts; bump to **0.8.2**, tag (unblocks stages-thermo M1)
+- [x] **Extend `scripts/build_components_json.py`** — add toluene, ethanol, acetone, chloroform, isobutane, isopentane, n-octane, n-nonane, n-decane (15 → 24 compounds); add `cp_coeffs` (dimensionless Cp°/R polynomial matching `energy::ideal_cp`), `cp_t_range`, `cp_source` for all 24; sourced via `thermo` 0.6.0 / `chemicals` 1.5.2 (POLING_POLY degree-4 fits), cross-checked vs Poling 5th ed. (30); both JSON copies regenerated (byte-identical)
+- [x] **Thread `cp_coeffs` Python → engine** — extended the frozen `vle.components.Component` dataclass (+ `cp_t_range`, `cp_source`) and `_to_component`; `vle.System` now passes `cp_coeffs` into `_engine.System` (fixes silently-zero ideal Cp for DB-built systems)
+- [x] **Extend the `vle-db` static seed** — same 9 compounds in `seed_chapter4.sql`; `vle-db validate chapter4` unaffected
+- [x] **Tests** (`python/tests/test_components_cp.py`) — per-compound `psat(tb)` round-trip (1% new / 5% legacy) + pinned Cp°(298.15 K) literature values (±1%); benzene–toluene bubble-T smoke (355–370 K); nonzero-ideal-Cp regression on `enthalpy_entropy`; `test_db` count 15→24
+- [x] **Docs + version** — parameter reference Cp°/R section, README/SETUP/package-README compound counts; bumped to **0.8.2** (tag pending YubiKey release)
 
 ### Milestone 12.2 — Rust-Side Component Database (~4–6h)
 
@@ -345,7 +346,7 @@ Total ~25–38h. Not started — planned 2026-07-05 for execution by Claude Opus
 | 9. Flash & Regression | ~44–62h | **Done** (all algorithms + bindings + tests + Ch. IV validation + notebooks 04–09; shipped in v0.8.0) |
 | 10. Python Bindings, Wrapper & Batch API | ~25–36h | **Done** (System wrapper + batch API + component DB + plots + tests + intro notebook; external thermo/CoolProp bench deferred; shipped in v0.8.0) |
 | 11. Chapter IV Walkthrough | ~5–8h | **Done** (walkthrough notebook 10 + all 15 notebooks re-verified + catalogue complete; shipped in v0.8.0) |
-| 12. Downstream Derivative & Database Release | ~25–38h | **Planned** (spec in DERIVATIVE_RELEASE_PLAN.md; v0.8.2 then v0.9.0) |
+| 12. Downstream Derivative & Database Release | ~25–38h | **In progress** — M12.1 done (v0.8.2: 24-compound DB + Cp); M12.2–12.5 pending (v0.9.0) |
 | **Total** | **~262–364h** | |
 
 Each active milestone's total now includes: milestone notebook (~2–4h) + notebook-catalogue update (~0.3h). Deploying to the hosted hub is a separate operator-side step in a private operator repository, not counted here.

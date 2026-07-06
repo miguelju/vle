@@ -87,7 +87,7 @@ python scripts/cross_validate_coolprop.py --compounds 74-82-8 7732-18-5
 #### Sample output
 
 ```
-Cross-validating 15 compounds (tolerance: 0.5%)
+Cross-validating 24 compounds (tolerance: 0.5%)
 Name                       Tc diff%  Pc diff%   w diff%    Status
 ----------------------------------------------------------------------
 methane                       0.000     0.000     0.000      PASS

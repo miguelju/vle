@@ -32,6 +32,27 @@ VALUES
     ('2-propanol',          'C3H8O', '67-63-0',    60.0950,  508.3,     4764.0,  0.665,    0.25025,  222.000,  355.36,   1.58,  'thermo/DIPPR', 'Chapter IV: dew point (4.4)');
 
 -- ============================================================================
+-- MILESTONE 12.1 ADDITIONS (9 compounds → 24 total)
+-- The classic distillation / absorber validation set the downstream
+-- stages-thermo library needs. Kept in lockstep with the JSON DB
+-- (scripts/build_components_json.py). Sourced 2026-07-05 from thermo 0.6.0 /
+-- chemicals 1.5.2, cross-checked vs Poling, Prausnitz & O'Connell 5th ed. (30).
+-- Not Chapter IV cases; `vle-db validate chapter4` is unaffected.
+-- ============================================================================
+
+INSERT OR IGNORE INTO components (name, formula, cas_number, mw, tc, pc, w, zc, vc, tb, dipole_moment, source, notes)
+VALUES
+    ('toluene',             'C7H8',  '108-88-3',   92.1384,  591.750,   4126.30, 0.2657,   0.26465,  315.557,  383.746,  0.36,  'thermo/DIPPR', 'M12.1: benzene-toluene McCabe-Thiele binary'),
+    ('ethanol',             'C2H6O', '64-17-5',    46.0684,  514.710,   6268.00, 0.6460,   0.24699,  168.634,  351.570,  1.69,  'thermo/DIPPR', 'M12.1: ethanol-water azeotrope'),
+    ('acetone',             'C3H6O', '67-64-1',    58.0791,  508.100,   4692.40, 0.3071,   0.23633,  212.766,  329.225,  2.88,  'thermo/DIPPR', 'M12.1: acetone-chloroform / acetone-methanol'),
+    ('chloroform',          'CHCl3', '67-66-3',   119.3776,  536.200,   5330.00, 0.2160,   0.29100,  244.000,  334.350,  1.04,  'thermo/DIPPR', 'M12.1: acetone-chloroform max-boiling azeotrope'),
+    ('isobutane',           'C4H10', '75-28-5',    58.1222,  407.810,   3629.00, 0.1840,   0.27586,  257.748,  261.401,  0.13,  'thermo/DIPPR', 'M12.1: debutanizer / depropanizer columns'),
+    ('isopentane',          'C5H12', '78-78-4',    72.1488,  460.350,   3378.00, 0.2274,   0.26981,  305.717,  300.976,  0.11,  'thermo/DIPPR', 'M12.1: debutanizer / depropanizer columns'),
+    ('n-octane',            'C8H18', '111-65-9',  114.2285,  568.740,   2483.59, 0.3980,   0.25860,  492.368,  398.794,  0.0,   'thermo/DIPPR', 'M12.1: wide-boiling absorber / naphtha cases'),
+    ('n-nonane',            'C9H20', '111-84-2',  128.2551,  594.550,   2281.00, 0.4433,   0.25493,  552.486,  423.913,  0.0,   'thermo/DIPPR', 'M12.1: wide-boiling absorber / naphtha cases'),
+    ('n-decane',            'C10H22','124-18-5',  142.2817,  617.700,   2103.00, 0.4884,   0.24968,  609.756,  447.270,  0.0,   'thermo/DIPPR', 'M12.1: absorber oil');
+
+-- ============================================================================
 -- ACTIVITY MODEL PARAMETERS (from Chapter IV tables)
 -- ============================================================================
 

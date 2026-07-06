@@ -310,14 +310,15 @@ releases**: v0.8.2 (M12.1 — data-only fast-track that unblocks the downstream
 McCabe–Thiele milestone) and v0.9.0 (M12.2–12.5 — Rust DB + the derivative
 core). Execution order 12.1 → 12.5; 12.4 depends on 12.3.
 
-### Milestone 12.1 — Component DB Expansion + Cp Coefficients (→ v0.8.2)
+### Milestone 12.1 — Component DB Expansion + Cp Coefficients (→ v0.8.2) — **done**
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
-- [ ] Add 9 compounds to the bundled DB (toluene, ethanol, acetone, chloroform, isobutane, isopentane, n-octane, n-nonane, n-decane) via `scripts/build_components_json.py` — 15 → 24 compounds
-- [ ] Add `cp_coeffs` (Cp°/R polynomial), `cp_t_range`, `cp_source` to the JSON schema for **all 24** compounds (engine convention: `Cp°(T) = R·Σ aₖ·Tᵏ`, R = 8.31451)
-- [ ] Thread `cp_coeffs` Python → engine: `vle.components.Component` dataclass + `vle.System` → `_engine.System(cp_coeffs=...)` (fixes the silent-zero ideal-Cp bug for DB-built systems)
-- [ ] Extend the `vle-db` static SQLite seed to the same 24 compounds
-- [ ] Tests: `psat(tb) ≈ 101.325 kPa` per compound; pinned literature Cp°(298.15 K) per compound (±1%); benzene–toluene bubble-T smoke; nonzero-ideal-Cp regression test
-- [ ] Docs (parameter reference, READMEs) + bump + tag **v0.8.2**
+- [x] Add 9 compounds to the bundled DB (toluene, ethanol, acetone, chloroform, isobutane, isopentane, n-octane, n-nonane, n-decane) via `scripts/build_components_json.py` — 15 → 24 compounds
+- [x] Add `cp_coeffs` (Cp°/R polynomial), `cp_t_range`, `cp_source` to the JSON schema for **all 24** compounds (engine convention: `Cp°(T) = R·Σ aₖ·Tᵏ`, R = 8.31451; degree-4 fits of Poling POLING_POLY (30) via CalebBell/chemicals, machine-exact)
+- [x] Thread `cp_coeffs` Python → engine: `vle.components.Component` dataclass + `vle.System` → `_engine.System(cp_coeffs=...)` (fixes the silent-zero ideal-Cp bug for DB-built systems)
+- [x] Extend the `vle-db` static SQLite seed to the same 24 compounds (`seed_chapter4.sql`)
+- [x] Tests (`python/tests/test_components_cp.py`): `psat(tb) ≈ 101.325 kPa` per compound (1% new / 5% legacy); pinned literature Cp°(298.15 K) per compound (±1%); benzene–toluene bubble-T smoke; nonzero-ideal-Cp regression test — full suite 413 passed, 1 skipped
+- [x] Docs (parameter reference Cp°/R section, README/SETUP/package-README compound counts) + bump to **0.8.2** (tag pending YubiKey release)
 
 ### Milestone 12.2 — Rust-Side Component Database
 

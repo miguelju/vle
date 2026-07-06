@@ -236,6 +236,12 @@ class System:
             aij=self._square_matrix(aij, n, "aij"),
             vl=[c.liquid_volume for c in comps],
             psat_coeffs=[list(c.psat_coeffs) for c in comps],
+            # Ideal-gas Cp°/R polynomial (M12.1). Threading this fixes the
+            # silent-zero ideal-Cp defect: without it, every enthalpy/entropy
+            # of a DB-built system dropped the (usually dominant) ideal-gas
+            # contribution. Empty rows (Components without Cp data) are left
+            # for the engine to treat as zero.
+            cp_coeffs=[list(c.cp_coeffs) for c in comps],
             tbs=[c.tb for c in comps],
             names=[c.name for c in comps],
             ge_model=act,

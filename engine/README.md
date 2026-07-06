@@ -17,7 +17,7 @@ A modern Rust port of two legacy thermodynamic codebases (VB6 ~15,000 lines + Pa
 
 ## Status
 
-`0.8.1` — pre-1.0, but the numerical core is live. The Cardano solver,
+`0.8.2` — pre-1.0, but the numerical core is live. The Cardano solver,
 Newton-Raphson / Broyden drivers, Rachford-Rice, the flash algorithms
 (isothermal, bubble/dew *T* and *P*, adiabatic *PH*), the mixture critical
 point, and kij/Aij regression all run. Semver promises do **not** apply until
