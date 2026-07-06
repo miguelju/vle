@@ -1,13 +1,21 @@
 #!/usr/bin/env python
-"""Generate the bundled JSON component database (Milestone 10; extended M12.1).
+"""Generate the bundled JSON component database (Milestone 10; extended M12.1,
+M12.2).
 
-Writes the SAME content to two places (single source of truth = this script):
+Writes the SAME content to THREE places (single source of truth = this script):
 
+- ``engine/data/components.json``         — the canonical copy embedded into
+  the Rust crate via ``include_str!`` (M12.2, ``engine/src/db.rs``). It lives
+  inside the crate directory so ``cargo package`` ships it to crates.io.
 - ``python/src/vle/data/components.json`` — shipped inside the wheel, loaded
   by :mod:`vle.components` via ``importlib.resources``.
 - ``notebooks/data/components.json``      — the copy the notebooks read, so a
   notebook works even without the package data (e.g. on a hub that mounts
   only the notebooks directory).
+
+The engine and wheel copies are asserted byte-identical by
+``python/tests/test_rust_db.py`` (a cheap drift guard), so they must never be
+hand-edited — only regenerated from this script.
 
 Run from the repo root with the ``vle`` conda env::
 
@@ -259,7 +267,11 @@ def build() -> dict:
 
 def main() -> None:
     db = build()
-    for rel in ("python/src/vle/data/components.json", "notebooks/data/components.json"):
+    for rel in (
+        "engine/data/components.json",
+        "python/src/vle/data/components.json",
+        "notebooks/data/components.json",
+    ):
         path = REPO / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(db, indent=2) + "\n")

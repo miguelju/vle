@@ -1855,6 +1855,62 @@ fn trace_envelope_py(
     Ok(pts.into_iter().map(|p| (p.t, p.p)).collect())
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// M12.2 — Rust-side component database bindings (gap G3).
+//
+// These expose `vle_thermo::db::{component, available}` so the Rust DB is
+// testable through the wheel (the M5+ same-commit binding rule). The wheel's
+// *primary* component loader stays the pure-Python `vle.components` — no churn
+// there — so these exist for parity testing and for callers that want the
+// crate's own catalog. Gated on `component-db`, which the `python` feature
+// turns on transitively (see engine/Cargo.toml).
+//
+// A looked-up component is returned as a plain `dict` (rather than a bespoke
+// pyclass): it carries every field the JSON supplies, reads naturally on the
+// Python side (`db_component("toluene")["tc"]`), and keeps the FFI surface
+// minimal — the same "no `Component` pyclass" convention as the M7 scalar
+// bindings above.
+// ──────────────────────────────────────────────────────────────────────
+
+/// Look up a bundled component by name (case-insensitive), or `None` if unknown.
+///
+/// Returns a dict of canonical-unit properties: `name`, `tc`/`tb` in **K**,
+/// `pc` in **kPa** (absolute), `vc`/`liquid_volume` in **cm³/mol**, `mw` in
+/// **g/mol**, `omega`/`zc` dimensionless, `psat_coeffs` the reduced-Antoine
+/// coefficient list `ln(Psat/Pc) = a₁ − a₂/(a₃ + T)` (T in **K**), and
+/// `cp_coeffs` the dimensionless ideal-gas Cp°/R polynomial `Σₖ aₖ·Tᵏ`
+/// (T in **K**). Name normalization matches `vle.components.get`.
+#[cfg(feature = "component-db")]
+#[pyfunction]
+fn db_component<'py>(
+    py: Python<'py>,
+    name: &str,
+) -> PyResult<Option<Bound<'py, pyo3::types::PyDict>>> {
+    let Some(c) = crate::db::component(name) else {
+        return Ok(None);
+    };
+    let d = pyo3::types::PyDict::new_bound(py);
+    d.set_item("name", c.name)?;
+    d.set_item("tc", c.tc)?;
+    d.set_item("pc", c.pc)?;
+    d.set_item("vc", c.vc)?;
+    d.set_item("zc", c.zc)?;
+    d.set_item("omega", c.omega)?;
+    d.set_item("tb", c.tb)?;
+    d.set_item("mw", c.mw)?;
+    d.set_item("cp_coeffs", c.cp_coeffs.to_vec())?;
+    d.set_item("psat_coeffs", c.psat_coeffs)?;
+    d.set_item("liquid_volume", c.liquid_volume)?;
+    Ok(Some(d))
+}
+
+/// Names of all bundled components, sorted. Mirrors `vle.components.available()`.
+#[cfg(feature = "component-db")]
+#[pyfunction]
+fn db_available() -> Vec<String> {
+    crate::db::available()
+}
+
 /// PyO3 module entry point.
 ///
 /// Maturin builds this into `vle/_engine.<platform>.<ext>` and Python
@@ -1966,6 +2022,15 @@ fn _engine(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // M10 — the persistent System handle + batch numpy API (Track D).
     m.add_class::<crate::py_system::System>()?;
+
+    // M12.2 — Rust-side component database lookups (gap G3). Guarded on the
+    // feature the `python` feature turns on, so a hypothetical wheel built
+    // without it still compiles.
+    #[cfg(feature = "component-db")]
+    {
+        m.add_function(wrap_pyfunction!(db_component, m)?)?;
+        m.add_function(wrap_pyfunction!(db_available, m)?)?;
+    }
 
     Ok(())
 }

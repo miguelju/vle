@@ -183,6 +183,7 @@ vle/
 │   └── data/                # Pre-computed 3-D surface datasets (CSV, committed)
 ├── units/                   # Independent units crate (dimensional analysis, gauge pressure, custom units)
 ├── engine/                  # Rust computation engine (complete: 22+ EOS, mixture core, flash suite, PyO3 bindings)
+│   └── data/                # Canonical components.json — bundled Rust DB via the `component-db` feature (M12.2)
 ├── docs/
 │   ├── en/research-paper/   # English translation (navigatable)
 │   ├── en/units/            # Units add-on design document
@@ -246,7 +247,7 @@ Each milestone records which AI model was used (e.g., `Claude Opus 4.6 (1M conte
 
 ## Getting Started
 
-**Status**: Milestones 0–11 are **complete**. The full engine (22+ EOS, mixing rules with exact derivatives, energy properties, and the modern flash/regression suite), the high-level `vle.System` Python API with a parallel batch numpy layer, and 15 notebooks — all validated against the thesis's Chapter IV tables. Released as **v0.8.1** on PyPI + crates.io. **Milestone 12.1** (→ **v0.8.2**) is done: the bundled component database grew to **24 compounds** and now ships ideal-gas Cp°/R coefficients threaded through to the engine. Next: Milestones 12.2–12.5 — the downstream derivative release (Rust-side DB, T/P derivatives of fugacity/K-values, real-mixture Cp, γ-φ enthalpy → v0.9.0), planned in [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md). Per-milestone detail: [ROADMAP.md](ROADMAP.md).
+**Status**: Milestones 0–11 are **complete**. The full engine (22+ EOS, mixing rules with exact derivatives, energy properties, and the modern flash/regression suite), the high-level `vle.System` Python API with a parallel batch numpy layer, and 15 notebooks — all validated against the thesis's Chapter IV tables. Released as **v0.8.1** on PyPI + crates.io. **Milestone 12.1** (→ **v0.8.2**) is done: the bundled component database grew to **24 compounds** and now ships ideal-gas Cp°/R coefficients threaded through to the engine. **Milestone 12.2** is done: a Rust-side component database (`vle_thermo::db`, behind the optional `component-db` feature) now lets crate consumers look components up by name instead of hand-building `Component` structs. Next: Milestones 12.3–12.5 — the rest of the downstream derivative release (T/P derivatives of fugacity/K-values, real-mixture Cp, γ-φ enthalpy → v0.9.0), planned in [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md). Per-milestone detail: [ROADMAP.md](ROADMAP.md).
 
 ### Prerequisites
 - Python 3.10+

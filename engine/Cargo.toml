@@ -22,6 +22,12 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 nalgebra = "0.33"
+# Component database parsing (M12.2, gap G3). Both crates are OPTIONAL and
+# pulled in only by the `component-db` feature, so the default pure-Rust
+# crate stays serde-free. `serde` derives `Deserialize` on the JSON DTO in
+# `db.rs`; `serde_json` parses the `include_str!`-embedded catalog once.
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
 # Dual-number automatic differentiation (M8.3, PERFORMANCE_PROPOSAL §B3):
 # the mixture fugacity path is written generic over `DualNum<f64>`, so the
 # exotic GE-based mixing rules (Wong-Sandler, MHV1/2) get exact-to-machine-
@@ -74,7 +80,15 @@ harness = false
 
 [features]
 default = []
+# Bundled Rust-side component database (M12.2, gap G3). Off by default so the
+# core crate keeps zero new mandatory dependencies; downstream Rust consumers
+# opt in with `cargo add vle-thermo --features component-db` to get
+# `vle_thermo::db::component(name)` / `available()`. Pulls only serde +
+# serde_json (both optional deps above).
+component-db = ["dep:serde", "dep:serde_json"]
 # Gate all PyO3 bindings behind this feature so `cargo add vle-thermo` pulls a
 # pure-Rust crate without dragging in Python. Maturin enables it automatically
-# from python/pyproject.toml when building the wheel.
-python = ["dep:pyo3", "dep:numpy", "dep:rayon"]
+# from python/pyproject.toml when building the wheel. It also turns on
+# `component-db` so the wheel can expose the Rust DB lookups (`db_component`,
+# `db_available`) for testing the crate through Python.
+python = ["dep:pyo3", "dep:numpy", "dep:rayon", "component-db"]

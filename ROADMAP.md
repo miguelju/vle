@@ -320,12 +320,13 @@ core). Execution order 12.1 → 12.5; 12.4 depends on 12.3.
 - [x] Tests (`python/tests/test_components_cp.py`): `psat(tb) ≈ 101.325 kPa` per compound (1% new / 5% legacy); pinned literature Cp°(298.15 K) per compound (±1%); benzene–toluene bubble-T smoke; nonzero-ideal-Cp regression test — full suite 413 passed, 1 skipped
 - [x] Docs (parameter reference Cp°/R section, README/SETUP/package-README compound counts) + bump to **0.8.2** (tag pending YubiKey release)
 
-### Milestone 12.2 — Rust-Side Component Database
+### Milestone 12.2 — Rust-Side Component Database — **done**
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
-- [ ] `engine/data/components.json` becomes the canonical generated copy (`include_str!`), script emits all three copies; byte-identical drift test
-- [ ] `engine/src/db.rs` behind a new `component-db` feature (optional serde/serde_json; `python` feature enables it): `component(name) -> Option<Component>`, `available()`, OnceLock-cached, name normalization matching `vle.components`
-- [ ] PyO3 bindings (`db_component`, `db_available`) + wheel tests (M5+ rule)
-- [ ] Rust tests: lookup/alias/case, all 24 parse, spot-checks vs JSON literals
+- [x] `engine/data/components.json` becomes the canonical generated copy (`include_str!`), script emits all three copies; byte-identical drift test (`python/tests/test_rust_db.py`)
+- [x] `engine/src/db.rs` behind a new `component-db` feature (optional serde/serde_json; `python` feature enables it): `component(name) -> Option<Component>`, `available()`, OnceLock-cached, name normalization matching `vle.components` (trim + lowercase, no invented aliases); JSON-absent fields documented as `Component::default()`
+- [x] PyO3 bindings (`db_component` → canonical-unit dict, `db_available`) + wheel tests (M5+ rule)
+- [x] Rust tests: lookup hit/miss/case+whitespace, all 24 parse, spot-checks of benzene (legacy) & toluene (new) vs JSON literals — 170 engine tests pass; full pytest 418 passed / 1 skipped
 
 ### Milestone 12.3 — T/P Derivatives of Fugacity & K-Values
 

@@ -291,7 +291,8 @@ Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone i
 Closes the five upstream gaps identified by `stages-thermo` (planned first
 downstream consumer). Full technical spec: [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md).
 Two releases: **v0.8.2** (12.1 fast-track) then **v0.9.0** (12.2–12.5).
-Total ~25–38h. M12.1 **done** 2026-07-05 (Claude Opus 4.8); 12.2–12.5 not started.
+Total ~25–38h. M12.1 **done** 2026-07-05, M12.2 **done** 2026-07-06 (both Claude
+Opus 4.8); 12.3–12.5 not started.
 
 ### Milestone 12.1 — Component DB Expansion + Cp Coefficients (→ v0.8.2, ~4–6h) — **Done**
 *Executed by Claude Code using Claude Opus 4.8 (1M context)*
@@ -302,11 +303,12 @@ Total ~25–38h. M12.1 **done** 2026-07-05 (Claude Opus 4.8); 12.2–12.5 not st
 - [x] **Tests** (`python/tests/test_components_cp.py`) — per-compound `psat(tb)` round-trip (1% new / 5% legacy) + pinned Cp°(298.15 K) literature values (±1%); benzene–toluene bubble-T smoke (355–370 K); nonzero-ideal-Cp regression on `enthalpy_entropy`; `test_db` count 15→24
 - [x] **Docs + version** — parameter reference Cp°/R section, README/SETUP/package-README compound counts; bumped to **0.8.2** (tag pending YubiKey release)
 
-### Milestone 12.2 — Rust-Side Component Database (~4–6h)
+### Milestone 12.2 — Rust-Side Component Database (~4–6h) — **Done**
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
-- [ ] **Canonical engine copy** (~0.5h) — `engine/data/components.json` via `include_str!`; generator script emits all three copies; pytest drift guard (engine copy ≡ wheel copy)
-- [ ] **`engine/src/db.rs`** (~2–3h) — new `component-db` cargo feature (optional `serde`/`serde_json`, default off, enabled by `python`); `component(name)` / `available()` over a `OnceLock<HashMap>`; name normalization mirrors `vle.components.get`; JSON → `Component` fills `cp_coeffs`, `psat_coeffs`, `sat_model=Antoine`, documents defaulted fields
-- [ ] **PyO3 bindings + tests** (~1h) — `db_component`, `db_available` (M5+ rule) + wheel test; Rust tests: alias/case/miss, all 24 parse, spot-checks
+- [x] **Canonical engine copy** — `engine/data/components.json` via `include_str!`; `scripts/build_components_json.py` emits all three copies; pytest drift guard (`test_rust_db.py`, engine copy ≡ wheel copy, byte-identical)
+- [x] **`engine/src/db.rs`** — new `component-db` cargo feature (optional `serde`/`serde_json`, default off, enabled by `python`); `component(name)` / `available()` over a `OnceLock<HashMap>`; name normalization mirrors `vle.components.get` (trim + lowercase); JSON → `Component` fills `cp_coeffs`, `psat_coeffs`, `sat_model=Antoine`, documents the polar/PRSV fields left at `Component::default()`
+- [x] **PyO3 bindings + tests** — `db_component` (canonical-unit dict), `db_available` (M5+ rule) + wheel tests; Rust tests: case/whitespace/miss, all 24 parse, benzene+toluene spot-checks — 170 engine tests, 418 pytest pass
 
 ### Milestone 12.3 — T/P Derivatives of Fugacity & K-Values (~8–12h)
 
@@ -346,7 +348,7 @@ Total ~25–38h. M12.1 **done** 2026-07-05 (Claude Opus 4.8); 12.2–12.5 not st
 | 9. Flash & Regression | ~44–62h | **Done** (all algorithms + bindings + tests + Ch. IV validation + notebooks 04–09; shipped in v0.8.0) |
 | 10. Python Bindings, Wrapper & Batch API | ~25–36h | **Done** (System wrapper + batch API + component DB + plots + tests + intro notebook; external thermo/CoolProp bench deferred; shipped in v0.8.0) |
 | 11. Chapter IV Walkthrough | ~5–8h | **Done** (walkthrough notebook 10 + all 15 notebooks re-verified + catalogue complete; shipped in v0.8.0) |
-| 12. Downstream Derivative & Database Release | ~25–38h | **In progress** — M12.1 done (v0.8.2: 24-compound DB + Cp); M12.2–12.5 pending (v0.9.0) |
+| 12. Downstream Derivative & Database Release | ~25–38h | **In progress** — M12.1 done (v0.8.2: 24-compound DB + Cp), M12.2 done (Rust-side `component-db` DB); M12.3–12.5 pending (v0.9.0) |
 | **Total** | **~262–364h** | |
 
 Each active milestone's total now includes: milestone notebook (~2–4h) + notebook-catalogue update (~0.3h). Deploying to the hosted hub is a separate operator-side step in a private operator repository, not counted here.

@@ -81,6 +81,13 @@
 //    Python bindings or other Rust crates) can access it. Without `pub`,
 //    the module would only be usable within this crate.
 pub mod activity;
+// Bundled Rust-side component database (M12.2, gap G3). Feature-gated behind
+// `component-db` so the default crate pulls no serde: `cargo add vle-thermo`
+// stays dependency-lean, and a consumer opts in with `--features component-db`
+// to get `vle_thermo::db::component(name)` / `available()`. The `python`
+// feature turns it on transitively (see Cargo.toml) so the wheel can expose it.
+#[cfg(feature = "component-db")]
+pub mod db;
 pub mod energy;
 pub mod eos;
 pub mod flash;
