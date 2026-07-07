@@ -17,14 +17,17 @@ A modern Rust port of two legacy thermodynamic codebases (VB6 ~15,000 lines + Pa
 
 ## Status
 
-`0.9.0` — pre-1.0, but the numerical core is live. The Cardano solver,
+`0.9.1` — pre-1.0, but the numerical core is live. The Cardano solver,
 Newton-Raphson / Broyden drivers, Rachford-Rice, the flash algorithms
 (isothermal, bubble/dew *T* and *P*, adiabatic *PH*), the mixture critical
-point, and kij/Aij regression all run. `0.9.0` adds **exact temperature /
+point, and kij/Aij regression all run. `0.9.1` fixes a ~1% Wong-Sandler
+departure-enthalpy inconsistency (`energy::h_departure_rt_mix` dropped the
+T-dependence of the WS co-volume; the Gibbs–Helmholtz identity now holds to
+machine precision for every mixing rule). `0.9.0` added **exact temperature /
 pressure derivatives** of fugacity and K-values (`mixture::d_ln_phi_d_t` /
 `d_ln_phi_d_p`, `flash::k_values_with_derivs`, dual-number AD), **real-mixture
 `energy::phase_cp`** and **`partial_molar_enthalpy`**, and an optional
-bundled component database (the `component-db` feature — see below). It carries
+bundled component database (the `component-db` feature — see below), with
 one deliberate breaking change: the T/P-generic core signatures
 (`mixture::mixture_params` and friends now take `t: D, p: D`). Semver promises
 do **not** apply until 1.0; treat `0.x` as a pre-release.
