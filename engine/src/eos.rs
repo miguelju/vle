@@ -185,6 +185,7 @@ pub enum PhaseId {
 
 use crate::numerics::cubic::{CubicError, solve_real};
 use crate::types::Component;
+use num_dual::DualNum;
 use thiserror::Error;
 
 /// Errors raised by the cubic-EOS pure-component layer.
@@ -621,6 +622,165 @@ pub fn alpha(eos: CubicEos, tr: f64, comp: &Component) -> f64 {
             let s = 1.0 - tr.sqrt();
             (1.0 + f * s).powi(2)
         }
+    }
+}
+
+/// Schmidt-Wenzel `m(ω, Tr)` generic over the scalar type (M12.3).
+///
+/// Same piecewise form as [`sw_m`] but evaluated with a `DualNum` `tr`, so
+/// duals seeded on temperature propagate through the Schmidt-Wenzel α. Branch
+/// selection uses `tr.re()` (the value path), matching [`sw_m`]; each piece is
+/// smooth in its interior.
+fn sw_m_generic<D: DualNum<f64> + Copy>(w: f64, tr: D) -> D {
+    let m0 = sw_m0(w);
+    if tr.re() <= 1.0 {
+        // g = 5·Tr − 3·m0 − 1; m = m0 + g²/70.
+        let g = tr * 5.0 - (3.0 * m0 + 1.0);
+        g * g * (1.0 / 70.0) + m0
+    } else {
+        // Tr > 1: g is constant, so m is a constant in Tr (zero slope).
+        let g = 4.0 - 3.0 * m0;
+        D::from(m0 + g * g / 70.0)
+    }
+}
+
+/// α(Tr) generic over the scalar type `D: DualNum<f64>` (M12.3).
+///
+/// This is the temperature-generic sibling of [`alpha`]: with `D = f64` it
+/// reproduces `alpha` (to floating-point rounding — one variant, VdWAda1984, is
+/// re-expressed as `exp(y·ln 10)` instead of `10^y`, differing only in the last
+/// ULP), and with a dual type it carries exact dα/dT along, which is what the
+/// T- and P-derivative dual paths (`mixture::d_ln_phi_d_t` / `_d_p`, M12.3) rely
+/// on. `tr` is the reduced temperature T/Tc (**dimensionless**); the return is
+/// α, **dimensionless**.
+///
+/// # Coverage
+/// Every variant except the OL family is genuinely generic (pure `DualNum`
+/// arithmetic). The saturation-coupled OL family (VdWOL1998/RKOL1998/PROL1998)
+/// is **value-lifted** from the scalar [`alpha`] with a zero derivative slot —
+/// its α depends on the reduced saturation pressure through the saturation
+/// layer, which is not part of this generic path. OL is out of scope for the
+/// derivative APIs (they gate on classical/2-parameter or dual over the
+/// GE-cubic path), so this is a deliberate, documented limitation, not a
+/// silent one; do not route OL through a T-derivative and trust the slope.
+pub fn alpha_generic<D: DualNum<f64> + Copy>(eos: CubicEos, tr: D, comp: &Component) -> D {
+    use CubicEos::*;
+    let w = comp.omega;
+    // Soave-shaped α = [1 + m·(1 − √Tr)]² helper (RKS/PR/Graboski/Lim/...).
+    let soave = |m: f64| -> D {
+        let s = -tr.sqrt() + 1.0; // 1 − √Tr
+        (s * m + 1.0).powi(2)
+    };
+    match eos {
+        VdW1870 => D::from(1.0),
+        RK1949 => tr.sqrt().recip(),
+        RKS1972 => soave(0.48 + 1.574 * w - 0.176 * w * w),
+        PR1976 => soave(0.37464 + 1.54226 * w - 0.26992 * w * w),
+        Berth1899 => tr.recip(),
+        VdWAda1984 => {
+            // α = 10^(m·(1 − Tr)) = exp(ln(10)·m·(1 − Tr)).
+            let m = 0.228165 + 1.446486 * w - 0.648552 * w * w;
+            ((-tr + 1.0) * (m * std::f64::consts::LN_10)).exp()
+        }
+        RKSGD1978 => soave(0.48508 + 1.55171 * w - 0.15613 * w * w),
+        RKSL1997 => {
+            soave(0.478972559 + 1.576809191 * w - 0.187219516 * w * w + 0.020424946 * w * w * w)
+        }
+        RP1978 => soave(0.379642 + 1.48503 * w - 0.164423 * w * w + 0.016666 * w * w * w),
+        PRL1997 => {
+            soave(0.378710697 + 1.487972964 * w - 0.166754831 * w * w + 0.017169486 * w * w * w)
+        }
+        VdWVald1989 => {
+            // α = 1 + (1 − Tr)·(m + n/Tr).
+            let omegac = w * comp.zc;
+            let m = 0.4745 + (2.7349 + 6.0984 * omegac) * omegac;
+            let n = 0.0674 + (2.1031 + 3.9512 * omegac) * omegac;
+            (-tr + 1.0) * (tr.recip() * n + m) + 1.0
+        }
+        RKSmn1980 => {
+            let (m, n) = (comp.m_polar, comp.n_polar);
+            (-tr + 1.0) * (tr.recip() * n + m) + 1.0
+        }
+        RKSATmn1995 | PRATmng1997 => {
+            // α = exp[(1 − Tr)·m·|1 − Tr|^(g−1) + n·(1/Tr − 1)].
+            let (m, n, g) = (comp.m_polar, comp.n_polar, comp.g_polar);
+            let u = -tr + 1.0;
+            (u * m * u.abs().powf(g - 1.0) + (tr.recip() - 1.0) * n).exp()
+        }
+        PRMmn1989 => {
+            // α = exp[(1 − Tr)·m + n·(1 − √Tr)²].
+            let (m, n) = (comp.m_polar, comp.n_polar);
+            let s = -tr.sqrt() + 1.0;
+            ((-tr + 1.0) * m + s * s * n).exp()
+        }
+        PRSV1986 => {
+            // α = [1 + κ·(1 − √Tr)]², κ = κ₀(ω) + K₁·(1 + √Tr)·(0.7 − Tr).
+            let r = tr.sqrt();
+            let kappa0 = 0.378893 + 1.4897153 * w - 0.17131848 * w * w + 0.0196554 * w * w * w;
+            let kappa = (r + 1.0) * (-tr + 0.7) * comp.prsv_k1 + kappa0;
+            let inner = kappa * (-r + 1.0) + 1.0;
+            inner * inner
+        }
+        VdWOL1998 | RKOL1998 | PROL1998 => {
+            // Saturation-coupled: value-lifted from the scalar path (see the
+            // doc comment). Correct value, zero derivative slot.
+            D::from(alpha(eos, tr.re(), comp))
+        }
+        SchmidtWenzel => {
+            let s = -tr.sqrt() + 1.0;
+            let m = sw_m_generic(w, tr);
+            (m * s + 1.0).powi(2)
+        }
+        PatelTeja | PatelTejaUSB => soave(pt_f(w)),
+    }
+}
+
+/// Dimensionless `(A, B, U, W)` for one component, generic in T and P (M12.3).
+///
+/// The temperature-generic sibling of the `(big_a, big_b, u, w)` computation
+/// inside [`EosState::new`]. With `D = f64` it reproduces those fields; with a
+/// dual type it carries exact ∂/∂T and/or ∂/∂P along (whichever slot the caller
+/// seeded), which is what feeds the mixture T/P-derivative dual paths.
+///
+/// * `t` — temperature in **K**; `p` — pressure in **kPa absolute**.
+///
+/// Returns `(A, B, U, W)`, all **dimensionless**.
+pub fn eos_dimensionless_generic<D: DualNum<f64> + Copy>(
+    eos: CubicEos,
+    t: D,
+    p: D,
+    comp: &Component,
+) -> (D, D, D, D) {
+    let tr = t / comp.tc;
+    let pr = p / comp.pc;
+    let a_val = alpha_generic(eos, tr, comp);
+    if eos.is_three_parameter() {
+        use CubicEos::*;
+        let w = comp.omega;
+        match eos {
+            PatelTeja | PatelTejaUSB => {
+                let big_a = a_val * (pt_om_a(w)) * pr / (tr * tr);
+                let big_b = pr * pt_om_b(w) / tr;
+                let big_c = pr * (1.0 - 3.0 * pt_xi_c(w)) / tr;
+                (big_a, big_b, big_b + big_c, -(big_b * big_c))
+            }
+            SchmidtWenzel => {
+                let big_a = a_val * sw_om_a(w) * pr / (tr * tr);
+                let big_b = pr * sw_om_b(w) / tr;
+                (
+                    big_a,
+                    big_b,
+                    big_b * (1.0 + 3.0 * w),
+                    big_b * big_b * (-3.0 * w),
+                )
+            }
+            _ => unreachable!("is_three_parameter but not PT/SW"),
+        }
+    } else {
+        let fc = family_constants(eos);
+        let big_a = a_val * fc.om_a * pr / (tr * tr);
+        let big_b = pr * fc.om_b / tr;
+        (big_a, big_b, big_b * fc.k1, big_b * big_b * fc.k2)
     }
 }
 
@@ -1791,6 +1951,88 @@ mod tests {
             assert!(z > 0.0 && z < 1.2, "{:?}: Z={} out of range", eos, z);
             let ln_phi = ln_phi_pure(eos, 500.0, 2000.0, &c, PhaseId::Vapor).unwrap();
             assert!(ln_phi.is_finite(), "{:?}: ln(φ)={} not finite", eos, ln_phi);
+        }
+    }
+
+    // ── M12.3: the generic α / dimensionless-param path must match scalar ──
+
+    /// Every non-OL EOS variant, paired with a component that carries the
+    /// parameters it reads. OL is excluded (value-lifted, tested separately).
+    fn non_ol_variants_with_comp() -> Vec<(CubicEos, Component)> {
+        let mut v: Vec<(CubicEos, Component)> = vec![
+            (CubicEos::VdW1870, n_pentane()),
+            (CubicEos::RK1949, n_pentane()),
+            (CubicEos::RKS1972, n_pentane()),
+            (CubicEos::PR1976, n_pentane()),
+            (CubicEos::SchmidtWenzel, n_pentane()),
+            (CubicEos::PatelTeja, n_pentane()),
+            (CubicEos::PatelTejaUSB, n_pentane()),
+        ];
+        for eos in M72_VARIANTS {
+            v.push((eos, polar_component()));
+        }
+        v
+    }
+
+    #[test]
+    fn alpha_generic_f64_matches_scalar_alpha() {
+        // alpha_generic::<f64> must reproduce the scalar `alpha` across every
+        // variant and a Tr sweep spanning sub- and supercritical (the
+        // Schmidt-Wenzel piecewise breakpoint at Tr = 1 included). VdWAda1984
+        // is re-expressed exp(y·ln10) vs 10^y, so allow a tiny rel tolerance.
+        for (eos, c) in non_ol_variants_with_comp() {
+            for &tr in &[0.5, 0.7, 0.95, 1.0, 1.05, 1.5, 2.0] {
+                let scalar = alpha(eos, tr, &c);
+                let generic = alpha_generic::<f64>(eos, tr, &c);
+                let tol = 1e-12 * scalar.abs().max(1.0);
+                assert!(
+                    (scalar - generic).abs() <= tol,
+                    "{eos:?} Tr={tr}: scalar={scalar} generic={generic}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn alpha_generic_dual_matches_analytic_d_alpha() {
+        // The whole point of the generic path: a first-order dual seeded on Tr
+        // must reproduce the hand-analytic d_alpha_d_tr. This is the α-side
+        // guarantee underpinning the T-derivative dual sweeps.
+        use num_dual::Dual64;
+        for (eos, c) in non_ol_variants_with_comp() {
+            for &tr in &[0.6, 0.85, 1.2, 1.8] {
+                let d = alpha_generic(eos, Dual64::new(tr, 1.0), &c);
+                let analytic = d_alpha_d_tr(eos, tr, &c);
+                let tol = 1e-9 * analytic.abs().max(1.0);
+                assert!(
+                    (d.eps - analytic).abs() <= tol,
+                    "{eos:?} Tr={tr}: dual dα/dTr={} analytic={analytic}",
+                    d.eps
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn eos_dimensionless_generic_f64_matches_eos_state() {
+        // (A, B, U, W) from the generic path must equal the EosState fields
+        // for every variant, so the mixture T/P-derivative path is anchored to
+        // the same numbers the scalar engine uses.
+        let (t, p) = (360.0, 2500.0);
+        for (eos, c) in non_ol_variants_with_comp() {
+            let st = EosState::new(eos, t, p, &c);
+            let (a, b, u, w) = eos_dimensionless_generic::<f64>(eos, t, p, &c);
+            let tol = 1e-10;
+            assert!(
+                (a - st.big_a).abs() <= tol * st.big_a.abs().max(1.0),
+                "{eos:?} A"
+            );
+            assert!(
+                (b - st.big_b).abs() <= tol * st.big_b.abs().max(1.0),
+                "{eos:?} B"
+            );
+            assert!((u - st.u).abs() <= tol * st.u.abs().max(1.0), "{eos:?} U");
+            assert!((w - st.w).abs() <= tol * st.w.abs().max(1.0), "{eos:?} W");
         }
     }
 }

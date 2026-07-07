@@ -601,14 +601,51 @@ impl System {
         ln_phi_mix(&self.mixture_spec(eos), t, p, &x, ph).map_err(mix_err)
     }
 
-    /// Total molar enthalpy and entropy of one phase (ideal + residual +
-    /// excess) relative to the System's `(t_ref, p_ref)` ideal-gas
-    /// reference. Returns `(H [kJ/kmol], S [kJ/(kmol·K)])`.
-    fn enthalpy_entropy(&self, t: f64, p: f64, x: Vec<f64>, phase: &str) -> PyResult<(f64, f64)> {
+    /// ∂ln φ̂ᵢ/∂T of `phase` at `(t [K], p [kPa], x)`, in **1/K** (M12.3).
+    /// Exact (dual AD). Needs a cubic model on that phase.
+    fn d_ln_phi_d_t(&self, t: f64, p: f64, x: Vec<f64>, phase: &str) -> PyResult<Vec<f64>> {
         let ph = parse_phase(phase)?;
         let eos = self.phase_eos(ph)?;
-        crate::energy::phase_enthalpy_entropy(
-            &self.mixture_spec(eos),
+        crate::mixture::d_ln_phi_d_t(&self.mixture_spec(eos), t, p, &x, ph).map_err(mix_err)
+    }
+
+    /// ∂ln φ̂ᵢ/∂P of `phase` at `(t [K], p [kPa], x)`, in **1/kPa** (M12.3).
+    /// Exact (dual AD). Needs a cubic model on that phase.
+    fn d_ln_phi_d_p(&self, t: f64, p: f64, x: Vec<f64>, phase: &str) -> PyResult<Vec<f64>> {
+        let ph = parse_phase(phase)?;
+        let eos = self.phase_eos(ph)?;
+        crate::mixture::d_ln_phi_d_p(&self.mixture_spec(eos), t, p, &x, ph).map_err(mix_err)
+    }
+
+    /// K-values and their exact T/P derivatives at `(t [K], p [kPa])` given
+    /// trial phase compositions `x` (liquid) and `y` (vapor) (M12.3).
+    ///
+    /// Returns `(k, d_ln_k_d_t [1/K], d_ln_k_d_p [1/kPa])`. Dispatches on the
+    /// System's liquid/vapor model exactly like [`Self::k_values`].
+    fn k_values_with_derivs(
+        &self,
+        t: f64,
+        p: f64,
+        x: Vec<f64>,
+        y: Vec<f64>,
+    ) -> PyResult<(Vec<f64>, Vec<f64>, Vec<f64>)> {
+        let kv =
+            crate::flash::k_values_with_derivs(&self.spec(), t, p, &x, &y).map_err(flash_err)?;
+        Ok((kv.k, kv.d_ln_k_d_t, kv.d_ln_k_d_p))
+    }
+
+    /// Total molar enthalpy and entropy of one phase relative to the System's
+    /// `(t_ref, p_ref)` ideal-gas reference. Returns `(H [kJ/kmol],
+    /// S [kJ/(kmol·K)])`.
+    ///
+    /// Routed through the SystemSpec-level dispatch (M12.4): a **γ-φ** liquid
+    /// now returns the ideal − condensation + excess assembly instead of
+    /// erroring for lack of a cubic liquid EOS. φ-φ / vapor behavior is
+    /// unchanged.
+    fn enthalpy_entropy(&self, t: f64, p: f64, x: Vec<f64>, phase: &str) -> PyResult<(f64, f64)> {
+        let ph = parse_phase(phase)?;
+        crate::flash::phase_enthalpy_entropy(
+            &self.spec(),
             t,
             p,
             &x,
@@ -618,7 +655,40 @@ impl System {
             &[],
             &[],
         )
+        .map_err(flash_err)
+    }
+
+    /// Partial molar enthalpies H̄ᵢ of `phase` at `(t [K], p [kPa], x)`, in
+    /// **kJ/kmol** (M12.4). `H̄ᵢ = h°ᵢ(T) − R·T²·∂ln φ̂ᵢ/∂T`; Σxᵢ·H̄ᵢ = H.
+    /// Needs a cubic model on that phase.
+    fn partial_molar_enthalpy(
+        &self,
+        t: f64,
+        p: f64,
+        x: Vec<f64>,
+        phase: &str,
+    ) -> PyResult<Vec<f64>> {
+        let ph = parse_phase(phase)?;
+        let eos = self.phase_eos(ph)?;
+        crate::energy::partial_molar_enthalpy(
+            &self.mixture_spec(eos),
+            t,
+            p,
+            &x,
+            ph,
+            self.t_ref,
+            &[],
+        )
         .map_err(mix_err)
+    }
+
+    /// Real-mixture isobaric heat capacity Cp of `phase` at `(t [K], p [kPa],
+    /// x)`, in **kJ/(kmol·K)** (M12.4). `Cp = Σxᵢ·Cpᵢ°(T) + Cp^R`, the residual
+    /// via a second-order dual. Needs a cubic model on that phase.
+    fn phase_cp(&self, t: f64, p: f64, x: Vec<f64>, phase: &str) -> PyResult<f64> {
+        let ph = parse_phase(phase)?;
+        let eos = self.phase_eos(ph)?;
+        crate::energy::phase_cp(&self.mixture_spec(eos), t, p, &x, ph).map_err(mix_err)
     }
 
     // ── Batch numpy methods (Track D) ─────────────────────────────────

@@ -17,12 +17,17 @@ A modern Rust port of two legacy thermodynamic codebases (VB6 ~15,000 lines + Pa
 
 ## Status
 
-`0.8.2` — pre-1.0, but the numerical core is live. The Cardano solver,
+`0.9.0` — pre-1.0, but the numerical core is live. The Cardano solver,
 Newton-Raphson / Broyden drivers, Rachford-Rice, the flash algorithms
 (isothermal, bubble/dew *T* and *P*, adiabatic *PH*), the mixture critical
-point, and kij/Aij regression all run. Semver promises do **not** apply until
-1.0; treat `0.x` as a pre-release (the public API may still shift between minor
-versions).
+point, and kij/Aij regression all run. `0.9.0` adds **exact temperature /
+pressure derivatives** of fugacity and K-values (`mixture::d_ln_phi_d_t` /
+`d_ln_phi_d_p`, `flash::k_values_with_derivs`, dual-number AD), **real-mixture
+`energy::phase_cp`** and **`partial_molar_enthalpy`**, and an optional
+bundled component database (the `component-db` feature — see below). It carries
+one deliberate breaking change: the T/P-generic core signatures
+(`mixture::mixture_params` and friends now take `t: D, p: D`). Semver promises
+do **not** apply until 1.0; treat `0.x` as a pre-release.
 
 See the [roadmap](https://github.com/miguelju/vle/blob/main/ROADMAP.md) for
 what's shipped vs. planned, and the
@@ -33,7 +38,7 @@ for the phase-by-phase technical detail.
 
 ```toml
 [dependencies]
-vle-thermo = "0.8"
+vle-thermo = "0.9"
 ```
 
 Or with `cargo add`:
@@ -44,6 +49,11 @@ cargo add vle-thermo
 
 The crate is `no-pyo3` by default — PyO3 bindings are gated behind the optional
 `python` feature and are only needed when maturin builds the Python wheel.
+
+Opt into the bundled 24-compound property database with the `component-db`
+feature (`cargo add vle-thermo --features component-db`), which adds
+`vle_thermo::db::component(name)` / `available()` for name-based lookups
+(pulls only `serde` + `serde_json`; off by default).
 
 ## Quick look
 

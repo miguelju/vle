@@ -434,9 +434,67 @@ class System:
         """Partial fugacity coefficients ln φ̂ᵢ of ``phase`` at ``(t, p, x)``."""
         return self._engine.ln_phi(_as_temperature(t), _as_pressure(p), list(x), phase)
 
+    def d_ln_phi_d_t(self, t: Scalar, p: Scalar, x: Sequence[float], phase: str) -> list[float]:
+        """Exact ∂ln φ̂ᵢ/∂T of ``phase`` at ``(t, p, x)``, in **1/K** (M12.3).
+
+        Dual-number AD through the temperature-generic fugacity core — exact to
+        machine precision, not finite differences. ``phase`` needs a cubic model.
+        """
+        return self._engine.d_ln_phi_d_t(_as_temperature(t), _as_pressure(p), list(x), phase)
+
+    def d_ln_phi_d_p(self, t: Scalar, p: Scalar, x: Sequence[float], phase: str) -> list[float]:
+        """Exact ∂ln φ̂ᵢ/∂P of ``phase`` at ``(t, p, x)``, in **1/kPa** (M12.3).
+
+        Dual-number AD through the pressure-generic fugacity core. ``phase``
+        needs a cubic model.
+        """
+        return self._engine.d_ln_phi_d_p(_as_temperature(t), _as_pressure(p), list(x), phase)
+
+    def k_values_with_derivs(
+        self, t: Scalar, p: Scalar, x: Sequence[float], y: Sequence[float]
+    ) -> tuple[list[float], list[float], list[float]]:
+        """K-values and their exact T/P derivatives at ``(t, p, x, y)`` (M12.3).
+
+        Returns ``(k, d_ln_k_d_t, d_ln_k_d_p)`` with ``k`` dimensionless,
+        ``d_ln_k_d_t`` in **1/K** and ``d_ln_k_d_p`` in **1/kPa**. Dispatches on
+        the System's liquid/vapor model exactly like :meth:`k_values`; the ``k``
+        field is identical to that method's output.
+        """
+        return self._engine.k_values_with_derivs(
+            _as_temperature(t), _as_pressure(p), list(x), list(y)
+        )
+
     def enthalpy_entropy(self, t: Scalar, p: Scalar, x: Sequence[float], phase: str) -> tuple[float, float]:
-        """Molar (H [kJ/kmol], S [kJ/(kmol·K)]) of ``phase`` vs the reference state."""
+        """Molar (H [kJ/kmol], S [kJ/(kmol·K)]) of ``phase`` vs the reference state.
+
+        Routed through the SystemSpec-level dispatch (M12.4): a γ-φ (activity)
+        liquid returns the ideal − condensation + excess assembly instead of
+        erroring for lack of a cubic liquid EOS.
+        """
         return self._engine.enthalpy_entropy(_as_temperature(t), _as_pressure(p), list(x), phase)
+
+    def partial_molar_enthalpy(
+        self, t: Scalar, p: Scalar, x: Sequence[float], phase: str
+    ) -> list[float]:
+        """Partial molar enthalpies H̄ᵢ of ``phase`` at ``(t, p, x)``, in **kJ/kmol** (M12.4).
+
+        ``H̄ᵢ = h°ᵢ(T) − R·T²·∂ln φ̂ᵢ/∂T`` (exact identity over
+        :meth:`d_ln_phi_d_t`); ``Σxᵢ·H̄ᵢ`` equals the total phase enthalpy.
+        Needs a cubic model on ``phase``.
+        """
+        return self._engine.partial_molar_enthalpy(
+            _as_temperature(t), _as_pressure(p), list(x), phase
+        )
+
+    def phase_cp(self, t: Scalar, p: Scalar, x: Sequence[float], phase: str) -> float:
+        """Real-mixture isobaric heat capacity Cp of ``phase`` at ``(t, p, x)``,
+        in **kJ/(kmol·K)** (M12.4).
+
+        ``Cp = Σxᵢ·Cpᵢ°(T) + Cp^R``, the residual via a second-order dual
+        through the temperature-generic fugacity core. Needs a cubic model on
+        ``phase``.
+        """
+        return self._engine.phase_cp(_as_temperature(t), _as_pressure(p), list(x), phase)
 
     # ── Batch (numpy) methods ─────────────────────────────────────────────
 

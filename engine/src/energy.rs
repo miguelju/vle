@@ -502,6 +502,63 @@ pub fn phase_enthalpy_entropy(
     Ok((h_ideal + h_res, s_ideal + s_res))
 }
 
+/// Partial molar enthalpy H̄ᵢ of every component in one phase, in **kJ/kmol**
+/// (M12.4).
+///
+/// Built from the exact identity `H̄ᵢ = h°ᵢ(T) − R·T²·∂ln φ̂ᵢ/∂T` — the
+/// per-component ideal-gas enthalpy plus the residual partial molar enthalpy
+/// `H̄ᵢ^R = −R·T²·∂ln φ̂ᵢ/∂T` (26) Michelsen & Mollerup. No new differentiation
+/// machinery: it rides on M12.3's exact [`crate::mixture::d_ln_phi_d_t`].
+///
+/// The composition-weighted sum equals the total phase enthalpy
+/// `Σᵢ xᵢ·H̄ᵢ = H` (Euler), used as a test invariant.
+///
+/// * `t` in **K**, `p` in **kPa absolute**; `t_ref` the ideal-gas reference
+///   temperature in **K**; `h_ref` the per-component Hᵢ° (pass `&[]` for the
+///   all-zero convention).
+#[allow(clippy::too_many_arguments)]
+pub fn partial_molar_enthalpy(
+    spec: &MixtureSpec,
+    t: f64,
+    p: f64,
+    x: &[f64],
+    phase: PhaseId,
+    t_ref: f64,
+    h_ref: &[f64],
+) -> Result<Vec<f64>, MixError> {
+    let d_ln_phi_dt = crate::mixture::d_ln_phi_d_t(spec, t, p, x, phase)?;
+    let rt2 = R_GAS * t * t;
+    Ok((0..x.len())
+        .map(|i| {
+            let h0 = h_ref.get(i).copied().unwrap_or(0.0);
+            h0 + ideal_enthalpy_integral(&spec.components[i], t, t_ref) - rt2 * d_ln_phi_dt[i]
+        })
+        .collect())
+}
+
+/// Real-mixture isobaric heat capacity Cp of one phase, in **kJ/(kmol·K)**
+/// (M12.4).
+///
+/// `Cp = Σᵢ xᵢ·Cpᵢ°(T) + Cp^R`, the ideal-gas mixture heat capacity plus the
+/// residual [`crate::mixture::residual_cp`] (a second-order dual through the
+/// T-generic fugacity core). Reduces to the ideal-gas value as the residual
+/// vanishes (P → 0), a test invariant.
+///
+/// * `t` in **K**, `p` in **kPa absolute**, `x` mole fractions.
+pub fn phase_cp(
+    spec: &MixtureSpec,
+    t: f64,
+    p: f64,
+    x: &[f64],
+    phase: PhaseId,
+) -> Result<f64, MixError> {
+    let cp_ideal: f64 = (0..x.len())
+        .map(|i| x[i] * ideal_cp(&spec.components[i], t))
+        .sum();
+    let cp_res = crate::mixture::residual_cp(spec, t, p, x, phase)?;
+    Ok(cp_ideal + cp_res)
+}
+
 /// Excess enthalpy Hᴱ and entropy Sᴱ of the liquid mixture (the γ-φ path's
 /// non-ideal contribution), re-exported at mixture level for the activity-
 /// coefficient liquid model. Units: Hᴱ in **kJ/kmol**, Sᴱ in **kJ/(kmol·K)**.
@@ -822,6 +879,170 @@ mod tests {
         );
         assert!(
             (se - excess_entropy(ActivityModel::Wilson, &x, &aij, &vl, &[], 340.0)).abs() < 1e-12
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // M12.4: partial molar enthalpy, real Cp.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn partial_molar_enthalpy_euler_sum_equals_total() {
+        // Σxᵢ·H̄ᵢ = H (Euler): partial_molar_enthalpy summed must equal the
+        // total phase enthalpy from phase_enthalpy_entropy. Both are analytic
+        // (H̄ᵢ via d_ln_phi_d_t, H via the departure enthalpy) and consistent
+        // for the classical + HV/MHV rules (WS excluded — see the mixture-layer
+        // Gibbs–Helmholtz note).
+        let comps = vec![methane(), n_pentane()];
+        let aij = vec![vec![0.0, 0.4], vec![0.4, 0.0]];
+        let vl = [37.0, 115.0];
+        let ge = GeSpec {
+            model: ActivityModel::VanLaar,
+            aij: &aij,
+            vl: &vl,
+            delta: &[],
+        };
+        let specs = [
+            MixtureSpec {
+                eos: CubicEos::PR1976,
+                rule: MixingRule::Classical,
+                components: &comps,
+                kij: &kij2(0.02),
+                ge: None,
+            },
+            MixtureSpec {
+                eos: CubicEos::PR1976,
+                rule: MixingRule::MHV1,
+                components: &comps,
+                kij: &kij2(0.02),
+                ge: Some(ge),
+            },
+        ];
+        let (t, p, x) = (360.0, 1500.0, [0.4, 0.6]);
+        for spec in &specs {
+            for phase in [PhaseId::Vapor, PhaseId::Liquid] {
+                let Ok(hbar) = partial_molar_enthalpy(spec, t, p, &x, phase, 298.15, &[]) else {
+                    continue;
+                };
+                let sum: f64 = (0..2).map(|i| x[i] * hbar[i]).sum();
+                let (h, _) =
+                    phase_enthalpy_entropy(spec, t, p, &x, phase, 298.15, 101.325, &[], &[])
+                        .unwrap();
+                assert!(
+                    (sum - h).abs() <= 1e-6 * h.abs().max(1.0),
+                    "{:?} {phase:?}: Σx·H̄={sum} vs H={h}",
+                    spec.rule
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn phase_cp_matches_fd_of_enthalpy_and_ideal_limit() {
+        // Cp = dH/dT: the analytic phase_cp must match a central difference of
+        // the total enthalpy (oracle). And as P → 0 the residual vanishes, so
+        // Cp → Σxᵢ·Cpᵢ°.
+        let comps = vec![methane(), n_pentane()];
+        let spec = MixtureSpec {
+            eos: CubicEos::PR1976,
+            rule: MixingRule::Classical,
+            components: &comps,
+            kij: &kij2(0.02),
+            ge: None,
+        };
+        let (p, x) = (2000.0, [0.4, 0.6]);
+        let t = 360.0;
+        let cp = phase_cp(&spec, t, p, &x, PhaseId::Vapor).unwrap();
+        // FD oracle of H(T).
+        let h = 1e-2;
+        let (h_hi, _) = phase_enthalpy_entropy(
+            &spec,
+            t + h,
+            p,
+            &x,
+            PhaseId::Vapor,
+            298.15,
+            101.325,
+            &[],
+            &[],
+        )
+        .unwrap();
+        let (h_lo, _) = phase_enthalpy_entropy(
+            &spec,
+            t - h,
+            p,
+            &x,
+            PhaseId::Vapor,
+            298.15,
+            101.325,
+            &[],
+            &[],
+        )
+        .unwrap();
+        let cp_fd = (h_hi - h_lo) / (2.0 * h);
+        assert!(
+            (cp - cp_fd).abs() <= 1e-4 * cp.abs().max(1.0),
+            "Cp={cp} vs FD={cp_fd}"
+        );
+        // Ideal-gas limit at very low P.
+        let cp_lowp = phase_cp(&spec, t, 1e-3, &x, PhaseId::Vapor).unwrap();
+        let cp_ideal: f64 = (0..2).map(|i| x[i] * ideal_cp(&comps[i], t)).sum();
+        assert!(
+            (cp_lowp - cp_ideal).abs() <= 1e-3 * cp_ideal.abs().max(1.0),
+            "low-P Cp={cp_lowp} vs ideal={cp_ideal}"
+        );
+    }
+
+    #[test]
+    fn gamma_phi_liquid_enthalpy_ideal_minus_condensation() {
+        // γ-φ liquid enthalpy via the SystemSpec dispatch: hand-assemble
+        // ideal − condensation + excess and compare. Uses the flash-layer
+        // entry point (needs a SystemSpec).
+        use crate::eos::{LiquidModel, VaporModel};
+        use crate::flash::{SystemSpec, phase_enthalpy_entropy as sys_hs};
+        let comps = [methanol(), water()];
+        let aij = vec![vec![0.0, 0.847], vec![0.522, 0.0]];
+        let vl = [40.7, 18.07];
+        // methanol/water need psat coeffs for the condensation term.
+        let mut a = methanol();
+        a.psat_coeffs = vec![5.20, 3200.0, -35.0];
+        let mut b = water();
+        b.psat_coeffs = vec![5.11, 3800.0, -46.0];
+        let comps = [a, b];
+        let _ = &comps;
+        let spec = SystemSpec {
+            components: &comps,
+            vapor: VaporModel::IdealGas,
+            liquid: LiquidModel::Activity(ActivityModel::VanLaar),
+            mixing_rule: MixingRule::Classical,
+            kij: &[],
+            aij: &aij,
+            vl: &vl,
+            delta: &[],
+            sat_models: &[],
+            ge_model: None,
+        };
+        let (t, p, x) = (340.0, 100.0, [0.4, 0.6]);
+        let (h, _s) = sys_hs(&spec, t, p, &x, PhaseId::Liquid, 298.15, 101.325, &[], &[]).unwrap();
+        // Hand assembly.
+        const R: f64 = 8.31451;
+        let h_ideal = ideal_enthalpy_mix(&comps, &x, t, 298.15, &[]);
+        let mut h_cond = 0.0;
+        for i in 0..2 {
+            let psat_i = crate::saturation::psat(comps[i].sat_model, &comps[i], t).unwrap();
+            let dpsat = crate::saturation::d_psat_dt(comps[i].sat_model, &comps[i], t).unwrap();
+            h_cond += x[i] * R * t * t * dpsat / psat_i;
+        }
+        let (he, _) = excess_h_s(ActivityModel::VanLaar, &x, &aij, &vl, &[], t);
+        let expect = h_ideal - h_cond + he;
+        assert!(
+            (h - expect).abs() <= 1e-9 * expect.abs().max(1.0),
+            "γ-φ liquid H={h} vs hand={expect}"
+        );
+        // The liquid must be well below the ideal-gas enthalpy (condensation).
+        assert!(
+            h < h_ideal,
+            "liquid H={h} should be below ideal gas {h_ideal}"
         );
     }
 }

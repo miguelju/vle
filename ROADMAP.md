@@ -300,8 +300,8 @@ Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERF
 - [x] Create `notebooks/10_chapter4_validation_walkthrough.ipynb` — per CLAUDE.md *Notebook Conventions*; reproduces all seven Chapter IV cases (Tables 4.1–4.12) through the high-level `vle.System`, quotes the paper tables, reports % error vs. published values (critical <0.25%, van Laar bubble-P <0.5%, Raoult bubble-T 0.08%, isothermal flash ~1%; §4.4 Wilson dew a solver demo since the thesis's exact Wilson constants aren't bundled; §4.7 kij lands in the sub-critical neighborhood of 0.1357), ≥2 exercises. Executes top-to-bottom.
 - [x] Update the notebook catalogue (`deploy/NOTEBOOKS.md`) — marked the 15-notebook collection complete; rebuilt `notebooks/index.ipynb`
 
-## Milestone 12: Downstream Derivative & Database Release (vle-thermo 0.9.x)
-**Goal**: Close the five upstream gaps identified by `stages-thermo` (the planned staged-separation library — the first downstream consumer of the published crate/wheel): expanded component database with ideal-gas Cp coefficients, a Rust-side component database, analytic/dual T and P derivatives of fugacity and K-values, real-mixture heat capacity + partial molar enthalpy, and a packaged γ-φ phase enthalpy.
+## Milestone 12: Downstream Derivative & Database Release (vle-thermo 0.9.x) — **done**
+**Goal**: Close the five upstream gaps identified by `stages-thermo` (the planned staged-separation library — the first downstream consumer of the published crate/wheel): expanded component database with ideal-gas Cp coefficients, a Rust-side component database, analytic/dual T and P derivatives of fugacity and K-values, real-mixture heat capacity + partial molar enthalpy, and a packaged γ-φ phase enthalpy. **All five closed** — M12.1 shipped in v0.8.2; M12.2–12.5 land in v0.9.0 (tag pending YubiKey release).
 *Phase 19 of MODERNIZATION_PLAN.md*
 
 Full technical detail, current-state audit, and design decisions live in
@@ -328,27 +328,30 @@ core). Execution order 12.1 → 12.5; 12.4 depends on 12.3.
 - [x] PyO3 bindings (`db_component` → canonical-unit dict, `db_available`) + wheel tests (M5+ rule)
 - [x] Rust tests: lookup hit/miss/case+whitespace, all 24 parse, spot-checks of benzene (legacy) & toluene (new) vs JSON literals — 170 engine tests pass; full pytest 418 passed / 1 skipped
 
-### Milestone 12.3 — T/P Derivatives of Fugacity & K-Values
+### Milestone 12.3 — T/P Derivatives of Fugacity & K-Values — **done**
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
-- [ ] Generalize the §L core in T and P: `mixture_params<D>` / `ln_phi_all_generic<D>` (+ activity `ge_terms`, `three_param_uw`, α evaluation) take `t: D, p: D` *(breaking signature change — 0.9.0)*
-- [ ] `d_ln_phi_d_t` / `d_ln_phi_d_p` in `mixture.rs` — analytic branch (classical + 2-param, via existing `d_alpha_d_tr` / `t_dln_a_dt_mix` + implicit dZ), dual branch (WS/HV/MHV/3-param), same dispatch as `d_ln_phi_d_n`
-- [ ] `k_values_with_derivs` in `flash/system.rs` returning `{k, d_ln_k_d_t, d_ln_k_d_p}` for both φ-φ and γ-φ paths (γ-φ: term-by-term with `gamma_phi_k`, incl. dlnγ/dT, dlnPsat/dT, Poynting)
-- [ ] Invariant tests: FD oracles; Gibbs–Helmholtz `Σxᵢ·∂lnφ̂ᵢ/∂T = −H^R/(RT²)`; `Σxᵢ·∂lnφ̂ᵢ/∂P = (Z−1)/P`; K-parity with `k_values`
-- [ ] PyO3 bindings + wheel tests (batch variant optional)
+- [x] Generalized the §L core in T and P: `mixture_params<D>` / `ln_phi_all_generic<D>` / `three_param_uw<D>` / `pure_params<D>` and the activity `ge_terms` (`ln_gamma_all_generic` + `wilson_lambda`) take `t: D, p: D`; new `eos::alpha_generic<D>` + `eos_dimensionless_generic<D>` propagate duals through α(Tr) *(breaking signature change — 0.9.0)*; scalar path proven unchanged (equivalence tests)
+- [x] `d_ln_phi_d_t` / `d_ln_phi_d_p` in `mixture.rs` — **dual-universal** (exact for every EOS × rule, ≈2× a scalar call); the analytic 2-param fast-path is a deferred optimization (DERIVATIVE_RELEASE_PLAN.md §7)
+- [x] `k_values_with_derivs` in `flash/system.rs` (`KValueDerivs {k, d_ln_k_d_t, d_ln_k_d_p}`) for φ-φ and γ-φ (term-by-term with `gamma_phi_k`: ∂lnγ/∂T dual, `d_psat_dt`, φˢᵃᵗ(T) chain, Poynting T/P, −1/P); ideal-gas + cubic vapor
+- [x] Invariant tests: FD oracles (fugacity + K, φ-φ and γ-φ); Gibbs–Helmholtz `Σxᵢ·∂lnφ̂ᵢ/∂T = −H^R/(RT²)` (machine-precision for classical + HV/MHV); volumetric `Σxᵢ·∂lnφ̂ᵢ/∂P = (Z−1)/P` (all rules); K-parity — **surfaced + pinned a pre-existing Wong-Sandler departure-enthalpy bug** (`t_dln_a_dt_mix`, tracked in DERIVATIVE_RELEASE_PLAN.md §7)
+- [x] PyO3 bindings (`System.d_ln_phi_d_t/_d_p/k_values_with_derivs`) + high-level `vle.System` wrappers + wheel tests (`test_m12_derivatives.py`) — 180 engine tests, 422 pytest pass
 
-### Milestone 12.4 — Real Cp, Partial Molar Enthalpy & γ-φ Phase Enthalpy
+### Milestone 12.4 — Real Cp, Partial Molar Enthalpy & γ-φ Phase Enthalpy — **done**
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
-- [ ] `partial_molar_enthalpy` via `H̄ᵢ = h°ᵢ(T) − RT²·∂lnφ̂ᵢ/∂T` (identity over M12.3, no new differentiation)
-- [ ] `phase_cp` = Σxᵢ·Cp°ᵢ + Cp^R via second-order duals through the T-generic core (fallback documented in DERIVATIVE_RELEASE_PLAN.md §M12.4)
-- [ ] Packaged `SystemSpec`-level `phase_enthalpy_entropy` — φ-φ delegates to `energy::`; γ-φ liquid assembles ideal + Clausius–Clapeyron condensation (Ref (4), `TERMOIII.PAS:283/294` — the Phase 14 deferred path) + excess
-- [ ] Tests: Euler `Σxᵢ·H̄ᵢ = H`; Cp FD oracle + ideal-gas limit; pinned γ-φ methanol/water liquid enthalpy
-- [ ] PyO3: `System.phase_cp`, `System.partial_molar_enthalpy`; route `System.enthalpy_entropy` through the new dispatch (document the γ-φ behavior change)
+- [x] `partial_molar_enthalpy` via `H̄ᵢ = h°ᵢ(T) − RT²·∂lnφ̂ᵢ/∂T` (identity over M12.3's exact `d_ln_phi_d_t`, no new differentiation) — in `energy.rs`
+- [x] `phase_cp` = Σxᵢ·Cp°ᵢ + Cp^R via **second-order duals** (`num_dual::Dual2_64` through `ln_phi_all_generic`, `mixture::residual_cp`); `Cp^R = −R(2T·g′ + T²·g″)`, g = Σxᵢlnφ̂ᵢ — no FD needed (num-dual 0.11 Dual2 works under rust 1.85)
+- [x] Packaged `SystemSpec`-level `phase_enthalpy_entropy` (`flash/system.rs`) — φ-φ / vapor delegate to `energy::`; γ-φ liquid assembles ideal − Clausius–Clapeyron condensation `ΔH_vap,ᵢ = RT²·(dPsatᵢ/dT)/Psatᵢ` (Ref (4), `TERMOIII.PAS:283/294` — the Phase 14 deferred path) + excess Hᴱ/Sᴱ
+- [x] Tests: Euler `Σxᵢ·H̄ᵢ = H` (classical + MHV1); Cp FD oracle + ideal-gas limit; hand-assembled γ-φ methanol/water liquid enthalpy
+- [x] PyO3: `System.phase_cp`, `System.partial_molar_enthalpy` + high-level wrappers; **routed `System.enthalpy_entropy` through the new dispatch** — γ-φ systems now return a value instead of erroring for a missing cubic liquid EOS (behavior change, documented). Wheel tests in `test_m12_energy.py`
 
-### Milestone 12.5 — Notebook, Benches & v0.9.0 Release
+### Milestone 12.5 — Notebook, Benches & v0.9.0 Release — **done**
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
-- [ ] Create milestone notebook `notebooks/11_derivatives_and_database.ipynb` (build script `scripts/build_notebook_m12.py`) per CLAUDE.md *Notebook Conventions* — DB tour, K(T) tangent plot, mixture Cp, partial-molar Euler assertion, ≥2 exercises
-- [ ] Extend criterion benches: `k_values_with_derivs` vs `k_values` (analytic ≤1.5×, dual ≤2.5×), `phase_cp`
-- [ ] Full doc sync (README, package READMEs verified against the 0.9.0 artifacts before tagging, `deploy/NOTEBOOKS.md`, parameter reference) + bump + tag **v0.9.0**
+- [x] Created milestone notebook `notebooks/11_derivatives_and_database.ipynb` (build script `scripts/build_notebook_m12.py`) per CLAUDE.md *Notebook Conventions* — DB tour, K(T) tangent plot, mixture Cp, partial-molar Euler assertion, 2 exercises with collapsed solutions; executes top-to-bottom (21 cells)
+- [x] Extended criterion benches: `k_values` vs `k_values_with_derivs` (measured ~3.5×, computing k + dT + dP) and `phase_cp` in `engine/benches/engine_bench.rs`
+- [x] Full doc sync (README, package READMEs, `deploy/NOTEBOOKS.md`, parameter reference) + bump to **0.9.0** (tag pending YubiKey release)
 
 ---
 

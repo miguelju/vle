@@ -455,6 +455,36 @@ identities — implement via the identities, not new differentiation machinery:
    API, downstream uses a local `[patch.crates-io]` — nothing in this repo
    changes for that.
 
+### Findings surfaced during M12.3
+
+- **Wong-Sandler departure-enthalpy discrepancy (pre-existing, tracked).**
+  M12.3's Gibbs–Helmholtz invariant (`Σxᵢ ∂lnφ̂ᵢ/∂T = −H^R/(RT²)`) holds to
+  machine precision for the classical cubic and the Huron-Vidal / MHV1 / MHV2
+  GE rules, but the **Wong-Sandler** branch of `energy::t_dln_a_dt_mix` (hence
+  `h_departure_rt_mix`) is ~1% inconsistent with the exact `ln φ̂ᵢ(T)` (≈1e-3
+  vapor, ≈1.4e-2 liquid at the tested state). The M12.3 `d_ln_phi_d_t` is the
+  *exact* derivative (dual AD, validated against central-difference FD and
+  against the analytic departure enthalpy for every other rule), so the bug is
+  in the older WS analytic enthalpy path, not the new derivative. It is pinned
+  by `mixture::tests::wong_sandler_departure_enthalpy_discrepancy_is_tracked`
+  and does **not** affect M12.4's `partial_molar_enthalpy`, which is built on
+  the exact `d_ln_phi_d_t` identity rather than `t_dln_a_dt_mix`. **Follow-up:**
+  re-derive the WS `T·dA_mix/dT` (or replace `t_dln_a_dt_mix`'s WS branch with a
+  first-order dual through the T-generic core, now that it exists) and flip the
+  tracking test to assert consistency. Deferred out of M12.3 to avoid perturbing
+  the Chapter IV adiabatic-flash / departure-enthalpy validation mid-milestone.
+
+### Deferred within M12.3 (implementer's-choice latitude in §4)
+
+- **Analytic fast-path for `d_ln_phi_d_t` / `d_ln_phi_d_p`.** The plan permits
+  "dual-number AD everywhere else"; both derivatives ship as the **dual branch
+  universally** (exact for every rule/EOS, ≈2× a scalar `ln φ̂` call). The
+  hand-analytic closed form for classical + 2-parameter EOS (differentiating
+  through the implicit `dZ/dT` with the near-critical `∂f/∂Z → 0` pivot guard)
+  is a pure performance optimization and is deferred — the invariant tests pin
+  correctness independently of the route, and the dual cost is negligible next
+  to a flash. Revisit if a bench shows the T/P-derivative path is hot.
+
 ## 8. Execution rules that bind this milestone (read before starting)
 
 All standing CLAUDE.md rules apply; the ones most easily violated here:

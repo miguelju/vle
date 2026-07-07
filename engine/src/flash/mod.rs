@@ -51,7 +51,9 @@ pub mod stability;
 mod incipient;
 mod system;
 
-pub use system::{SystemSpec, k_values};
+pub use system::{
+    KValueDerivs, SystemSpec, k_values, k_values_with_derivs, phase_enthalpy_entropy,
+};
 
 /// Errors from the flash / equilibrium layer.
 #[derive(Debug, Error, PartialEq)]

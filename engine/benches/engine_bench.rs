@@ -245,6 +245,82 @@ fn bench_flash(c: &mut Criterion) {
     g.finish();
 }
 
+/// M12.3/M12.4 derivative + energy benches: the dual T/P-derivative and
+/// second-order Cp paths vs the plain value calls (targets in
+/// DERIVATIVE_RELEASE_PLAN.md §M12.5 — `k_values_with_derivs` ≤ a small
+/// multiple of `k_values`).
+fn bench_derivatives(c: &mut Criterion) {
+    use vle_thermo::energy::phase_cp;
+    use vle_thermo::eos::{LiquidModel, VaporModel};
+    use vle_thermo::flash::{SystemSpec, k_values, k_values_with_derivs};
+    use vle_thermo::mixing::MixingRule;
+    use vle_thermo::mixture::MixtureSpec;
+
+    let comps = [
+        Component {
+            name: "n-butane".into(),
+            tc: 425.12,
+            pc: 3796.0,
+            omega: 0.200,
+            psat_coeffs: vec![4.35, 2277.0, -30.0],
+            cp_coeffs: [4.5, 2.0e-2, 0.0, 0.0, 0.0],
+            ..Component::default()
+        },
+        Component {
+            name: "n-heptane".into(),
+            tc: 540.2,
+            pc: 2740.0,
+            omega: 0.350,
+            psat_coeffs: vec![4.02, 2911.0, -56.0],
+            cp_coeffs: [7.0, 3.0e-2, 0.0, 0.0, 0.0],
+            ..Component::default()
+        },
+    ];
+    let sys = SystemSpec {
+        components: &comps,
+        vapor: VaporModel::Cubic(CubicEos::RKS1972),
+        liquid: LiquidModel::Cubic(CubicEos::RKS1972),
+        mixing_rule: MixingRule::Classical,
+        kij: &[],
+        aij: &[],
+        vl: &[],
+        delta: &[],
+        sat_models: &[],
+        ge_model: None,
+    };
+    let mix = MixtureSpec {
+        eos: CubicEos::RKS1972,
+        rule: MixingRule::Classical,
+        components: &comps,
+        kij: &[],
+        ge: None,
+    };
+    let (t, p, x, y) = (400.0, 500.0, [0.3, 0.7], [0.6, 0.4]);
+
+    let mut g = c.benchmark_group("derivatives");
+    g.bench_function("k_values_binary", |b| {
+        b.iter(|| k_values(black_box(&sys), t, p, black_box(&x), black_box(&y)).unwrap())
+    });
+    g.bench_function("k_values_with_derivs_binary", |b| {
+        b.iter(|| {
+            k_values_with_derivs(black_box(&sys), t, p, black_box(&x), black_box(&y)).unwrap()
+        })
+    });
+    g.bench_function("phase_cp_binary", |b| {
+        b.iter(|| {
+            phase_cp(
+                black_box(&mix),
+                t,
+                p,
+                black_box(&x),
+                vle_thermo::eos::PhaseId::Vapor,
+            )
+            .unwrap()
+        })
+    });
+    g.finish();
+}
+
 criterion_group!(
     benches,
     bench_alpha,
@@ -252,6 +328,7 @@ criterion_group!(
     bench_ln_phi,
     bench_saturation,
     bench_activity,
-    bench_flash
+    bench_flash,
+    bench_derivatives
 );
 criterion_main!(benches);

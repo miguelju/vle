@@ -671,17 +671,24 @@ Refreshing the hosted teaching hub after a release remains a separate, optional 
 | `08_aij_regression.ipynb`                   | Milestone 9  | Aij fitting (Pascal-origin)                  |
 | `10_chapter4_validation_walkthrough.ipynb`  | Milestone 11 | End-to-end Chapter IV walkthrough            |
 
-### Phase 19: Downstream Derivative & Database Release *(Milestone 12)* — **in progress** (M12.1 done)
+### Phase 19: Downstream Derivative & Database Release *(Milestone 12)* — **done**
 
 *Added 2026-07-05. Full technical spec, current-state audit (with `path:line`
 anchors), design decisions, breaking-change register, and risks:
 [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md). Prepared by Claude
 Code using Claude Fable 5 for execution by Claude Opus 4.8.*
 
-**Status (2026-07-05):** Milestone 12.1 (component DB → 24 compounds + bundled
-ideal-gas Cp°/R coefficients, threaded Python → engine) is **complete** and
-bumped to **v0.8.2**. Milestones 12.2–12.5 (Rust DB, T/P derivatives, real Cp /
-partial molar enthalpy / γ-φ enthalpy, notebook + v0.9.0) remain planned.
+**Status (2026-07-06):** all five sub-milestones **complete**. M12.1 (component
+DB → 24 compounds + ideal-gas Cp°/R, threaded Python → engine) shipped in
+**v0.8.2**. M12.2–12.5 land in **v0.9.0** (tag pending YubiKey release): the
+Rust-side `component-db` database; the T/P-generic fugacity core with exact
+dual-number `d_ln_phi_d_t`/`_d_p` and `k_values_with_derivs`; real-mixture
+`phase_cp` (second-order duals) + `partial_molar_enthalpy` + packaged γ-φ
+`phase_enthalpy_entropy`; and the milestone notebook + benches. One deliberate
+breaking change (the T/P-generic public signatures) motivates the 0.9.0 minor
+bump. The invariant tests surfaced a pre-existing Wong-Sandler departure-enthalpy
+discrepancy in `energy::t_dln_a_dt_mix`, now tracked in
+[DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md) §7 as a follow-up.
 
 The first downstream consumer of the published `vle-thermo` crate/wheel — the
 planned `stages-thermo` staged-separation (distillation) library — audited the

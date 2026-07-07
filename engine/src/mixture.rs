@@ -77,7 +77,7 @@ use smallvec::SmallVec;
 use thiserror::Error;
 
 use crate::activity::{ActivityModel, ln_gamma_all_generic};
-use crate::eos::{ChaoSeaderSpecies, CubicEos, EosState, PhaseId, chao_seader_ln_phi};
+use crate::eos::{ChaoSeaderSpecies, CubicEos, PhaseId, chao_seader_ln_phi};
 use crate::mixing::MixingRule;
 use crate::numerics::cubic::solve_real;
 use crate::types::Component;
@@ -205,29 +205,38 @@ fn i_tilde(z: f64, u: f64, w: f64) -> f64 {
 // ===========================================================================
 
 /// Per-component pure values the mixing rules combine: Aᵢ, Bᵢ (and the
-/// dimensionless third parameter Cᵢ for Patel-Teja variants). All f64 —
-/// they depend on (T, P) but never on composition.
-struct PureParams {
-    big_a: Buf<f64>,
-    big_b: Buf<f64>,
+/// dimensionless third parameter Cᵢ for Patel-Teja variants). Generic over the
+/// scalar type `D` (M12.3): with `D = f64` these are plain values; with a dual
+/// seeded on T or P they carry the exact ∂/∂T or ∂/∂P the mixture derivative
+/// paths propagate. They depend on (T, P) but never on composition.
+struct PureParams<D> {
+    big_a: Buf<D>,
+    big_b: Buf<D>,
     /// PT/PT-USB dimensionless cᵢ·P/(R·T) (recovered as Uᵢ − Bᵢ from the
     /// pure state); unused (empty) for other EOS.
-    big_c: Buf<f64>,
+    big_c: Buf<D>,
 }
 
-fn pure_params(eos: CubicEos, t: f64, p: f64, comps: &[Component]) -> PureParams {
+fn pure_params<D: DualNum<f64> + Copy>(
+    eos: CubicEos,
+    t: D,
+    p: D,
+    comps: &[Component],
+) -> PureParams<D> {
     let n = comps.len();
     let mut big_a = Buf::with_capacity(n);
     let mut big_b = Buf::with_capacity(n);
     let mut big_c = Buf::new();
     let pt_family = matches!(eos, CubicEos::PatelTeja | CubicEos::PatelTejaUSB);
     for comp in comps {
-        let st = EosState::new(eos, t, p, comp);
-        big_a.push(st.big_a);
-        big_b.push(st.big_b);
+        // Generic (A, B, U, W) so T/P duals flow through α and the P/(RT)
+        // factors (eos.rs). Composition never enters here.
+        let (a, b, u, _w) = crate::eos::eos_dimensionless_generic(eos, t, p, comp);
+        big_a.push(a);
+        big_b.push(b);
         if pt_family {
             // PT denominator: U = B + C, W = −B·C ⇒ Cᵢ = Uᵢ − Bᵢ.
-            big_c.push(st.u - st.big_b);
+            big_c.push(u - b);
         }
     }
     PureParams {
@@ -243,8 +252,8 @@ fn pure_params(eos: CubicEos, t: f64, p: f64, comps: &[Component]) -> PureParams
 
 /// Dimensionless mixture parameters and their mole-number derivatives at
 /// one (T, P, composition) point. This is the mixture-side analog of
-/// [`EosState`] (M8.2 §C2): computed once, consumed by Z / fugacity /
-/// departure code.
+/// [`EosState`](crate::eos::EosState) (M8.2 §C2): computed once, consumed by
+/// Z / fugacity / departure code.
 pub struct MixtureParams<D> {
     /// Mixture A. **Dimensionless.**
     pub big_a: D,
@@ -318,8 +327,8 @@ fn validate(spec: &MixtureSpec, x_len: usize) -> Result<(), MixError> {
 /// absolute**.
 pub fn mixture_params<D: DualNum<f64> + Copy>(
     spec: &MixtureSpec,
-    t: f64,
-    p: f64,
+    t: D,
+    p: D,
     x: &[D],
 ) -> Result<MixtureParams<D>, MixError> {
     validate(spec, x.len())?;
@@ -339,7 +348,7 @@ pub fn mixture_params<D: DualNum<f64> + Copy>(
 
     // Classical quadratic A with the given cross-parameter closure.
     // Āᵢ = 2·Σⱼ xⱼ·Aᵢⱼ is exact for composition-independent Aᵢⱼ.
-    let quad_a = |x: &[D], a_ij: &dyn Fn(usize, usize) -> f64| -> (D, Buf<D>) {
+    let quad_a = |x: &[D], a_ij: &dyn Fn(usize, usize) -> D| -> (D, Buf<D>) {
         let mut a = D::from(0.0);
         let mut a_bar: Buf<D> = smallvec::smallvec![D::from(0.0); n];
         for i in 0..n {
@@ -373,10 +382,10 @@ pub fn mixture_params<D: DualNum<f64> + Copy>(
         // them as separate cases with identical formulas — see the
         // extraction of clsQbicsMulticomp.cls:455-476 vs :552-568).
         MixingRule::Classical | MixingRule::IVDW => {
-            let a_ij = |i: usize, j: usize| (1.0 - kij_at(spec.kij, i, j)) * (ai[i] * ai[j]).sqrt();
+            let a_ij = |i: usize, j: usize| (ai[i] * ai[j]).sqrt() * (1.0 - kij_at(spec.kij, i, j));
             let (a, a_bar) = quad_a(x, &a_ij);
             let b = lin_b(x);
-            let b_bar: Buf<D> = (0..n).map(|i| D::from(bi[i])).collect();
+            let b_bar: Buf<D> = (0..n).map(|i| bi[i]).collect();
             (a, b, a_bar, b_bar)
         }
 
@@ -388,7 +397,7 @@ pub fn mixture_params<D: DualNum<f64> + Copy>(
         //   Σₖxₖ∂A/∂xₖ = 2A − Σₖⱼ xₖ²xⱼ√(AₖAⱼ)(kₖⱼ+kⱼₖ)
         //   ⇒ Āᵢ = ∂A/∂xᵢ + Σₖⱼ xₖ²xⱼ√(AₖAⱼ)(kₖⱼ+kⱼₖ)
         MixingRule::IIVDW => {
-            let sqrt_aa = |i: usize, j: usize| (ai[i] * ai[j]).sqrt();
+            let sqrt_aa = |i: usize, j: usize| -> D { (ai[i] * ai[j]).sqrt() };
             let mut a = D::from(0.0);
             let mut a_bar: Buf<D> = smallvec::smallvec![D::from(0.0); n];
             // sum3 = Σₖⱼ xₖ²xⱼ√(AₖAⱼ)(kₖⱼ + kⱼₖ)
@@ -414,7 +423,7 @@ pub fn mixture_params<D: DualNum<f64> + Copy>(
                 a_bar[i] = row * 2.0 - x[i] * row_k + sum3;
             }
             let b = lin_b(x);
-            let b_bar: Buf<D> = (0..n).map(|i| D::from(bi[i])).collect();
+            let b_bar: Buf<D> = (0..n).map(|i| bi[i]).collect();
             (a, b, a_bar, b_bar)
         }
 
@@ -430,8 +439,8 @@ pub fn mixture_params<D: DualNum<f64> + Copy>(
         MixingRule::WongSandler => {
             let (lng, g_rt) = ge_terms(x);
             let c_star = hv_c_constant(spec.eos);
-            let bij_ws = |i: usize, j: usize| {
-                0.5 * ((bi[i] - ai[i]) + (bi[j] - ai[j])) * (1.0 - kij_at(spec.kij, i, j))
+            let bij_ws = |i: usize, j: usize| -> D {
+                ((bi[i] - ai[i]) + (bi[j] - ai[j])) * (0.5 * (1.0 - kij_at(spec.kij, i, j)))
             };
             let mut q_ws = D::from(0.0);
             let mut row_ws: Buf<D> = smallvec::smallvec![D::from(0.0); n];
@@ -491,7 +500,7 @@ pub fn mixture_params<D: DualNum<f64> + Copy>(
             };
             let a = b * alpha_mix;
             let mut a_bar: Buf<D> = smallvec::smallvec![D::from(0.0); n];
-            let b_bar: Buf<D> = (0..n).map(|i| D::from(bi[i])).collect();
+            let b_bar: Buf<D> = (0..n).map(|i| bi[i]).collect();
             for i in 0..n {
                 let alpha_bar_i = if with_b_log {
                     // ᾱᵢ = αᵢ + [lnγᵢ + ln(B/Bᵢ) + Bᵢ/B − 1]/c
@@ -514,7 +523,7 @@ pub fn mixture_params<D: DualNum<f64> + Copy>(
             let mut rhs = g_rt;
             for i in 0..n {
                 let alpha_i = ai[i] / bi[i];
-                rhs += x[i] * (q1 * alpha_i + q2 * alpha_i * alpha_i);
+                rhs += x[i] * (alpha_i * q1 + alpha_i * alpha_i * q2);
                 rhs += x[i] * (b / bi[i]).ln();
             }
             // q₂α² + q₁α − rhs = 0 → α = [−q₁ ± √(q₁² + 4q₂·rhs)]/(2q₂);
@@ -526,7 +535,7 @@ pub fn mixture_params<D: DualNum<f64> + Copy>(
             let a = b * alpha_mix;
             let denom = alpha_mix * (2.0 * q2) + q1;
             let mut a_bar: Buf<D> = smallvec::smallvec![D::from(0.0); n];
-            let b_bar: Buf<D> = (0..n).map(|i| D::from(bi[i])).collect();
+            let b_bar: Buf<D> = (0..n).map(|i| bi[i]).collect();
             for i in 0..n {
                 let alpha_i = ai[i] / bi[i];
                 // ᾱᵢ = [q₁αᵢ + q₂(αᵢ²+α²) + lnγᵢ + ln(B/Bᵢ) + Bᵢ/B − 1]/(q₁+2q₂α).
@@ -536,7 +545,7 @@ pub fn mixture_params<D: DualNum<f64> + Copy>(
                     + (b / bi[i]).ln()
                     + b.recip() * bi[i]
                     + (alpha_mix * alpha_mix + alpha_i * alpha_i) * q2
-                    + q1 * alpha_i
+                    + alpha_i * q1
                     - 1.0)
                     / denom;
                 a_bar[i] = alpha_bar_i * b + alpha_mix * bi[i];
@@ -590,7 +599,7 @@ pub fn mixture_params<D: DualNum<f64> + Copy>(
 fn three_param_uw<D: DualNum<f64> + Copy>(
     spec: &MixtureSpec,
     x: &[D],
-    pure: &PureParams,
+    pure: &PureParams<D>,
     big_b: D,
     b_bar: &[D],
 ) -> Result<(D, D, Buf<D>, Buf<D>), MixError> {
@@ -628,7 +637,7 @@ fn three_param_uw<D: DualNum<f64> + Copy>(
                 for j in 0..n {
                     c += x[j] * ci[j];
                 }
-                (c, (0..n).map(|i| D::from(ci[i])).collect())
+                (c, (0..n).map(|i| ci[i]).collect())
             } else {
                 // √B-weighted: C = Σxⱼ√Bⱼ·Cⱼ / Σxⱼ√Bⱼ.
                 // ∂C/∂xᵢ = √Bᵢ(Cᵢ−C)/E with Σxₖ∂C/∂xₖ = 0, so
@@ -725,8 +734,8 @@ fn z_mix_generic<D: DualNum<f64> + Copy>(
 /// ```
 fn ln_phi_all_generic<D: DualNum<f64> + Copy>(
     spec: &MixtureSpec,
-    t: f64,
-    p: f64,
+    t: D,
+    p: D,
     x: &[D],
     phase: PhaseId,
 ) -> Result<Buf<D>, MixError> {
@@ -770,7 +779,7 @@ pub fn z_mix(
     phase: PhaseId,
 ) -> Result<f64, MixError> {
     let pars = mixture_params::<f64>(spec, t, p, x)?;
-    z_mix_generic(&pars, phase)
+    z_mix_generic::<f64>(&pars, phase)
 }
 
 /// Partial fugacity coefficients ln φ̂ᵢ for every component.
@@ -839,7 +848,10 @@ pub fn d_ln_phi_d_n(
             total += *m;
         }
         let xd: Buf<num_dual::Dual64> = moles.iter().map(|&m| m / total).collect();
-        let lnphi = ln_phi_all_generic(spec, t, p, &xd, phase)?;
+        // Composition carries the dual seed here; T and P are constants (real
+        // dual parts) so only ∂/∂nⱼ is tracked.
+        let (td, pd) = (num_dual::Dual64::from(t), num_dual::Dual64::from(p));
+        let lnphi = ln_phi_all_generic(spec, td, pd, &xd, phase)?;
         for i in 0..n {
             jac[i][j] = lnphi[i].eps;
         }
@@ -953,6 +965,117 @@ fn d_ln_phi_d_n_classical(
         }
     }
     Ok(jac)
+}
+
+// ===========================================================================
+// Temperature / pressure derivatives of the partial fugacity coefficients
+// (§L, M12.3). Both use the T/P-generic value path (`ln_phi_all_generic`)
+// evaluated once with a first-order dual seeded on T (or P) and real
+// composition — exact to machine precision, ≈2× a scalar lnφ̂ call, and
+// uniform across every EOS × mixing-rule combination (26) Michelsen & Mollerup;
+// (27) Rehner & Bauer for the dual-number AD.
+//
+// This is the "dual everywhere" branch of the §L strategy. The hand-analytic
+// fast path for classical + 2-parameter EOS (differentiating the closed-form
+// lnφ̂ᵢ through dA/dT and the implicit dZ/dT) is a deferred optimization —
+// DERIVATIVE_RELEASE_PLAN.md §7 — because the dual route is already exact and
+// cheap next to a flash, and it avoids the near-critical `∂f/∂Z → 0` pivot
+// guard the analytic branch would need. The invariant tests (Gibbs–Helmholtz
+// and the volumetric identity) pin correctness independently of the route.
+// ===========================================================================
+
+/// ∂ln φ̂ᵢ/∂T at constant P and composition, for every component.
+///
+/// # Arguments
+/// * `t` — Temperature in **K**; `p` — pressure in **kPa absolute**.
+/// * `x` — Phase mole fractions (length N, sum to 1), held fixed.
+/// * `phase` — Which Z root the phase uses.
+///
+/// # Returns
+/// One ∂ln φ̂ᵢ/∂T per component, in **1/K**.
+pub fn d_ln_phi_d_t(
+    spec: &MixtureSpec,
+    t: f64,
+    p: f64,
+    x: &[f64],
+    phase: PhaseId,
+) -> Result<Vec<f64>, MixError> {
+    use num_dual::Dual64;
+    // Seed T with a unit dual part; P and composition are real constants.
+    let td = Dual64::new(t, 1.0);
+    let pd = Dual64::from(p);
+    let xd: Buf<Dual64> = x.iter().map(|&xi| Dual64::from(xi)).collect();
+    let lnphi = ln_phi_all_generic(spec, td, pd, &xd, phase)?;
+    Ok(lnphi.iter().map(|v| v.eps).collect())
+}
+
+/// ∂ln φ̂ᵢ/∂P at constant T and composition, for every component.
+///
+/// # Arguments
+/// * `t` — Temperature in **K**; `p` — pressure in **kPa absolute**.
+/// * `x` — Phase mole fractions (length N, sum to 1), held fixed.
+/// * `phase` — Which Z root the phase uses.
+///
+/// # Returns
+/// One ∂ln φ̂ᵢ/∂P per component, in **1/kPa**.
+///
+/// The composition-summed value obeys the exact volumetric identity
+/// `Σᵢ xᵢ·∂ln φ̂ᵢ/∂P = (Z − 1)/P`, which the tests use as an independent check.
+pub fn d_ln_phi_d_p(
+    spec: &MixtureSpec,
+    t: f64,
+    p: f64,
+    x: &[f64],
+    phase: PhaseId,
+) -> Result<Vec<f64>, MixError> {
+    use num_dual::Dual64;
+    // Seed P with a unit dual part; T and composition are real constants.
+    let td = Dual64::from(t);
+    let pd = Dual64::new(p, 1.0);
+    let xd: Buf<Dual64> = x.iter().map(|&xi| Dual64::from(xi)).collect();
+    let lnphi = ln_phi_all_generic(spec, td, pd, &xd, phase)?;
+    Ok(lnphi.iter().map(|v| v.eps).collect())
+}
+
+/// Residual (departure) isobaric heat capacity `Cp^R` of one phase, in
+/// **kJ/(kmol·K)** (M12.4).
+///
+/// `Cp^R = ∂H^R/∂T` needs a *second* temperature derivative of the residual
+/// Gibbs energy. Writing `g(T) = G^R/(RT) = Σᵢ xᵢ·ln φ̂ᵢ` (composition fixed),
+/// `H^R = −R·T²·g'(T)` and hence
+/// `Cp^R = dH^R/dT = −R·(2·T·g'(T) + T²·g''(T))`.
+///
+/// One second-order dual evaluation of the T-generic fugacity core
+/// ([`ln_phi_all_generic`] with `num_dual::Dual2_64`) yields `g`, `g'` and
+/// `g''` together — exact, no finite differences (27) Rehner & Bauer.
+///
+/// * `t` in **K**, `p` in **kPa absolute**, `x` mole fractions (fixed).
+pub fn residual_cp(
+    spec: &MixtureSpec,
+    t: f64,
+    p: f64,
+    x: &[f64],
+    phase: PhaseId,
+) -> Result<f64, MixError> {
+    use num_dual::Dual2_64;
+    const R: f64 = 8.31451; // kJ/(kmol·K)
+    let n = x.len();
+    // g(T), g'(T), g''(T) in one sweep; T carries the second-order seed while
+    // P and composition are real constants.
+    let (_, g1, g2) = num_dual::try_second_derivative(
+        |td: Dual2_64| -> Result<Dual2_64, MixError> {
+            let pd = Dual2_64::from(p);
+            let xd: Buf<Dual2_64> = x.iter().map(|&xi| Dual2_64::from(xi)).collect();
+            let lnphi = ln_phi_all_generic(spec, td, pd, &xd, phase)?;
+            let mut g = Dual2_64::from(0.0);
+            for i in 0..n {
+                g += xd[i] * lnphi[i];
+            }
+            Ok(g)
+        },
+        t,
+    )?;
+    Ok(-R * (2.0 * t * g1 + t * t * g2))
 }
 
 // ===========================================================================
@@ -1552,5 +1675,275 @@ mod tests {
             let want = chao_seader_ln_phi(300.0, 500.0, c, s);
             assert!((got[i] - want).abs() < 1e-15, "component {i}");
         }
+    }
+
+    // -----------------------------------------------------------------
+    // T/P derivatives of ln φ̂ᵢ (§L, M12.3).
+    // -----------------------------------------------------------------
+
+    /// Central-difference oracle for ∂ln φ̂ᵢ/∂T (never production — CLAUDE.md).
+    fn dlnphi_dt_fd(
+        spec: &MixtureSpec,
+        t: f64,
+        p: f64,
+        x: &[f64],
+        phase: PhaseId,
+        h: f64,
+    ) -> Vec<f64> {
+        let hi = ln_phi_mix(spec, t + h, p, x, phase).unwrap();
+        let lo = ln_phi_mix(spec, t - h, p, x, phase).unwrap();
+        hi.iter()
+            .zip(&lo)
+            .map(|(a, b)| (a - b) / (2.0 * h))
+            .collect()
+    }
+
+    /// Central-difference oracle for ∂ln φ̂ᵢ/∂P.
+    fn dlnphi_dp_fd(
+        spec: &MixtureSpec,
+        t: f64,
+        p: f64,
+        x: &[f64],
+        phase: PhaseId,
+        h: f64,
+    ) -> Vec<f64> {
+        let hi = ln_phi_mix(spec, t, p + h, x, phase).unwrap();
+        let lo = ln_phi_mix(spec, t, p - h, x, phase).unwrap();
+        hi.iter()
+            .zip(&lo)
+            .map(|(a, b)| (a - b) / (2.0 * h))
+            .collect()
+    }
+
+    /// Build the classical + GE + 3-parameter spec matrix the plan names
+    /// (methane/n-pentane PR, methanol/water van Laar over the 5 GE rules,
+    /// and a Patel-Teja classical binary).
+    fn derivative_spec_matrix<'a>(
+        fx: &'a Fixture,
+        pt: &'a Fixture,
+        comps: &'a [Component],
+        aij: &'a [Vec<f64>],
+        vl: &'a [f64],
+        kij_ge: &'a [Vec<f64>],
+        ge: &'a GeSpec<'a>,
+    ) -> Vec<MixtureSpec<'a>> {
+        let mut specs = vec![fx.spec(MixingRule::Classical), fx.spec(MixingRule::IVDW)];
+        specs.push(MixtureSpec {
+            eos: CubicEos::PatelTeja,
+            rule: MixingRule::Classical,
+            components: &pt.comps,
+            kij: &pt.kij,
+            ge: None,
+        });
+        for rule in GE_RULES {
+            specs.push(MixtureSpec {
+                eos: CubicEos::PR1976,
+                rule,
+                components: comps,
+                kij: kij_ge,
+                ge: Some(*ge),
+            });
+        }
+        let _ = (aij, vl); // referenced through `ge`
+        specs
+    }
+
+    #[test]
+    fn dlnphi_dt_dp_match_fd_across_matrix() {
+        let fx = Fixture::pr_classical();
+        let pt = Fixture {
+            comps: vec![methane(), n_pentane()],
+            kij: kij2(0.0),
+        };
+        let comps = vec![methanol(), water()];
+        let aij = van_laar_aij();
+        let vl = [40.7, 18.07];
+        let ge = GeSpec {
+            model: ActivityModel::VanLaar,
+            aij: &aij,
+            vl: &vl,
+            delta: &[],
+        };
+        let kij_ge = kij2(0.05);
+        let specs = derivative_spec_matrix(&fx, &pt, &comps, &aij, &vl, &kij_ge, &ge);
+        let (t, p, x) = (360.0, 1500.0, [0.4, 0.6]);
+        for spec in &specs {
+            for phase in [PhaseId::Vapor, PhaseId::Liquid] {
+                // Skip a phase that has no root for this spec/state.
+                let Ok(dual_t) = d_ln_phi_d_t(spec, t, p, &x, phase) else {
+                    continue;
+                };
+                let fd_t = dlnphi_dt_fd(spec, t, p, &x, phase, 1e-3);
+                for i in 0..2 {
+                    let tol = 1e-6 * dual_t[i].abs().max(1e-6) + 1e-9;
+                    assert!(
+                        (dual_t[i] - fd_t[i]).abs() <= tol,
+                        "{:?} {phase:?} ∂lnφ{i}/∂T: dual={} fd={}",
+                        spec.rule,
+                        dual_t[i],
+                        fd_t[i]
+                    );
+                }
+                let dual_p = d_ln_phi_d_p(spec, t, p, &x, phase).unwrap();
+                let fd_p = dlnphi_dp_fd(spec, t, p, &x, phase, 1e-1);
+                for i in 0..2 {
+                    let tol = 1e-6 * dual_p[i].abs().max(1e-6) + 1e-12;
+                    assert!(
+                        (dual_p[i] - fd_p[i]).abs() <= tol,
+                        "{:?} {phase:?} ∂lnφ{i}/∂P: dual={} fd={}",
+                        spec.rule,
+                        dual_p[i],
+                        fd_p[i]
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn gibbs_helmholtz_identity_vs_departure_enthalpy() {
+        // Σxᵢ ∂lnφ̂ᵢ/∂T = −H^R/(RT²) = −h_departure_rt_mix/T.
+        //
+        // An independent cross-check of `d_ln_phi_d_t`: the composition-summed
+        // T-derivative must equal −H^R/(RT²) from the separately-derived
+        // analytic departure enthalpy (`h_departure_rt_mix`, which does NOT go
+        // through the dual path). Covers the classical cubic and the Huron-
+        // Vidal / MHV GE-rule branches, where both sides agree to machine
+        // precision — a strong end-to-end validation.
+        //
+        // Wong-Sandler is deliberately excluded here: its dual T-derivative is
+        // correct (it matches central-difference FD in
+        // `dlnphi_dt_dp_match_fd_across_matrix`, and the other GE rules match
+        // the departure enthalpy exactly), but the WONG-SANDLER branch of the
+        // pre-existing `t_dln_a_dt_mix` disagrees by ~1% — a latent departure-
+        // enthalpy bug this invariant surfaced. It is tracked as a follow-up in
+        // DERIVATIVE_RELEASE_PLAN.md §7 and asserted (as a known gap) in
+        // `wong_sandler_departure_enthalpy_discrepancy_is_tracked` below.
+        let fx = Fixture::pr_classical();
+        let comps = vec![methanol(), water()];
+        let aij = van_laar_aij();
+        let vl = [40.7, 18.07];
+        let ge = GeSpec {
+            model: ActivityModel::VanLaar,
+            aij: &aij,
+            vl: &vl,
+            delta: &[],
+        };
+        let kij_ge = kij2(0.05);
+        let mut specs = vec![fx.spec(MixingRule::Classical)];
+        for rule in [
+            MixingRule::HuronVidalOriginal,
+            MixingRule::HuronVidalSimplified,
+            MixingRule::MHV1,
+            MixingRule::MHV2,
+        ] {
+            specs.push(MixtureSpec {
+                eos: CubicEos::PR1976,
+                rule,
+                components: &comps,
+                kij: &kij_ge,
+                ge: Some(ge),
+            });
+        }
+        let (t, p, x) = (360.0, 1500.0, [0.4, 0.6]);
+        for spec in &specs {
+            for phase in [PhaseId::Vapor, PhaseId::Liquid] {
+                let Ok(dt) = d_ln_phi_d_t(spec, t, p, &x, phase) else {
+                    continue;
+                };
+                let sum_dt: f64 = (0..2).map(|i| x[i] * dt[i]).sum();
+                let h_rt = crate::energy::h_departure_rt_mix(spec, t, p, &x, phase).unwrap();
+                let gh = -h_rt / t;
+                assert!(
+                    (sum_dt - gh).abs() <= 1e-9 * gh.abs().max(1e-6) + 1e-12,
+                    "{:?} {phase:?} Gibbs–Helmholtz: Σx·∂lnφ/∂T={sum_dt} vs −H^R/RT²={gh}",
+                    spec.rule
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn volumetric_identity_all_rules() {
+        // Σxᵢ ∂lnφ̂ᵢ/∂P = (Z−1)/P — a pure value-path identity (no enthalpy
+        // convention), so it holds tightly for EVERY rule including Wong-
+        // Sandler. Independent check of `d_ln_phi_d_p`.
+        let fx = Fixture::pr_classical();
+        let comps = vec![methanol(), water()];
+        let aij = van_laar_aij();
+        let vl = [40.7, 18.07];
+        let ge = GeSpec {
+            model: ActivityModel::VanLaar,
+            aij: &aij,
+            vl: &vl,
+            delta: &[],
+        };
+        let kij_ge = kij2(0.05);
+        let mut specs = vec![fx.spec(MixingRule::Classical)];
+        for rule in GE_RULES {
+            specs.push(MixtureSpec {
+                eos: CubicEos::PR1976,
+                rule,
+                components: &comps,
+                kij: &kij_ge,
+                ge: Some(ge),
+            });
+        }
+        let (t, p, x) = (360.0, 1500.0, [0.4, 0.6]);
+        for spec in &specs {
+            for phase in [PhaseId::Vapor, PhaseId::Liquid] {
+                let Ok(dp) = d_ln_phi_d_p(spec, t, p, &x, phase) else {
+                    continue;
+                };
+                let sum_dp: f64 = (0..2).map(|i| x[i] * dp[i]).sum();
+                let z = z_mix(spec, t, p, &x, phase).unwrap();
+                let vol = (z - 1.0) / p;
+                assert!(
+                    (sum_dp - vol).abs() <= 1e-9 * vol.abs().max(1e-9) + 1e-14,
+                    "{:?} {phase:?} volumetric: Σx·∂lnφ/∂P={sum_dp} vs (Z−1)/P={vol}",
+                    spec.rule
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn wong_sandler_departure_enthalpy_discrepancy_is_tracked() {
+        // Documents a PRE-EXISTING latent bug that M12.3's Gibbs–Helmholtz
+        // invariant surfaced: for Wong-Sandler, the analytic departure enthalpy
+        // `h_departure_rt_mix` (via `t_dln_a_dt_mix`'s WS branch) is ~1%
+        // inconsistent with the exact ln φ̂ᵢ(T). The EXACT T-derivative is
+        // `d_ln_phi_d_t` (dual AD), validated against FD elsewhere; this test
+        // pins the size of the gap so a future fix to the WS departure enthalpy
+        // trips here and can flip the assertion to "now consistent".
+        let comps = vec![methanol(), water()];
+        let aij = van_laar_aij();
+        let vl = [40.7, 18.07];
+        let ge = GeSpec {
+            model: ActivityModel::VanLaar,
+            aij: &aij,
+            vl: &vl,
+            delta: &[],
+        };
+        let kij_ge = kij2(0.05);
+        let spec = MixtureSpec {
+            eos: CubicEos::PR1976,
+            rule: MixingRule::WongSandler,
+            components: &comps,
+            kij: &kij_ge,
+            ge: Some(ge),
+        };
+        let (t, p, x) = (360.0, 1500.0, [0.4, 0.6]);
+        let dt = d_ln_phi_d_t(&spec, t, p, &x, PhaseId::Liquid).unwrap();
+        let sum_dt: f64 = (0..2).map(|i| x[i] * dt[i]).sum();
+        let gh = -crate::energy::h_departure_rt_mix(&spec, t, p, &x, PhaseId::Liquid).unwrap() / t;
+        let reldiff = ((sum_dt - gh) / gh.abs()).abs();
+        // Known gap: between 1e-3 and 1e-1 today. When the WS departure
+        // enthalpy is fixed this drops to ~1e-14 and the upper bound trips.
+        assert!(
+            (1e-3..1e-1).contains(&reldiff),
+            "WS Gibbs–Helmholtz gap changed: reldiff={reldiff:.2e} (dual={sum_dt}, gh={gh}). \
+             If this is now ~1e-14, the WS departure-enthalpy bug is fixed — update this test."
+        );
     }
 }

@@ -291,8 +291,9 @@ Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone i
 Closes the five upstream gaps identified by `stages-thermo` (planned first
 downstream consumer). Full technical spec: [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md).
 Two releases: **v0.8.2** (12.1 fast-track) then **v0.9.0** (12.2–12.5).
-Total ~25–38h. M12.1 **done** 2026-07-05, M12.2 **done** 2026-07-06 (both Claude
-Opus 4.8); 12.3–12.5 not started.
+Total ~25–38h. All sub-milestones **done** 2026-07-05→07-06 (Claude Opus 4.8):
+M12.1 (v0.8.2 data), M12.2–12.5 (v0.9.0 — Rust DB, T/P derivatives, real Cp +
+partial molar H + γ-φ enthalpy, notebook + benches). v0.9.0 tag pending YubiKey.
 
 ### Milestone 12.1 — Component DB Expansion + Cp Coefficients (→ v0.8.2, ~4–6h) — **Done**
 *Executed by Claude Code using Claude Opus 4.8 (1M context)*
@@ -310,25 +311,28 @@ Opus 4.8); 12.3–12.5 not started.
 - [x] **`engine/src/db.rs`** — new `component-db` cargo feature (optional `serde`/`serde_json`, default off, enabled by `python`); `component(name)` / `available()` over a `OnceLock<HashMap>`; name normalization mirrors `vle.components.get` (trim + lowercase); JSON → `Component` fills `cp_coeffs`, `psat_coeffs`, `sat_model=Antoine`, documents the polar/PRSV fields left at `Component::default()`
 - [x] **PyO3 bindings + tests** — `db_component` (canonical-unit dict), `db_available` (M5+ rule) + wheel tests; Rust tests: case/whitespace/miss, all 24 parse, benzene+toluene spot-checks — 170 engine tests, 418 pytest pass
 
-### Milestone 12.3 — T/P Derivatives of Fugacity & K-Values (~8–12h)
+### Milestone 12.3 — T/P Derivatives of Fugacity & K-Values (~8–12h) — **Done**
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
-- [ ] **T/P-generic §L core** (~2–3h) — `mixture_params<D>` / `ln_phi_all_generic<D>` / `three_param_uw<D>` / activity `ge_terms` take `t: D, p: D`; α gains a dual-capable evaluation (from analytic `d_alpha_d_tr`, never FD); Chao-Seader generic or hand-analytic. *Breaking public-signature change → 0.9.0*
-- [ ] **`d_ln_phi_d_t` / `d_ln_phi_d_p`** (~3–4h) — two-branch dispatch mirroring `d_ln_phi_d_n`: analytic (classical + 2-param; implicit dZ/dT, dZ/dP with near-critical pivot guard → dual fallback) and single-seed dual (WS/HV/MHV/3-param); `∂lnφ̂ᵢ/∂P = V̄ᵢ/RT − 1/P` identity as the cross-check route
-- [ ] **`k_values_with_derivs`** (~2–3h) — `KValueDerivs {k, d_ln_k_d_t, d_ln_k_d_p}`; φ-φ = L−V difference; γ-φ term-by-term against `gamma_phi_k` (dlnγ/dT = −H̄ᵢᴱ/RT², analytic `d_psat_dt`, Poynting T/P derivatives, vapor φ̂); K field bit-identical to `k_values`
-- [ ] **Tests + bindings** (~1–2h) — `_fd` oracles across the EOS×rule matrix; Gibbs–Helmholtz + volumetric invariants vs `h_departure_rt_mix` / `z_factor`; γ-φ FD check; PyO3 scalar binding + `test_m12_derivatives.py` (batch binding optional)
+- [x] **T/P-generic §L core** — `mixture_params<D>` / `ln_phi_all_generic<D>` / `three_param_uw<D>` / `pure_params<D>` + activity `ge_terms` (`ln_gamma_all_generic`, `wilson_lambda`) take `t: D, p: D`; new `eos::alpha_generic<D>` + `eos_dimensionless_generic<D>` propagate duals through α(Tr); scalar path proven unchanged (equivalence tests). *Breaking public-signature change → 0.9.0*
+- [x] **`d_ln_phi_d_t` / `d_ln_phi_d_p`** — **dual-universal** (exact for every EOS×rule, ≈2× a scalar call); analytic 2-param fast-path deferred (DERIVATIVE_RELEASE_PLAN.md §7)
+- [x] **`k_values_with_derivs`** — `KValueDerivs {k, d_ln_k_d_t, d_ln_k_d_p}`; φ-φ = L−V difference; γ-φ term-by-term (∂lnγ/∂T dual, `d_psat_dt`, φˢᵃᵗ(T) chain, Poynting T/P, −1/P); K field bit-identical to `k_values`; ideal-gas + cubic vapor
+- [x] **Tests + bindings** — `_fd` oracles (fugacity + K, φ-φ and γ-φ); Gibbs–Helmholtz + volumetric invariants — **surfaced a pre-existing Wong-Sandler departure-enthalpy bug** (`t_dln_a_dt_mix`, tracked in DERIVATIVE_RELEASE_PLAN.md §7); PyO3 `System.d_ln_phi_d_t/_d_p/k_values_with_derivs` + wrappers + `test_m12_derivatives.py`
 
-### Milestone 12.4 — Real Cp, Partial Molar Enthalpy & γ-φ Phase Enthalpy (~6–9h)
+### Milestone 12.4 — Real Cp, Partial Molar Enthalpy & γ-φ Phase Enthalpy (~6–9h) — **Done**
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
-- [ ] **`partial_molar_enthalpy`** (~1–1.5h) — `H̄ᵢ = h°ᵢ(T) − RT²·∂lnφ̂ᵢ/∂T` (pure identity over 12.3); Euler test `Σxᵢ·H̄ᵢ = H`
-- [ ] **`phase_cp`** (~2–3h) — ideal Σxᵢ·Cp°ᵢ + Cp^R via `Dual2_64` through the T-generic core (**verify num-dual 0.11 second-order support first**; fallback: analytic d²α/dTr² for the classical branch); FD-of-analytic-H oracle + ideal-gas limit test
-- [ ] **γ-φ `phase_enthalpy_entropy` (SystemSpec-level)** (~2–3h) — φ-φ delegates to `energy::`; γ-φ liquid = ideal + Clausius–Clapeyron condensation from `d_psat_dt` (Ref (4), `TERMOIII.PAS:283/294` — read the legacy source first) + `excess_h_s`; one reference-state convention across both branches, asserted by an ideal-system agreement test; pinned methanol/water van Laar liquid-H value
-- [ ] **Bindings** (~1h) — `System.phase_cp`, `System.partial_molar_enthalpy`; route `System.enthalpy_entropy` through the new dispatch (audit + document current γ-φ behavior); wheel tests
+- [x] **`partial_molar_enthalpy`** — `H̄ᵢ = h°ᵢ(T) − RT²·∂lnφ̂ᵢ/∂T` (pure identity over 12.3); Euler test `Σxᵢ·H̄ᵢ = H` (classical + MHV1)
+- [x] **`phase_cp`** — Σxᵢ·Cp°ᵢ + Cp^R via `Dual2_64` through the T-generic core (`mixture::residual_cp`; num-dual 0.11 second-order verified working under rust 1.85 — no fallback needed); FD-of-analytic-H oracle + ideal-gas limit test
+- [x] **γ-φ `phase_enthalpy_entropy` (SystemSpec-level)** — φ-φ / vapor delegate to `energy::`; γ-φ liquid = ideal − Clausius–Clapeyron condensation `ΔH_vap,ᵢ = RT²·(dPsatᵢ/dT)/Psatᵢ` (Ref (4), `TERMOIII.PAS:283/294`) + `excess_h_s`; hand-assembled methanol/water van Laar liquid-H test
+- [x] **Bindings** — `System.phase_cp`, `System.partial_molar_enthalpy` + wrappers; **routed `System.enthalpy_entropy` through the new dispatch** (γ-φ systems now return a value instead of erroring — documented behavior change); `test_m12_energy.py`
 
-### Milestone 12.5 — Notebook, Benches & v0.9.0 Release (~3–5h)
+### Milestone 12.5 — Notebook, Benches & v0.9.0 Release (~3–5h) — **Done**
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
-- [ ] **Milestone notebook** (~2–3h) — `notebooks/11_derivatives_and_database.ipynb` via `scripts/build_notebook_m12.py`, per CLAUDE.md *Notebook Conventions* (setup cell, Chapter II §2.3 context, DB tour, K(T) tangent plot, Cp vs T, Euler assertion cell, ≥2 exercises with collapsed solutions); executes top-to-bottom in a fresh kernel
-- [ ] **Benches** (~0.5h) — `k_values_with_derivs` vs `k_values` (analytic ≤1.5×, dual ≤2.5×), `phase_cp` in `engine/benches/engine_bench.rs`
-- [ ] **Doc sync + release** (~1h) — full CLAUDE.md pre-push list; `python/README.md` snippets run against the 0.9.0 wheel and `engine/README.md` snippets compile before tagging (immutable-per-version rule); `deploy/NOTEBOOKS.md` row; bump to **0.9.0**, tag
+- [x] **Milestone notebook** — `notebooks/11_derivatives_and_database.ipynb` via `scripts/build_notebook_m12.py`, per CLAUDE.md *Notebook Conventions* (setup cell, Chapter II §2.3 context, DB tour, K(T) tangent plot, Cp vs T, Euler assertion, 2 exercises with collapsed solutions); executes top-to-bottom in a fresh kernel (21 cells)
+- [x] **Benches** — `k_values` vs `k_values_with_derivs` (measured ~3.5×: computes k + dT + dP) and `phase_cp` in `engine/benches/engine_bench.rs`
+- [x] **Doc sync + release** — full CLAUDE.md pre-push list; `python/README.md` / `engine/README.md` 0.9.0 API story; `deploy/NOTEBOOKS.md` row; bump to **0.9.0** (tag pending YubiKey release)
 
 ---
 
@@ -348,7 +352,7 @@ Opus 4.8); 12.3–12.5 not started.
 | 9. Flash & Regression | ~44–62h | **Done** (all algorithms + bindings + tests + Ch. IV validation + notebooks 04–09; shipped in v0.8.0) |
 | 10. Python Bindings, Wrapper & Batch API | ~25–36h | **Done** (System wrapper + batch API + component DB + plots + tests + intro notebook; external thermo/CoolProp bench deferred; shipped in v0.8.0) |
 | 11. Chapter IV Walkthrough | ~5–8h | **Done** (walkthrough notebook 10 + all 15 notebooks re-verified + catalogue complete; shipped in v0.8.0) |
-| 12. Downstream Derivative & Database Release | ~25–38h | **In progress** — M12.1 done (v0.8.2: 24-compound DB + Cp), M12.2 done (Rust-side `component-db` DB); M12.3–12.5 pending (v0.9.0) |
+| 12. Downstream Derivative & Database Release | ~25–38h | **Done** — M12.1 (v0.8.2: 24-compound DB + Cp), M12.2 (Rust-side `component-db` DB), M12.3 (T/P derivatives of fugacity + K), M12.4 (real Cp + partial molar H + γ-φ enthalpy), M12.5 (notebook 11 + benches); **v0.9.0** (tag pending YubiKey release) |
 | **Total** | **~262–364h** | |
 
 Each active milestone's total now includes: milestone notebook (~2–4h) + notebook-catalogue update (~0.3h). Deploying to the hosted hub is a separate operator-side step in a private operator repository, not counted here.

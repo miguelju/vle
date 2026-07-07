@@ -305,17 +305,40 @@ pub fn ln_gamma_all(
 
 use num_dual::DualNum;
 
-/// ln(γᵢ) for all components, generic over the scalar type of `x`.
+/// Wilson Λᵢⱼ generic over the scalar type, so a dual seeded on temperature
+/// (M12.3) propagates the exact ∂Λᵢⱼ/∂T. Λᵢⱼ = (vⱼ/vᵢ)·exp(−aᵢⱼ/(R·T)); the
+/// diagonal is 1 (a constant, zero derivative). `t` in **K**.
+fn wilson_lambda_generic<D: DualNum<f64> + Copy>(
+    i: usize,
+    j: usize,
+    aij: &[Vec<f64>],
+    vl: &[f64],
+    t: D,
+) -> D {
+    if i == j {
+        D::from(1.0)
+    } else {
+        // exp(−aᵢⱼ/(R·T)) with T dual: (t·R).recip()·(−aᵢⱼ) inside exp.
+        ((t * R_GAS).recip() * (-aij[i][j])).exp() * (vl[j] / vl[i])
+    }
+}
+
+/// ln(γᵢ) for all components, generic over the scalar type of `x` **and**
+/// temperature.
 ///
 /// Same models/units as [`ln_gamma`]; writes into `out` (length n).
-/// With `D = f64` this is equivalent to [`ln_gamma_all`].
+/// With `D = f64` this is equivalent to [`ln_gamma_all`]. Making `temperature`
+/// generic (M12.3) lets a dual seeded on T flow through the T-dependent models
+/// (Wilson's Λᵢⱼ(T), Scatchard's 1/RT) so the mixture T-derivative dual path
+/// gets exact ∂lnγᵢ/∂T; the T-independent models (Van Laar, Margules, Ideal)
+/// simply ignore the parameter.
 pub fn ln_gamma_all_generic<D: DualNum<f64> + Copy>(
     model: ActivityModel,
     x: &[D],
     aij: &[Vec<f64>],
     vl: &[f64],
     delta: &[f64],
-    temperature: f64,
+    temperature: D,
     out: &mut [D],
 ) {
     let n = x.len();
@@ -337,7 +360,8 @@ pub fn ln_gamma_all_generic<D: DualNum<f64> + Copy>(
             let delta_mix = num / v_tot;
             for i in 0..n {
                 let d = -delta_mix + delta[i];
-                out[i] = d * d * (vl[i] / (R_CAL * temperature));
+                // vᵢ/(R_cal·T) with T dual: (T·R_cal).recip()·vᵢ.
+                out[i] = d * d * ((temperature * R_CAL).recip() * vl[i]);
             }
         }
 
@@ -375,14 +399,14 @@ pub fn ln_gamma_all_generic<D: DualNum<f64> + Copy>(
             for k in 0..n {
                 let mut acc = D::from(0.0);
                 for j in 0..n {
-                    acc += x[j] * wilson_lambda(k, j, aij, vl, temperature);
+                    acc += x[j] * wilson_lambda_generic(k, j, aij, vl, temperature);
                 }
                 s[k] = acc;
             }
             for i in 0..n {
                 let mut nested = D::from(0.0);
                 for k in 0..n {
-                    nested += x[k] * wilson_lambda(k, i, aij, vl, temperature) / s[k];
+                    nested += x[k] * wilson_lambda_generic(k, i, aij, vl, temperature) / s[k];
                 }
                 out[i] = -s[i].ln() - nested + 1.0;
             }
@@ -399,7 +423,7 @@ pub fn excess_gibbs_rt_generic<D: DualNum<f64> + Copy>(
     aij: &[Vec<f64>],
     vl: &[f64],
     delta: &[f64],
-    temperature: f64,
+    temperature: D,
 ) -> D {
     let n = x.len();
     let mut lng: smallvec::SmallVec<[D; 8]> = smallvec::smallvec![D::from(0.0); n];
