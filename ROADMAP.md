@@ -301,7 +301,7 @@ Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERF
 - [x] Update the notebook catalogue (`deploy/NOTEBOOKS.md`) — marked the 15-notebook collection complete; rebuilt `notebooks/index.ipynb`
 
 ## Milestone 12: Downstream Derivative & Database Release (vle-thermo 0.9.x) — **done**
-**Goal**: Close the five upstream gaps identified by `stages-thermo` (the planned staged-separation library — the first downstream consumer of the published crate/wheel): expanded component database with ideal-gas Cp coefficients, a Rust-side component database, analytic/dual T and P derivatives of fugacity and K-values, real-mixture heat capacity + partial molar enthalpy, and a packaged γ-φ phase enthalpy. **All five closed** — M12.1 shipped in v0.8.2; M12.2–12.5 land in v0.9.0 (tag pending YubiKey release).
+**Goal**: Close the five upstream gaps identified by `stages-thermo` (the planned staged-separation library — the first downstream consumer of the published crate/wheel): expanded component database with ideal-gas Cp coefficients, a Rust-side component database, analytic/dual T and P derivatives of fugacity and K-values, real-mixture heat capacity + partial molar enthalpy, and a packaged γ-φ phase enthalpy. **All five closed** — M12.1 shipped in v0.8.2; M12.2–12.5 shipped in v0.9.0 (both tagged 2026-07-06). **v0.9.1** (2026-07-06) is a follow-up patch fixing the Wong-Sandler departure-enthalpy `db/dT` bug the M12.3 Gibbs–Helmholtz invariant surfaced (DERIVATIVE_RELEASE_PLAN.md §7).
 *Phase 19 of MODERNIZATION_PLAN.md*
 
 Full technical detail, current-state audit, and design decisions live in
@@ -318,7 +318,7 @@ core). Execution order 12.1 → 12.5; 12.4 depends on 12.3.
 - [x] Thread `cp_coeffs` Python → engine: `vle.components.Component` dataclass + `vle.System` → `_engine.System(cp_coeffs=...)` (fixes the silent-zero ideal-Cp bug for DB-built systems)
 - [x] Extend the `vle-db` static SQLite seed to the same 24 compounds (`seed_chapter4.sql`)
 - [x] Tests (`python/tests/test_components_cp.py`): `psat(tb) ≈ 101.325 kPa` per compound (1% new / 5% legacy); pinned literature Cp°(298.15 K) per compound (±1%); benzene–toluene bubble-T smoke; nonzero-ideal-Cp regression test — full suite 413 passed, 1 skipped
-- [x] Docs (parameter reference Cp°/R section, README/SETUP/package-README compound counts) + bump to **0.8.2** (tag pending YubiKey release)
+- [x] Docs (parameter reference Cp°/R section, README/SETUP/package-README compound counts) + bump to **0.8.2** (shipped 2026-07-06)
 
 ### Milestone 12.2 — Rust-Side Component Database — **done**
 *Executed by Claude Code using Claude Opus 4.8 (1M context)*
@@ -351,7 +351,7 @@ core). Execution order 12.1 → 12.5; 12.4 depends on 12.3.
 
 - [x] Created milestone notebook `notebooks/11_derivatives_and_database.ipynb` (build script `scripts/build_notebook_m12.py`) per CLAUDE.md *Notebook Conventions* — DB tour, K(T) tangent plot, mixture Cp, partial-molar Euler assertion, 2 exercises with collapsed solutions; executes top-to-bottom (21 cells)
 - [x] Extended criterion benches: `k_values` vs `k_values_with_derivs` (measured ~3.5×, computing k + dT + dP) and `phase_cp` in `engine/benches/engine_bench.rs`
-- [x] Full doc sync (README, package READMEs, `deploy/NOTEBOOKS.md`, parameter reference) + bump to **0.9.0** (tag pending YubiKey release)
+- [x] Full doc sync (README, package READMEs, `deploy/NOTEBOOKS.md`, parameter reference) + bump to **0.9.0** (shipped 2026-07-06)
 
 ---
 

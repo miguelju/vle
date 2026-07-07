@@ -680,15 +680,16 @@ Code using Claude Fable 5 for execution by Claude Opus 4.8.*
 
 **Status (2026-07-06):** all five sub-milestones **complete**. M12.1 (component
 DB → 24 compounds + ideal-gas Cp°/R, threaded Python → engine) shipped in
-**v0.8.2**. M12.2–12.5 land in **v0.9.0** (tag pending YubiKey release): the
+**v0.8.2**. M12.2–12.5 shipped in **v0.9.0**: the
 Rust-side `component-db` database; the T/P-generic fugacity core with exact
 dual-number `d_ln_phi_d_t`/`_d_p` and `k_values_with_derivs`; real-mixture
 `phase_cp` (second-order duals) + `partial_molar_enthalpy` + packaged γ-φ
 `phase_enthalpy_entropy`; and the milestone notebook + benches. One deliberate
 breaking change (the T/P-generic public signatures) motivates the 0.9.0 minor
 bump. The invariant tests surfaced a pre-existing Wong-Sandler departure-enthalpy
-discrepancy in `energy::t_dln_a_dt_mix`, now tracked in
-[DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md) §7 as a follow-up.
+discrepancy, **fixed in the v0.9.1 patch release** (root cause was a missing
+co-volume `db/dT` term in `energy::h_departure_rt_mix`, not the suspected
+`t_dln_a_dt_mix` — see [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md) §7).
 
 The first downstream consumer of the published `vle-thermo` crate/wheel — the
 planned `stages-thermo` staged-separation (distillation) library — audited the

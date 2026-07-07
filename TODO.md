@@ -293,7 +293,9 @@ downstream consumer). Full technical spec: [DERIVATIVE_RELEASE_PLAN.md](DERIVATI
 Two releases: **v0.8.2** (12.1 fast-track) then **v0.9.0** (12.2–12.5).
 Total ~25–38h. All sub-milestones **done** 2026-07-05→07-06 (Claude Opus 4.8):
 M12.1 (v0.8.2 data), M12.2–12.5 (v0.9.0 — Rust DB, T/P derivatives, real Cp +
-partial molar H + γ-φ enthalpy, notebook + benches). v0.9.0 tag pending YubiKey.
+partial molar H + γ-φ enthalpy, notebook + benches). Both tags shipped
+2026-07-06. **v0.9.1** (2026-07-06, Claude Fable 5) patched the Wong-Sandler
+departure-enthalpy `db/dT` bug the M12.3 invariant surfaced (plan §7).
 
 ### Milestone 12.1 — Component DB Expansion + Cp Coefficients (→ v0.8.2, ~4–6h) — **Done**
 *Executed by Claude Code using Claude Opus 4.8 (1M context)*
@@ -302,7 +304,7 @@ partial molar H + γ-φ enthalpy, notebook + benches). v0.9.0 tag pending YubiKe
 - [x] **Thread `cp_coeffs` Python → engine** — extended the frozen `vle.components.Component` dataclass (+ `cp_t_range`, `cp_source`) and `_to_component`; `vle.System` now passes `cp_coeffs` into `_engine.System` (fixes silently-zero ideal Cp for DB-built systems)
 - [x] **Extend the `vle-db` static seed** — same 9 compounds in `seed_chapter4.sql`; `vle-db validate chapter4` unaffected
 - [x] **Tests** (`python/tests/test_components_cp.py`) — per-compound `psat(tb)` round-trip (1% new / 5% legacy) + pinned Cp°(298.15 K) literature values (±1%); benzene–toluene bubble-T smoke (355–370 K); nonzero-ideal-Cp regression on `enthalpy_entropy`; `test_db` count 15→24
-- [x] **Docs + version** — parameter reference Cp°/R section, README/SETUP/package-README compound counts; bumped to **0.8.2** (tag pending YubiKey release)
+- [x] **Docs + version** — parameter reference Cp°/R section, README/SETUP/package-README compound counts; bumped to **0.8.2** (shipped 2026-07-06)
 
 ### Milestone 12.2 — Rust-Side Component Database (~4–6h) — **Done**
 *Executed by Claude Code using Claude Opus 4.8 (1M context)*
@@ -332,7 +334,7 @@ partial molar H + γ-φ enthalpy, notebook + benches). v0.9.0 tag pending YubiKe
 
 - [x] **Milestone notebook** — `notebooks/11_derivatives_and_database.ipynb` via `scripts/build_notebook_m12.py`, per CLAUDE.md *Notebook Conventions* (setup cell, Chapter II §2.3 context, DB tour, K(T) tangent plot, Cp vs T, Euler assertion, 2 exercises with collapsed solutions); executes top-to-bottom in a fresh kernel (21 cells)
 - [x] **Benches** — `k_values` vs `k_values_with_derivs` (measured ~3.5×: computes k + dT + dP) and `phase_cp` in `engine/benches/engine_bench.rs`
-- [x] **Doc sync + release** — full CLAUDE.md pre-push list; `python/README.md` / `engine/README.md` 0.9.0 API story; `deploy/NOTEBOOKS.md` row; bump to **0.9.0** (tag pending YubiKey release)
+- [x] **Doc sync + release** — full CLAUDE.md pre-push list; `python/README.md` / `engine/README.md` 0.9.0 API story; `deploy/NOTEBOOKS.md` row; bump to **0.9.0** (shipped 2026-07-06)
 
 ---
 
@@ -352,7 +354,7 @@ partial molar H + γ-φ enthalpy, notebook + benches). v0.9.0 tag pending YubiKe
 | 9. Flash & Regression | ~44–62h | **Done** (all algorithms + bindings + tests + Ch. IV validation + notebooks 04–09; shipped in v0.8.0) |
 | 10. Python Bindings, Wrapper & Batch API | ~25–36h | **Done** (System wrapper + batch API + component DB + plots + tests + intro notebook; external thermo/CoolProp bench deferred; shipped in v0.8.0) |
 | 11. Chapter IV Walkthrough | ~5–8h | **Done** (walkthrough notebook 10 + all 15 notebooks re-verified + catalogue complete; shipped in v0.8.0) |
-| 12. Downstream Derivative & Database Release | ~25–38h | **Done** — M12.1 (v0.8.2: 24-compound DB + Cp), M12.2 (Rust-side `component-db` DB), M12.3 (T/P derivatives of fugacity + K), M12.4 (real Cp + partial molar H + γ-φ enthalpy), M12.5 (notebook 11 + benches); **v0.9.0** (tag pending YubiKey release) |
+| 12. Downstream Derivative & Database Release | ~25–38h | **Done** — M12.1 (v0.8.2: 24-compound DB + Cp), M12.2 (Rust-side `component-db` DB), M12.3 (T/P derivatives of fugacity + K), M12.4 (real Cp + partial molar H + γ-φ enthalpy), M12.5 (notebook 11 + benches); shipped as **v0.9.0**, plus **v0.9.1** patch (WS departure-enthalpy fix) |
 | **Total** | **~262–364h** | |
 
 Each active milestone's total now includes: milestone notebook (~2–4h) + notebook-catalogue update (~0.3h). Deploying to the hosted hub is a separate operator-side step in a private operator repository, not counted here.
