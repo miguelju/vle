@@ -457,22 +457,30 @@ identities — implement via the identities, not new differentiation machinery:
 
 ### Findings surfaced during M12.3
 
-- **Wong-Sandler departure-enthalpy discrepancy (pre-existing, tracked).**
-  M12.3's Gibbs–Helmholtz invariant (`Σxᵢ ∂lnφ̂ᵢ/∂T = −H^R/(RT²)`) holds to
-  machine precision for the classical cubic and the Huron-Vidal / MHV1 / MHV2
-  GE rules, but the **Wong-Sandler** branch of `energy::t_dln_a_dt_mix` (hence
-  `h_departure_rt_mix`) is ~1% inconsistent with the exact `ln φ̂ᵢ(T)` (≈1e-3
-  vapor, ≈1.4e-2 liquid at the tested state). The M12.3 `d_ln_phi_d_t` is the
-  *exact* derivative (dual AD, validated against central-difference FD and
-  against the analytic departure enthalpy for every other rule), so the bug is
-  in the older WS analytic enthalpy path, not the new derivative. It is pinned
-  by `mixture::tests::wong_sandler_departure_enthalpy_discrepancy_is_tracked`
-  and does **not** affect M12.4's `partial_molar_enthalpy`, which is built on
-  the exact `d_ln_phi_d_t` identity rather than `t_dln_a_dt_mix`. **Follow-up:**
-  re-derive the WS `T·dA_mix/dT` (or replace `t_dln_a_dt_mix`'s WS branch with a
-  first-order dual through the T-generic core, now that it exists) and flip the
-  tracking test to assert consistency. Deferred out of M12.3 to avoid perturbing
-  the Chapter IV adiabatic-flash / departure-enthalpy validation mid-milestone.
+- **Wong-Sandler departure-enthalpy discrepancy (pre-existing — FIXED
+  post-M12.5, 2026-07-06).** M12.3's Gibbs–Helmholtz invariant
+  (`Σxᵢ ∂lnφ̂ᵢ/∂T = −H^R/(RT²)`) held to machine precision for the classical
+  cubic and the Huron-Vidal / MHV1 / MHV2 GE rules, but Wong-Sandler's
+  `h_departure_rt_mix` was ~1% inconsistent with the exact `ln φ̂ᵢ(T)` (≈1e-4
+  vapor, ≈1.7e-3 liquid at the tested state). **Root cause** (not the one
+  originally suspected): `t_dln_a_dt_mix`'s WS branch was *correct* — its
+  `T·d(ln A_mix)/dT` matches both the FD oracle and a dual-AD sweep of
+  `mixture_params` to machine precision. The bug was in the **departure-
+  enthalpy formula itself**, which assumed `T·d(ln B_mix)/dT = −1` (i.e. a
+  T-independent dimensional co-volume). That holds for every linear-b rule,
+  but WS's `b_mix = Q̃(T)/(1−D̃(T))` drifts with temperature, so the formula
+  silently dropped the `db/dT` term. **Fix:** `t_dln_ab_dt_mix` now also
+  returns `T·d(ln B_mix)/dT` (analytic; `−1` for all rules except WS), and
+  `h_departure_rt_mix` applies the correction
+  `−δ·[(Z−1) + A·Ĩ]` with `δ = T·d(ln b_mix)/dT`, using the EOS-root identity
+  `B/(Z−B) − A·B·∂Ĩ/∂B = (Z−1) + A·Ĩ` to avoid per-(U,W)-branch `∂Ĩ/∂B`
+  algebra. The Gibbs–Helmholtz identity now holds to ~1e-15 for **all** rules
+  including WS; the tracking test flipped to the regression test
+  `mixture::tests::wong_sandler_departure_enthalpy_matches_gibbs_helmholtz`,
+  and `gibbs_helmholtz_identity_vs_departure_enthalpy` covers WS too.
+  `s_departure_r_mix` (H − G) inherits the fix; Chapter IV validation
+  (classical rules, δ = 0 exactly) is untouched. M12.4's
+  `partial_molar_enthalpy` was never affected (built on `d_ln_phi_d_t`).
 
 ### Deferred within M12.3 (implementer's-choice latitude in §4)
 

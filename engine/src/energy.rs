@@ -169,12 +169,19 @@ pub fn ideal_entropy_mix(
 /// Generalized-cubic form (Müller (9), reducing to the pure expression at
 /// x = [1]):
 /// ```text
-///   H^R/(RT) = (Z − 1) + A_mix·Ĩ·(τ − 1),   τ = T·(dA_mix/dT)/A_mix
+///   H^R/(RT) = (Z − 1) + A_mix·Ĩ·(τ + 1) − δ·[(Z − 1) + A_mix·Ĩ]
+///   τ = T·d(ln A_mix)/dT,   δ = T·d(ln b_mix)/dT = T·d(ln B_mix)/dT + 1
 /// ```
-/// with `A_mix·Ĩ` the attractive term and `τ` the analytic temperature
-/// derivative built by [`t_dln_a_dt_mix`]. Written via the total residual
-/// Gibbs energy `G^R/(RT) = Σ xᵢ ln φ̂ᵢ` so the entropy follows from
-/// Lewis-Randall without a separate B-derivative.
+/// with `A_mix·Ĩ` the attractive term and (τ, δ) the analytic temperature
+/// derivatives built by [`t_dln_ab_dt_mix`]. The `δ` term is the
+/// **T-dependent co-volume correction**: every classical/GE rule mixes
+/// `b` linearly in T-independent `bᵢ` (δ = 0 and the term vanishes), but
+/// Wong-Sandler's `b_mix = Q(T)/(1−D(T))` varies with temperature, and
+/// dropping its `db/dT` contribution was exactly the ~1% Gibbs–Helmholtz
+/// inconsistency that DERIVATIVE_RELEASE_PLAN.md §7 tracked. The correction
+/// uses the EOS-root identity `B/(Z−B) − A·B·∂Ĩ/∂B = (Z−1) + A·Ĩ`, which
+/// collapses the extra `∂/∂B` terms of `−T·d(G^R/RT)/dT` into the value-path
+/// quantities already at hand — no per-(U,W)-branch `∂Ĩ/∂B` needed.
 ///
 /// # Errors
 /// Propagates [`MixError`] from the mixture layer (bad combination,
@@ -187,10 +194,13 @@ pub fn h_departure_rt_mix(
     phase: PhaseId,
 ) -> Result<f64, MixError> {
     let (a_mix, itilde, z) = mix_attractive_pieces(spec, t, p, x, phase)?;
-    // τ − 1 where τ = T·(dA_mix/dT)/A_mix + 2 (the +2 is a_mix ∝ A_mix·T²);
-    // equivalently H = (Z−1) + A·Ĩ·(t_dln_A + 1), t_dln_A = T·dln A_mix/dT.
-    let t_dln_a = t_dln_a_dt_mix(spec, t, p, x)?;
-    Ok((z - 1.0) + a_mix * itilde * (t_dln_a + 1.0))
+    // τ + 1 = T·dln a_mix/dT − 1 (dimensional a ∝ A·T² at constant P): the
+    // familiar (T·da/dT − a)/a factor of the standard departure enthalpy.
+    let (t_dln_a, t_dln_b) = t_dln_ab_dt_mix(spec, t, p, x)?;
+    let attractive = a_mix * itilde;
+    // δ = T·dln b_mix/dT — zero for every rule except Wong-Sandler.
+    let delta = t_dln_b + 1.0;
+    Ok((z - 1.0) + attractive * (t_dln_a + 1.0) - delta * ((z - 1.0) + attractive))
 }
 
 /// Dimensionless residual (departure) entropy `S^R/R` of a mixture from the
@@ -240,10 +250,26 @@ fn mix_attractive_pieces(
 /// `T·d(ln A_mix)/dT` (dimensionless) — the analytic logarithmic
 /// temperature derivative of the mixture attractive parameter, per rule.
 ///
+/// Thin wrapper over [`t_dln_ab_dt_mix`] that discards the co-volume
+/// derivative, kept for callers that only need the attractive part.
+pub fn t_dln_a_dt_mix(spec: &MixtureSpec, t: f64, p: f64, x: &[f64]) -> Result<f64, MixError> {
+    Ok(t_dln_ab_dt_mix(spec, t, p, x)?.0)
+}
+
+/// `(T·d(ln A_mix)/dT, T·d(ln B_mix)/dT)` (both dimensionless) — the analytic
+/// logarithmic temperature derivatives of the mixture EOS parameters, per rule.
+///
 /// Building blocks (all analytic): per component
 /// `T·d(ln Aᵢ)/dT = Tr·(dαᵢ/dTr)/αᵢ − 2` and `T·d(ln Bᵢ)/dT = −1`; for the
 /// GE-based rules `T·d(Gᴱ/RT)/dT = −Hᴱ/(RT)` (from `Hᴱ = Gᴱ − T dGᴱ/dT`).
-pub fn t_dln_a_dt_mix(spec: &MixtureSpec, t: f64, p: f64, x: &[f64]) -> Result<f64, MixError> {
+///
+/// The B-derivative is `−1` exactly for every rule whose dimensional
+/// co-volume `b_mix = Σ xᵢbᵢ` is temperature-independent (B = bP/RT then
+/// carries only the 1/T scaling). **Wong-Sandler is the exception**: its
+/// `b_mix = Q(T)/(1−D(T))` inherits T-dependence from both the (Bᵢ−Aᵢ)
+/// cross terms and the Gᴱ/RT term, so `T·d(ln B_mix)/dT ≠ −1` — the extra
+/// piece feeds the departure-enthalpy correction in [`h_departure_rt_mix`].
+fn t_dln_ab_dt_mix(spec: &MixtureSpec, t: f64, p: f64, x: &[f64]) -> Result<(f64, f64), MixError> {
     let n = x.len();
     // Per-component dimensionless Aᵢ, Bᵢ and their T·d(ln·)/dT factors.
     let mut ai = vec![0.0; n];
@@ -266,8 +292,11 @@ pub fn t_dln_a_dt_mix(spec: &MixtureSpec, t: f64, p: f64, x: &[f64]) -> Result<f
         }
     };
 
-    // T·dA_mix/dT (dimensionless), then divide by A_mix at the end.
-    let (a_mix, t_da_mix): (f64, f64) = match spec.rule {
+    // T·dA_mix/dT (dimensionless) plus T·d(ln B_mix)/dT, then divide the
+    // former by A_mix at the end. The B-derivative is the exact −1 for every
+    // rule with a T-independent dimensional co-volume; only Wong-Sandler
+    // computes it.
+    let (a_mix, t_da_mix, t_dln_b): (f64, f64, f64) = match spec.rule {
         // Classical quadratic families: A = ΣΣ xᵢxⱼ(1−kmᵢⱼ)√(AᵢAⱼ), with
         // kmᵢⱼ = kᵢⱼ (Classical/IVDW) or the composition-weighted km (IIVDW).
         // Only Aᵢ(T) carries T-dependence, so
@@ -289,7 +318,7 @@ pub fn t_dln_a_dt_mix(spec: &MixtureSpec, t: f64, p: f64, x: &[f64]) -> Result<f
                     t_da += xx * aij * 0.5 * (t_dln_ai[i] + t_dln_ai[j]);
                 }
             }
-            (a_mix, t_da)
+            (a_mix, t_da, -1.0)
         }
 
         // GE-based rules: A_mix = B·α_mix. B = Σxᵢ Bᵢ (linear), so
@@ -329,7 +358,7 @@ pub fn t_dln_a_dt_mix(spec: &MixtureSpec, t: f64, p: f64, x: &[f64]) -> Result<f
                     let t_dalpha_mix = t_dalpha_sum + t_dg_rt / c;
                     let a_mix = b * alpha_mix;
                     // T·dA/dT = T dB/dT·α + B·T dα/dT.
-                    (a_mix, t_db * alpha_mix + b * t_dalpha_mix)
+                    (a_mix, t_db * alpha_mix + b * t_dalpha_mix, -1.0)
                 }
                 MixingRule::HuronVidalSimplified | MixingRule::MHV1 => {
                     let c = if spec.rule == MixingRule::MHV1 {
@@ -342,7 +371,7 @@ pub fn t_dln_a_dt_mix(spec: &MixtureSpec, t: f64, p: f64, x: &[f64]) -> Result<f
                     // b-log term T-derivative is 0 (see above).
                     let t_dalpha_mix = t_dalpha_sum + t_dg_rt / c;
                     let a_mix = b * alpha_mix;
-                    (a_mix, t_db * alpha_mix + b * t_dalpha_mix)
+                    (a_mix, t_db * alpha_mix + b * t_dalpha_mix, -1.0)
                 }
                 MixingRule::MHV2 => {
                     // q₂α² + q₁α = Σxᵢ(q₁αᵢ+q₂αᵢ²) + Gᴱ/RT + Σxᵢln(B/Bᵢ).
@@ -368,7 +397,7 @@ pub fn t_dln_a_dt_mix(spec: &MixtureSpec, t: f64, p: f64, x: &[f64]) -> Result<f
                     }
                     let t_dalpha_mix = t_drhs / (q1 + 2.0 * q2 * alpha_mix);
                     let a_mix = b * alpha_mix;
-                    (a_mix, t_db * alpha_mix + b * t_dalpha_mix)
+                    (a_mix, t_db * alpha_mix + b * t_dalpha_mix, -1.0)
                 }
                 _ => unreachable!(),
             }
@@ -413,8 +442,12 @@ pub fn t_dln_a_dt_mix(spec: &MixtureSpec, t: f64, p: f64, x: &[f64]) -> Result<f
             // T·dB/dT = [T dQ·(1−D) + Q·T dD]/(1−D)².
             let t_db = (t_dq * one_minus_d + q * t_dd) / (one_minus_d * one_minus_d);
             let a_mix = b * d;
+            // Unlike every other rule, B_mix here is NOT ∝ 1/T: the
+            // dimensional b_mix = Q̃(T)/(1−D̃(T)) drifts with temperature,
+            // so report the true T·d(ln B_mix)/dT instead of −1.
+            let t_dln_b = if b.abs() < 1e-300 { -1.0 } else { t_db / b };
             // T·dA/dT = T dB·D + B·T dD.
-            (a_mix, t_db * d + b * t_dd)
+            (a_mix, t_db * d + b * t_dd, t_dln_b)
         }
 
         MixingRule::PatelTejaC | MixingRule::PatelTejaUSBC | MixingRule::SchmidtWenzelC => {
@@ -425,9 +458,9 @@ pub fn t_dln_a_dt_mix(spec: &MixtureSpec, t: f64, p: f64, x: &[f64]) -> Result<f
     };
 
     if a_mix.abs() < 1e-300 {
-        return Ok(0.0);
+        return Ok((0.0, t_dln_b));
     }
-    Ok(t_da_mix / a_mix)
+    Ok((t_da_mix / a_mix, t_dln_b))
 }
 
 /// Dimensionless excess Gibbs energy Gᴱ/(R·T) for the coupled activity
@@ -691,6 +724,20 @@ mod tests {
         t * (ap.ln() - am.ln()) / (2.0 * h)
     }
 
+    /// Central-difference oracle for T·d(ln B_mix)/dT (test-only). Equals −1
+    /// exactly for every rule except Wong-Sandler, whose dimensional b_mix
+    /// depends on T.
+    fn t_dln_b_fd(spec: &MixtureSpec, t: f64, p: f64, x: &[f64]) -> f64 {
+        let h = t * 1e-6;
+        let b = |tt: f64| {
+            crate::mixture::mixture_params::<f64>(spec, tt, p, x)
+                .unwrap()
+                .big_b
+        };
+        let (bp, bm) = (b(t + h), b(t - h));
+        t * (bp.ln() - bm.ln()) / (2.0 * h)
+    }
+
     #[test]
     fn analytic_t_derivative_matches_oracle_classical_and_3param() {
         let comps = vec![methane(), n_pentane()];
@@ -749,12 +796,27 @@ mod tests {
                 kij: &kij2(0.05),
                 ge: Some(ge),
             };
-            let analytic = t_dln_a_dt_mix(&spec, 400.0, 800.0, &x).unwrap();
+            let (analytic, analytic_b) = t_dln_ab_dt_mix(&spec, 400.0, 800.0, &x).unwrap();
             let oracle = t_dln_a_fd(&spec, 400.0, 800.0, &x);
             assert!(
                 (analytic - oracle).abs() < 1e-5 * oracle.abs().max(1.0),
                 "{rule:?}: analytic {analytic} vs oracle {oracle}"
             );
+            // The co-volume derivative: −1 for the linear-b rules, the full
+            // Q(T)/(1−D(T)) chain for Wong-Sandler.
+            let oracle_b = t_dln_b_fd(&spec, 400.0, 800.0, &x);
+            assert!(
+                (analytic_b - oracle_b).abs() < 1e-5,
+                "{rule:?}: analytic T dlnB {analytic_b} vs oracle {oracle_b}"
+            );
+            if rule == MixingRule::WongSandler {
+                assert!(
+                    (analytic_b + 1.0).abs() > 1e-4,
+                    "WS T dlnB should differ from −1 (b_mix depends on T), got {analytic_b}"
+                );
+            } else {
+                assert_eq!(analytic_b, -1.0, "{rule:?} has T-independent b_mix");
+            }
         }
     }
 
@@ -1000,7 +1062,6 @@ mod tests {
         // entry point (needs a SystemSpec).
         use crate::eos::{LiquidModel, VaporModel};
         use crate::flash::{SystemSpec, phase_enthalpy_entropy as sys_hs};
-        let comps = [methanol(), water()];
         let aij = vec![vec![0.0, 0.847], vec![0.522, 0.0]];
         let vl = [40.7, 18.07];
         // methanol/water need psat coeffs for the condensation term.
@@ -1009,7 +1070,6 @@ mod tests {
         let mut b = water();
         b.psat_coeffs = vec![5.11, 3800.0, -46.0];
         let comps = [a, b];
-        let _ = &comps;
         let spec = SystemSpec {
             components: &comps,
             vapor: VaporModel::IdealGas,

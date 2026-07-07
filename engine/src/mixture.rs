@@ -1807,18 +1807,15 @@ mod tests {
         // An independent cross-check of `d_ln_phi_d_t`: the composition-summed
         // T-derivative must equal −H^R/(RT²) from the separately-derived
         // analytic departure enthalpy (`h_departure_rt_mix`, which does NOT go
-        // through the dual path). Covers the classical cubic and the Huron-
-        // Vidal / MHV GE-rule branches, where both sides agree to machine
-        // precision — a strong end-to-end validation.
+        // through the dual path). Covers the classical cubic and every GE
+        // rule, Wong-Sandler included, all to machine precision — a strong
+        // end-to-end validation.
         //
-        // Wong-Sandler is deliberately excluded here: its dual T-derivative is
-        // correct (it matches central-difference FD in
-        // `dlnphi_dt_dp_match_fd_across_matrix`, and the other GE rules match
-        // the departure enthalpy exactly), but the WONG-SANDLER branch of the
-        // pre-existing `t_dln_a_dt_mix` disagrees by ~1% — a latent departure-
-        // enthalpy bug this invariant surfaced. It is tracked as a follow-up in
-        // DERIVATIVE_RELEASE_PLAN.md §7 and asserted (as a known gap) in
-        // `wong_sandler_departure_enthalpy_discrepancy_is_tracked` below.
+        // Wong-Sandler originally failed this invariant by ~1%: the departure
+        // enthalpy dropped the T·d(ln b_mix)/dT term (WS is the only rule
+        // whose dimensional co-volume depends on T). Fixed via the δ
+        // correction in `h_departure_rt_mix`; the WS-focused regression test
+        // is `wong_sandler_departure_enthalpy_matches_gibbs_helmholtz` below.
         let fx = Fixture::pr_classical();
         let comps = vec![methanol(), water()];
         let aij = van_laar_aij();
@@ -1831,12 +1828,7 @@ mod tests {
         };
         let kij_ge = kij2(0.05);
         let mut specs = vec![fx.spec(MixingRule::Classical)];
-        for rule in [
-            MixingRule::HuronVidalOriginal,
-            MixingRule::HuronVidalSimplified,
-            MixingRule::MHV1,
-            MixingRule::MHV2,
-        ] {
+        for rule in GE_RULES {
             specs.push(MixtureSpec {
                 eos: CubicEos::PR1976,
                 rule,
@@ -1908,14 +1900,18 @@ mod tests {
     }
 
     #[test]
-    fn wong_sandler_departure_enthalpy_discrepancy_is_tracked() {
-        // Documents a PRE-EXISTING latent bug that M12.3's Gibbs–Helmholtz
-        // invariant surfaced: for Wong-Sandler, the analytic departure enthalpy
-        // `h_departure_rt_mix` (via `t_dln_a_dt_mix`'s WS branch) is ~1%
-        // inconsistent with the exact ln φ̂ᵢ(T). The EXACT T-derivative is
-        // `d_ln_phi_d_t` (dual AD), validated against FD elsewhere; this test
-        // pins the size of the gap so a future fix to the WS departure enthalpy
-        // trips here and can flip the assertion to "now consistent".
+    fn wong_sandler_departure_enthalpy_matches_gibbs_helmholtz() {
+        // Regression test for a fixed latent bug that M12.3's Gibbs–Helmholtz
+        // invariant surfaced (DERIVATIVE_RELEASE_PLAN.md §7): for Wong-Sandler
+        // the analytic departure enthalpy `h_departure_rt_mix` was ~1%
+        // inconsistent with the exact ln φ̂ᵢ(T). Root cause: WS is the only
+        // mixing rule whose dimensional co-volume b_mix = Q̃(T)/(1−D̃(T))
+        // depends on temperature, and the enthalpy formula assumed
+        // T·d(ln B)/dT = −1 (constant b), silently dropping the db/dT term.
+        // `t_dln_a_dt_mix`'s WS branch was never wrong — its T·d(ln A)/dT
+        // matches the FD oracle in `analytic_t_derivative_matches_oracle_ge_
+        // rules`. The fix adds the δ = T·d(ln b_mix)/dT correction term in
+        // `h_departure_rt_mix`; both sides now agree to machine precision.
         let comps = vec![methanol(), water()];
         let aij = van_laar_aij();
         let vl = [40.7, 18.07];
@@ -1934,16 +1930,16 @@ mod tests {
             ge: Some(ge),
         };
         let (t, p, x) = (360.0, 1500.0, [0.4, 0.6]);
-        let dt = d_ln_phi_d_t(&spec, t, p, &x, PhaseId::Liquid).unwrap();
-        let sum_dt: f64 = (0..2).map(|i| x[i] * dt[i]).sum();
-        let gh = -crate::energy::h_departure_rt_mix(&spec, t, p, &x, PhaseId::Liquid).unwrap() / t;
-        let reldiff = ((sum_dt - gh) / gh.abs()).abs();
-        // Known gap: between 1e-3 and 1e-1 today. When the WS departure
-        // enthalpy is fixed this drops to ~1e-14 and the upper bound trips.
-        assert!(
-            (1e-3..1e-1).contains(&reldiff),
-            "WS Gibbs–Helmholtz gap changed: reldiff={reldiff:.2e} (dual={sum_dt}, gh={gh}). \
-             If this is now ~1e-14, the WS departure-enthalpy bug is fixed — update this test."
-        );
+        for phase in [PhaseId::Vapor, PhaseId::Liquid] {
+            let dt = d_ln_phi_d_t(&spec, t, p, &x, phase).unwrap();
+            let sum_dt: f64 = (0..2).map(|i| x[i] * dt[i]).sum();
+            let gh = -crate::energy::h_departure_rt_mix(&spec, t, p, &x, phase).unwrap() / t;
+            let reldiff = ((sum_dt - gh) / gh.abs()).abs();
+            assert!(
+                reldiff < 1e-12,
+                "WS {phase:?} Gibbs–Helmholtz inconsistency returned: \
+                 reldiff={reldiff:.2e} (dual={sum_dt}, gh={gh})"
+            );
+        }
     }
 }
