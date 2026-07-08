@@ -132,13 +132,43 @@ No API token needed thereafter.
 
 ### crates.io token (still token-based as of this writing)
 1. Create a token at <https://crates.io/settings/tokens> scoped to
-   `publish-new` + `publish-update` for `vle-thermo` and `vle-units`.
+   `publish-new` + `publish-update` for **`vle-thermo`, `vle-units`, and
+   `vle-steam`** (every crate the workspace publishes — see the new-crate
+   gotcha below). Simplest is to leave the crate allowlist **empty** so the
+   token covers all crates the account owns; a stale per-crate allowlist is
+   exactly what broke the v0.10.0 CI publish.
 2. Store it in 1Password under `vle-thermo-ci/crates-io/token`.
 3. The release workflow loads it via `1password/load-secrets-action@v2`
    using `OP_SERVICE_ACCOUNT_TOKEN` (the single GitHub secret).
 
 If crates.io graduates Trusted Publishing out of beta, switch to OIDC
 and delete the secret.
+
+### Adding a NEW crate to the workspace (the v0.10.0 gotcha)
+
+The **first-ever publish of a new crate name** cannot go through the CI token
+if that token has a per-crate allowlist — crates.io returns
+`403: this token does not have the required permissions` because the crate
+doesn't exist yet to be on the allowlist. This bit the v0.10.0 release when
+`vle-steam` shipped: the CI token was scoped to `vle-thermo` + `vle-units`, so
+`vle-units` published fine but `vle-steam` (and then `vle-thermo`, which
+depends on it) failed. PyPI + the GitHub Release were unaffected.
+
+When adding a new workspace crate, do the **first** publish by hand from a
+laptop logged in with a full-permission token, then re-widen the CI token:
+
+```sh
+cargo login <token-with-publish-new>          # crates.io/settings/tokens
+cargo publish -p <new-crate>                  # creates the crate + you own it
+# wait ~30–60s for the index to propagate, then any dependent crate:
+cargo publish -p vle-thermo
+```
+
+Then **update the CI token** (regenerate unscoped, or add the new crate to its
+allowlist) and refresh the 1Password item, so the *next* release publishes the
+new crate from `release.yml` automatically. The workflow itself already probes
+and publishes in dependency order (vle-units → vle-steam → vle-thermo),
+idempotently — only the token scope needs the one-time widening.
 
 ### 1Password Service Account
 - Vault: `vle-thermo-ci`
