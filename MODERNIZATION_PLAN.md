@@ -744,6 +744,82 @@ packaging (already available via `d_ln_phi_d_n`), DB growth beyond the 24.
 
 ---
 
+### Phase 20: Steam Tables — `vle-steam` (IAPWS-IF97) *(Milestone 13)* — **in progress**
+
+*Added 2026-07-07. Full design record, API sketch, and phase breakdown:
+[STEAM_TABLES_PLAN.md](STEAM_TABLES_PLAN.md). Executed by Claude Code using
+Claude Opus 4.8 (1M context).*
+
+Adds an industrial **steam-tables** capability — "VLE for water only" — as a
+new, dependency-free workspace crate `vle-steam` implementing the **IAPWS
+Industrial Formulation 1997** (IF97; *Revised Release* R7-97(2012)). Steam
+tables are the single most-used thermodynamic reference in chemical-engineering
+practice (reboilers, condensers, steam-header balances, flash-steam recovery,
+turbine calculations); every printed steam table is *computed from* IF97, so we
+implement the standard directly rather than interpolate tabulated data.
+
+**Why a separate crate (not an `engine/` module):** IF97 is self-contained with
+zero coupling to the mixture-EOS machinery, and is pure-`f64` (not even
+nalgebra), so it stays trivially portable to the planned iOS static-library
+build ([IOS_FFI_PLAN.md](IOS_FFI_PLAN.md)) — a steam-table iPhone app is the
+natural first FFI consumer. It mirrors the `vle-units` sibling-crate precedent:
+own crates.io page/README, own release-rule entry in CLAUDE.md, published
+alongside `vle-thermo`. The wheel always ships it (`engine`'s `python` feature
+turns on a `steam = ["dep:vle-steam"]` feature); `cargo add vle-thermo` stays
+lean unless the feature is requested.
+
+**Units:** public API takes **T [K], P [kPa absolute]** (repo canon) and returns
+**mass-basis** properties (kJ/kg, kJ/(kg·K), m³/kg) — what every practitioner
+expects — with a `.molar()` view converting via `M_water = 18.015268 kg/kmol`.
+Internally the IF97 equations run in native MPa/kJ·kg⁻¹; conversion happens once
+at the API boundary. The neat unit coincidence `1 kPa = 1 kJ/m³` makes specific
+volume fall out directly from `v = R·T·(πγ_π)/p`.
+
+**Structure implemented (steam/src/):**
+
+- **Region 4 (saturation line, 273.15–647.096 K)** — `psat(T)`, `tsat(P)` both
+  closed-form (Eqs. 30–31), analytic `dPsat/dT`; the heart of the two-phase API.
+- **Regions 1 & 2 (Gibbs `g(p,T)`)** — compressed liquid (34-term `γ`) and
+  superheated vapor (ideal `γ°` + 43-term residual `γʳ`); all properties from
+  analytic derivatives via a shared `gibbs_props` map.
+- **Region 3 (Helmholtz `f(ρ,T)`)** — near-critical, 40-term `φ`; a `(T,P)`
+  query iterates on density with **Brent** (per the repo algorithm rules —
+  never FD), then `helmholtz_props`.
+- **Region 5 (high-T Gibbs)** — 1073.15–2273.15 K; small, for completeness.
+- **B23 boundary + region detection** — `region_of(T,P)` tiles the plane.
+- **Backward equations `T(p,h)`, `T(p,s)` (regions 1–2)** — make PH/PS flash
+  essentially non-iterative (throttling valves, turbine efficiency).
+- **State API** — `Water::tp/tx/px/ph/ps/sat_t/sat_p` returning a `SteamState`
+  (`T, P, region, phase, x, ρ, v, u, h, s, cp, cv, w`) with quality logic.
+
+**Correctness ground truth:** the R7-97(2012) computer-program verification
+tables are transcribed as exact unit tests, asserted to full published precision
+(9 significant figures). Plus thermodynamic-consistency tests needing no external
+data (`h = u + p·v`; Clausius–Clapeyron `h_fg ≈ T·v_fg·dPsat/dT` against the
+analytic region-4 derivative; `ph(P, h(tp(T,P))) → T` round-trips; region-seam
+continuity). `seuif97` is a dev-dependency-only cross-check oracle.
+
+**PyO3 + batch (M5+ rule):** `engine/src/py_steam.rs` exposes a `SteamState`
+pyclass + module functions + a batch numpy API (rust-numpy + rayon, GIL
+released) mirroring the M10 `_batch` design — steam property evaluation is
+exactly the "numpy for thermo" use case. Surfaced as `vle.steam` in the wrapper,
+accepting pint quantities and gauge pressure via the existing `UnitRegistry`.
+
+**Notebook + release:** a milestone notebook works the practitioner scenarios
+(flash-steam recovery, reboiler duty, desuperheating, isentropic turbine
+expansion) per the Notebook Conventions; `steam/README.md` is the crates.io
+page; ships as **v0.10.0** (new public API surface = minor bump).
+
+Deliberately out of scope for v0.10.0 (deferred to a later 13.7): transport
+properties (viscosity R12-08, thermal conductivity R15-11, surface tension
+R1-76) and IAPWS-95 as a high-accuracy validation oracle.
+
+**Key source files:** `steam/src/{lib,region1,region2,region3,region4,region5,
+regions,backward,coefficients,props,state}.rs`, `engine/src/py_steam.rs`,
+`python/src/vle/steam.py`, `python/tests/test_steam.py`
+
+---
+
 ## Parameter Reference Document (to be created at `docs/parameters/parameter_reference.md`)
 
 Will document all required parameters organized by category:

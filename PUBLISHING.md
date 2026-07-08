@@ -26,7 +26,7 @@ git tag v0.X.Y && git push origin v0.X.Y
         │     All wheels are abi3-tagged (cp310-abi3-*), covering
         │     CPython 3.10+ with one wheel per (OS, arch).
         ├── publish-pypi   → PyPI Trusted Publishing (OIDC, no token)
-        ├── publish-crates → cargo publish vle-units, then vle-thermo
+        ├── publish-crates → cargo publish vle-units, vle-steam, then vle-thermo
         │     (token loaded from 1Password via Service Account)
         └── gh-release     → GitHub Release with all wheels + sdist
 ```
@@ -89,6 +89,7 @@ canonical release route.
 # crates.io
 cargo search vle-thermo
 cargo search vle-units
+cargo search vle-steam
 # In a scratch directory:
 cargo new --lib scratch && cd scratch && cargo add vle-thermo && cargo build
 

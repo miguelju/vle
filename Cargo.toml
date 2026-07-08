@@ -11,7 +11,7 @@
 
 [workspace]
 resolver = "2"
-members = ["engine", "units"]
+members = ["engine", "steam", "units"]
 
 # Release profile (PERFORMANCE_PROPOSAL.md §C5): fat LTO + single codegen
 # unit let LLVM inline across crate boundaries (the α dispatch and cubic
@@ -28,7 +28,7 @@ codegen-units = 1
 inherits = "release"
 
 [workspace.package]
-version = "0.9.1"
+version = "0.10.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"

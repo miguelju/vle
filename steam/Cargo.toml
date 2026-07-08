@@ -1,0 +1,41 @@
+# `vle-steam` — IAPWS-IF97 industrial water/steam properties.
+#
+# A self-contained implementation of the IAPWS Industrial Formulation 1997
+# (R7-97, rev. 2012) for the thermodynamic properties of water and steam:
+# "VLE for water only". Zero mandatory dependencies — pure `f64` math, not
+# even nalgebra — so it stays trivially portable to the iOS static-library
+# build (see IOS_FFI_PLAN.md; a steam-tables iPhone app is the natural first
+# FFI consumer). Mirrors the `vle-units` sibling-crate precedent: its own
+# crates.io page/README, its own version, published alongside `vle-thermo`.
+[package]
+name = "vle-steam"
+description = "IAPWS-IF97 industrial water/steam thermodynamic properties (steam tables): regions 1-5, saturation line, backward equations"
+readme = "README.md"
+keywords = ["steam", "iapws", "if97", "thermodynamics", "water"]
+categories = ["science", "mathematics"]
+documentation = "https://docs.rs/vle-steam"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lib]
+name = "vle_steam"
+
+# No mandatory dependencies. `approx` is a dev-dependency only, used to assert
+# the IAPWS verification-table values to their full published precision.
+[dependencies]
+
+[dev-dependencies]
+approx = "0.5"
+# criterion guards the IF97 hot paths (one point per region + a PH flash), the
+# same regression-bench pattern the engine uses. Dev-only, plain-text output.
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+# Hand `cargo bench` to criterion's runner (libtest has no stable bench support).
+[[bench]]
+name = "steam_bench"
+harness = false

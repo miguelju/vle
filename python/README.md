@@ -36,14 +36,17 @@ import vle
 
 ## Status
 
-`0.9.1` — pre-1.0, but the numerical core is live. Flash algorithms
+`0.10.0` — pre-1.0, but the numerical core is live. Flash algorithms
 (isothermal, bubble/dew *T* and *P*, adiabatic *PH*), 22+ cubic
 equations of state, the five activity models, the mixture critical point,
 and kij/Aij parameter regression all run through the Rust engine, exposed
 through a unit-aware Python facade (`vle.System`) and a vectorized numpy
 **batch API**. The bundled component database (24 compounds, with
 ideal-gas Cp°/R coefficients), CLI, and units layer round it out.
-`0.9.1` fixes a ~1% Wong-Sandler departure-enthalpy inconsistency
+`0.10.0` adds **`vle.steam`** — IAPWS-IF97 industrial steam tables ("VLE
+for water only"): `steam.Water(T=…, P=…)` / `(P=…, h=…)` … state queries,
+saturation-table rows, and a batch numpy API, with pint/gauge-pressure
+inputs. `0.9.1` fixed a ~1% Wong-Sandler departure-enthalpy inconsistency
 (residual enthalpy/entropy with the `"wong-sandler"` mixing rule now
 satisfies the Gibbs–Helmholtz identity to machine precision).
 `0.9.0` added **exact temperature/pressure derivatives** of fugacity and

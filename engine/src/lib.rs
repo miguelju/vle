@@ -115,6 +115,20 @@ mod py_bindings;
 #[cfg(feature = "python")]
 mod py_system;
 
+// IAPWS-IF97 steam tables (Milestone 13). The sibling `vle-steam` crate is
+// re-exported here behind the `steam` feature so downstream Rust consumers can
+// reach it as `vle_thermo::steam::SteamState` without a second `cargo add`. The
+// `python` feature turns on `steam` (see Cargo.toml), so the wheel always ships
+// the `vle.steam` bindings from `py_steam.rs`.
+#[cfg(feature = "steam")]
+pub use vle_steam as steam;
+
+// PyO3 bindings for the steam tables — the `SteamState`/`SatState` pyclasses,
+// module functions, and batch numpy kernels surfaced as `vle.steam`. Gated on
+// `python` (which implies `steam`); registered into `_engine` by py_bindings.rs.
+#[cfg(feature = "python")]
+mod py_steam;
+
 // `pub use` re-exports an item from a sub-module, making it available
 // directly at this crate's top level. Without these lines, users would
 // have to write the full path: `vle_thermo::eos::CubicEos`. With them,

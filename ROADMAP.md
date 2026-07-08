@@ -10,7 +10,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Analyze legacy VB6 codebase (~15,000 lines)
 - [x] Analyze legacy Pascal codebase (~2,500 lines)
 - [x] Create Pascal vs VB6 comparison document
-- [x] Create modernization plan with 19 implementation phases *(originally 17; Phase 11 — Performance Foundation — added 2026-07-01; Phase 19 — Downstream Derivative & Database Release — added 2026-07-05)*
+- [x] Create modernization plan with 20 implementation phases *(originally 17; Phase 11 — Performance Foundation — added 2026-07-01; Phase 19 — Downstream Derivative & Database Release — added 2026-07-05; Phase 20 — Steam Tables (IAPWS-IF97) — added 2026-07-07)*
 - [x] Map algorithms to 30 academic references (ACS format) *(originally 22; (23)–(29) added 2026-07-01 with PERFORMANCE_PROPOSAL.md; (30) added 2026-07-05 with DERIVATIVE_RELEASE_PLAN.md)*
 - [x] Propose 8 algorithm performance improvements (A–H) *(extended to §A–§M + Performance Engineering tracks 2026-07-01 — see [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md))*
 - [x] Initialize git repository
@@ -352,6 +352,62 @@ core). Execution order 12.1 → 12.5; 12.4 depends on 12.3.
 - [x] Created milestone notebook `notebooks/11_derivatives_and_database.ipynb` (build script `scripts/build_notebook_m12.py`) per CLAUDE.md *Notebook Conventions* — DB tour, K(T) tangent plot, mixture Cp, partial-molar Euler assertion, 2 exercises with collapsed solutions; executes top-to-bottom (21 cells)
 - [x] Extended criterion benches: `k_values` vs `k_values_with_derivs` (measured ~3.5×, computing k + dT + dP) and `phase_cp` in `engine/benches/engine_bench.rs`
 - [x] Full doc sync (README, package READMEs, `deploy/NOTEBOOKS.md`, parameter reference) + bump to **0.9.0** (shipped 2026-07-06)
+
+## Milestone 13: Steam Tables — `vle-steam` (IAPWS-IF97) — **code-complete (v0.10.0 release tag pending)**
+**Goal**: Add an industrial steam-tables capability ("VLE for water only") as a new dependency-free workspace crate `vle-steam` implementing the IAPWS Industrial Formulation 1997 (IF97, R7-97 rev. 2012) — regions 1–5, the saturation line, and backward equations — surfaced through the wheel as `vle.steam` with pint/gauge units and a batch numpy API. Ships as **v0.10.0** (new public API surface = minor bump). Full design record: [STEAM_TABLES_PLAN.md](STEAM_TABLES_PLAN.md).
+*Phase 20 of MODERNIZATION_PLAN.md*
+
+Separate crate (not an `engine/` module) because IF97 is self-contained with
+zero coupling to the mixture-EOS machinery and is dependency-free (pure `f64`),
+keeping it portable to the planned iOS FFI build ([IOS_FFI_PLAN.md](IOS_FFI_PLAN.md)) —
+a steam-table iPhone app is the natural first FFI consumer. Public API is
+**mass-basis** (kJ/kg, m³/kg) with a `.molar()` view; inputs are **T [K],
+P [kPa absolute]** (repo canon). Correctness ground truth: the R7-97(2012)
+computer-program verification tables, asserted to full published precision.
+
+### Milestone 13.1 — Crate scaffold + region 4 + region detection — **done**
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
+
+- [x] `steam/` workspace member (crate `vle-steam`, zero mandatory deps; `approx` dev-only)
+- [x] Region 4 saturation line — `psat(T)`, `tsat(P)` (both closed-form), analytic `dPsat/dT`; verified vs R7-97 Tables 35/36 to 9 sig figs
+- [x] B23 boundary (`b23_p`/`b23_t`, Table 25) + `region_of(T,P)` region map with saturation + out-of-range handling
+- [x] Hand-rolled `SteamError` + kPa↔MPa boundary helpers; 12 tests pass
+
+### Milestone 13.2 — Regions 1 & 2 (Gibbs + properties) — **done**
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
+
+- [x] IF97 coefficient tables (regions 1/2/3/5) transcribed from R7-97(2012)
+- [x] Region 1 Gibbs `γ(π,τ)` + all properties (v,u,h,s,cp,cv,w) — verified vs Table 5
+- [x] Region 2 ideal+residual Gibbs + properties — verified vs Table 15 (subagent web cross-check caught an `e-16`/`e-6` typo in the last residual coeff, −45% in cp)
+- [x] Shared Gibbs/Helmholtz → property maps with mass-basis unit bookkeeping
+
+### Milestone 13.3 — Region 3 (Helmholtz + ρ-iteration) + region 5 — **done**
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
+
+- [x] Region 3 Helmholtz `φ(δ,τ)` + density iteration (Brent) for `(T,P)` queries; verified vs Table 33
+- [x] Region 5 high-T Gibbs; verified vs Table 42
+- [x] Region-boundary continuity tests (1/3, 2/3, 2/5 seams within 0.1%)
+
+### Milestone 13.4 — State API + backward equations + consistency — **done**
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
+
+- [x] State constructors `tp/tx/px/ph/ps` + `sat_t/sat_p`; quality logic; latent heat; `.molar()` view
+- [x] Backward `T(p,h)` / `T(p,s)` region 1 (verified vs Tables 7/9) as seed + Newton polish; region 2+ via bracketed forward solve
+- [x] Thermodynamic-consistency tests: `h=u+pv`, Clausius–Clapeyron, ph/ps round-trips
+
+### Milestone 13.5 — PyO3 bindings + `vle.steam` wrapper + batch numpy — **done**
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
+
+- [x] `engine` `steam` feature (`dep:vle-steam`); `py_steam.rs` (`SteamState`/`SatState` pyclasses + module fns + rayon batch kernels)
+- [x] `vle.steam` Python wrapper (`Water(...)`, `saturation`, `properties`/`ph_flash`/`sat_table`) with pint/gauge units; `test_steam.py` (18 tests, 443 pytest pass)
+
+### Milestone 13.6 — Notebook, README, docs & v0.10.0 release — **code-complete (release tag pending)**
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
+
+- [x] Milestone notebook `notebooks/12_steam_tables.ipynb` (T–s dome, turbine expansion worked example, flash-steam + reboiler-duty exercises) per Notebook Conventions
+- [x] `steam/README.md` (crates.io page); criterion benches (`steam/benches/steam_bench.rs`, one point per region + PH flash)
+- [x] CLAUDE.md release-rule entry (#12) + architecture tree; full doc sync (README, package READMEs, NOTEBOOKS); version bumped workspace-wide to **v0.10.0**; `vle-steam` wired into `publish-crate.sh` + `release.yml`
+- [ ] **Operator step:** tag `v0.10.0` (signed) + publish (vle-units → vle-steam → vle-thermo) — YubiKey-gated, not automatable here
 
 ---
 
