@@ -31,13 +31,14 @@ from vle.results import (
     FlashResult,
 )
 from vle.system import System
+from vle import steam
 
 try:  # Prefer the installed distribution's version; fall back for source trees.
     from importlib.metadata import PackageNotFoundError, version
 
     __version__ = version("vle-thermo")
 except (ImportError, PackageNotFoundError):  # pragma: no cover
-    __version__ = "0.9.0"
+    __version__ = "0.10.0"
 
 __all__ = [
     "System",
@@ -52,5 +53,6 @@ __all__ = [
     "ActivityModel",
     "MixingRule",
     "PhaseId",
+    "steam",
     "__version__",
 ]

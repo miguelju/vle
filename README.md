@@ -58,6 +58,12 @@ The full research paper is available in both [English](docs/en/research-paper/RE
 - Supports temperature (K, °C, °F, °R), pressure (kPa, bar, atm, psi, mmHg, torr), energy (kJ/kmol, J/mol, cal/mol, BTU/lbmol), and more
 - Works standalone — can be used in other projects
 
+### Steam Tables — `vle-steam` (Independent Add-On)
+- **IAPWS-IF97** industrial water/steam properties — "VLE for water only", the reference standard behind every printed steam table
+- All five IF97 regions + the saturation line (closed-form `Psat(T)` / `Tsat(P)`) + region-1 backward equations, verified against the R7-97(2012) tables to 9 significant figures
+- The practitioner state API: `Water(T,P)` / `(T,x)` / `(P,x)` / `(P,h)` / `(P,s)`, saturation-table rows, latent heat, two-phase quality
+- **Python**: `vle.steam` with pint/gauge-pressure inputs and a batch numpy API; **Rust**: dependency-free crate (pure `f64`, FFI/embedded-friendly)
+
 ### Algorithm Improvements Over Legacy Code
 The modernization introduces several numerical improvements over the original VB6/Pascal implementations. This table is the **original improvement plan proposed by Claude Opus 4.6** during the initial legacy-code analysis (Milestone 0):
 
@@ -128,9 +134,12 @@ API, and plotting — is in [`notebooks/01_introduction.ipynb`](notebooks/01_int
 cargo add vle-thermo
 # Optional: the companion units crate for gauge pressure / °C / psi parsing
 cargo add vle-units
+# Optional: IAPWS-IF97 steam tables (dependency-free, "VLE for water only")
+cargo add vle-steam
 ```
 
-API docs: <https://docs.rs/vle-thermo>. See [engine/README.md](engine/README.md).
+API docs: <https://docs.rs/vle-thermo>. See [engine/README.md](engine/README.md)
+and [steam/README.md](steam/README.md).
 
 ---
 
@@ -179,9 +188,10 @@ vle/
 │   ├── db/                  # Component database (connection, queries, models)
 │   │   └── sql/             # Bundled schema.sql + seed_chapter4.sql (ship in wheel)
 │   └── cli/                 # CLI tool (vle-db)
-├── notebooks/               # 16 Jupyter notebooks (00–11 + 01_introduction + index; see deploy/NOTEBOOKS.md)
+├── notebooks/               # 17 Jupyter notebooks (00–12 + 01_introduction + index; see deploy/NOTEBOOKS.md)
 │   └── data/                # Pre-computed 3-D surface datasets (CSV, committed)
 ├── units/                   # Independent units crate (dimensional analysis, gauge pressure, custom units)
+├── steam/                   # Independent steam-tables crate `vle-steam` (IAPWS-IF97, dependency-free; M13)
 ├── engine/                  # Rust computation engine (complete: 22+ EOS, mixture core, flash suite, PyO3 bindings)
 │   └── data/                # Canonical components.json — bundled Rust DB via the `component-db` feature (M12.2)
 ├── docs/
@@ -193,7 +203,7 @@ vle/
 │   └── pascal/              # Original Pascal source (~2,500 lines, reference) (4)
 ├── ROADMAP.md               # Milestones and progress tracking
 ├── TODO.md                  # Tasks with time estimates
-├── MODERNIZATION_PLAN.md    # 19-phase implementation plan
+├── MODERNIZATION_PLAN.md    # 20-phase implementation plan
 ├── PASCAL_VB6_COMPARISON.md # Legacy codebase comparison
 └── CLAUDE.md                # Claude Code development guidance and conventions
 ```
@@ -206,7 +216,7 @@ This project is developed incrementally using [Claude Code](https://claude.ai/co
 |----------|---------|
 | [`ROADMAP.md`](ROADMAP.md) | Milestones — high-level goals and deliverables |
 | [`TODO.md`](TODO.md) | Tasks — actionable items with time estimates per milestone |
-| [`MODERNIZATION_PLAN.md`](MODERNIZATION_PLAN.md) | Phases — detailed technical implementation plan (19 phases) |
+| [`MODERNIZATION_PLAN.md`](MODERNIZATION_PLAN.md) | Phases — detailed technical implementation plan (20 phases) |
 
 ### Resuming work from a new machine
 
@@ -247,7 +257,7 @@ Each milestone records which AI model was used (e.g., `Claude Opus 4.6 (1M conte
 
 ## Getting Started
 
-**Status**: Milestones 0–12 are **complete**. The full engine (22+ EOS, mixing rules with exact derivatives, energy properties, and the modern flash/regression suite), the high-level `vle.System` Python API with a parallel batch numpy layer, and 16 notebooks — all validated against the thesis's Chapter IV tables. Current release: **v0.9.1** on PyPI + crates.io. **Milestone 12** — the downstream derivative & database release — is done across two releases: **v0.8.2** grew the bundled database to **24 compounds** with ideal-gas Cp°/R coefficients; **v0.9.0** added a Rust-side component database (`vle_thermo::db`, `component-db` feature), **exact temperature/pressure derivatives** of fugacity and K-values (dual-number AD), **real-mixture heat capacity** and **partial molar enthalpy**, and a packaged γ-φ phase enthalpy — the property surface a downstream staged-separation library consumes. **v0.9.1** is a patch fixing a ~1% Wong-Sandler departure-enthalpy inconsistency that the M12.3 Gibbs–Helmholtz invariant surfaced (root cause + fix in [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md) §7). See [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md). Per-milestone detail: [ROADMAP.md](ROADMAP.md).
+**Status**: Milestones 0–12 are **complete** and **Milestone 13** (steam tables) is code-complete. The full engine (22+ EOS, mixing rules with exact derivatives, energy properties, and the modern flash/regression suite), the high-level `vle.System` Python API with a parallel batch numpy layer, and 17 notebooks — all validated against the thesis's Chapter IV tables. Latest shipped release: **v0.9.1** on PyPI + crates.io; **Milestone 13** targets **v0.10.0**. **Milestone 13** adds a new dependency-free crate **`vle-steam`** implementing the **IAPWS-IF97** industrial steam tables ("VLE for water only") — all five regions + the saturation line + backward equations, verified against the R7-97(2012) tables to 9 significant figures — surfaced as **`vle.steam`** with unit-aware inputs and a batch numpy API (notebook `12_steam_tables.ipynb`). **Milestone 12** — the downstream derivative & database release — is done across two releases: **v0.8.2** grew the bundled database to **24 compounds** with ideal-gas Cp°/R coefficients; **v0.9.0** added a Rust-side component database (`vle_thermo::db`, `component-db` feature), **exact temperature/pressure derivatives** of fugacity and K-values (dual-number AD), **real-mixture heat capacity** and **partial molar enthalpy**, and a packaged γ-φ phase enthalpy — the property surface a downstream staged-separation library consumes. **v0.9.1** is a patch fixing a ~1% Wong-Sandler departure-enthalpy inconsistency that the M12.3 Gibbs–Helmholtz invariant surfaced (root cause + fix in [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md) §7). See [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md). Per-milestone detail: [ROADMAP.md](ROADMAP.md).
 
 ### Prerequisites
 - Python 3.10+

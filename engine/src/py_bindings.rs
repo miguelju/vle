@@ -2023,6 +2023,28 @@ fn _engine(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // M10 — the persistent System handle + batch numpy API (Track D).
     m.add_class::<crate::py_system::System>()?;
 
+    // M13 — IAPWS-IF97 steam tables (STEAM_TABLES_PLAN.md), surfaced as
+    // `vle.steam`. Gated on the `steam` feature that `python` turns on.
+    {
+        use crate::py_steam::*;
+        m.add_class::<SteamState>()?;
+        m.add_class::<SatState>()?;
+        m.add_function(wrap_pyfunction!(steam_tp, m)?)?;
+        m.add_function(wrap_pyfunction!(steam_tx, m)?)?;
+        m.add_function(wrap_pyfunction!(steam_px, m)?)?;
+        m.add_function(wrap_pyfunction!(steam_ph, m)?)?;
+        m.add_function(wrap_pyfunction!(steam_ps, m)?)?;
+        m.add_function(wrap_pyfunction!(steam_sat_t, m)?)?;
+        m.add_function(wrap_pyfunction!(steam_sat_p, m)?)?;
+        m.add_function(wrap_pyfunction!(steam_psat, m)?)?;
+        m.add_function(wrap_pyfunction!(steam_tsat, m)?)?;
+        m.add_function(wrap_pyfunction!(steam_psat_derivative, m)?)?;
+        m.add_function(wrap_pyfunction!(steam_latent_heat, m)?)?;
+        m.add_function(wrap_pyfunction!(steam_tp_batch, m)?)?;
+        m.add_function(wrap_pyfunction!(steam_ph_batch, m)?)?;
+        m.add_function(wrap_pyfunction!(steam_sat_t_batch, m)?)?;
+    }
+
     // M12.2 — Rust-side component database lookups (gap G3). Guarded on the
     // feature the `python` feature turns on, so a hypothetical wheel built
     // without it still compiles.

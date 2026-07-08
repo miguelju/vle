@@ -5,7 +5,7 @@
 #                     re-run skips already-published targets (idempotent release)
 #   build           - calls _build.yml to produce the wheel matrix + sdist
 #   publish-pypi    - PyPI Trusted Publishing (OIDC, no token; env: pypi)
-#   publish-crates  - cargo publish vle-units then vle-thermo (token loaded
+#   publish-crates  - cargo publish vle-units, vle-steam then vle-thermo (token loaded
 #                     from 1Password at runtime; env: crates-io)
 #   gh-release      - creates the GitHub Release and attaches all wheels + sdist
 #
@@ -45,7 +45,7 @@ concurrency:
 
 jobs:
   # check-already-published runs FIRST (before the build) and probes each
-  # downstream registry (PyPI, crates.io for vle-units + vle-thermo, GitHub
+  # downstream registry (PyPI, crates.io for vle-units + vle-steam + vle-thermo, GitHub
   # Releases) to see whether the current tag is already there. The three
   # publish jobs and gh-release each read these flags via their `if:` to
   # skip themselves on re-runs (e.g., when a prior run published PyPI but
@@ -69,6 +69,7 @@ jobs:
     outputs:
       pypi_published:          ${{ steps.check.outputs.pypi_published }}
       crates_units_published:  ${{ steps.check.outputs.crates_units_published }}
+      crates_steam_published:  ${{ steps.check.outputs.crates_steam_published }}
       crates_thermo_published: ${{ steps.check.outputs.crates_thermo_published }}
       release_exists:          ${{ steps.check.outputs.release_exists }}
     steps:
@@ -99,6 +100,13 @@ jobs:
             echo "crates_units_published=true" >> "$GITHUB_OUTPUT"
           else
             echo "crates_units_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if curl -sf -A "${CRATES_UA}" -o /dev/null "https://crates.io/api/v1/crates/vle-steam/${VERSION}"; then
+            echo "  ✓ vle-steam ${VERSION} already on crates.io"
+            echo "crates_steam_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "crates_steam_published=false" >> "$GITHUB_OUTPUT"
           fi
 
           if curl -sf -A "${CRATES_UA}" -o /dev/null "https://crates.io/api/v1/crates/vle-thermo/${VERSION}"; then
@@ -136,6 +144,7 @@ jobs:
         inputs.dry_run == true
         || needs.check-already-published.outputs.pypi_published != 'true'
         || needs.check-already-published.outputs.crates_units_published != 'true'
+        || needs.check-already-published.outputs.crates_steam_published != 'true'
         || needs.check-already-published.outputs.crates_thermo_published != 'true'
         || needs.check-already-published.outputs.release_exists != 'true'
       ) }}
@@ -222,6 +231,13 @@ jobs:
         # detects this in advance).
         if: ${{ needs.check-already-published.outputs.crates_units_published != 'true' }}
         run: cargo publish -p vle-units --no-verify
+      - name: cargo publish vle-steam
+        # vle-steam is dependency-free and vle-thermo references it via the
+        # optional `steam` feature, so it must publish before vle-thermo (even
+        # optional deps must exist on the registry). Idempotent-skip guard as
+        # for vle-units.
+        if: ${{ needs.check-already-published.outputs.crates_steam_published != 'true' }}
+        run: cargo publish -p vle-steam --no-verify
       - name: cargo publish vle-thermo
         if: ${{ needs.check-already-published.outputs.crates_thermo_published != 'true' }}
         run: cargo publish -p vle-thermo --no-verify

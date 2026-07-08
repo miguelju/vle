@@ -48,7 +48,13 @@ thiserror = "1"
 # The `version` is required for `cargo publish` (path is local-only); we keep
 # it in sync with the workspace version by hand. Bump alongside the workspace
 # version in `Cargo.toml`.
-vle-units = { path = "../units", version = "0.9.1" }
+vle-units = { path = "../units", version = "0.10.0" }
+# Sibling steam-tables crate (M13, STEAM_TABLES_PLAN.md). OPTIONAL and pulled
+# in only by the `steam` feature, which the `python` feature turns on so the
+# wheel always ships `vle.steam`. `cargo add vle-thermo` stays lean (no steam)
+# unless `--features steam` is requested. Version kept in sync with the
+# workspace version by hand, as with `vle-units`.
+vle-steam = { path = "../steam", version = "0.10.0", optional = true }
 # `abi3-py310` builds against CPython's stable ABI starting at 3.10. One wheel
 # per (OS, arch) then loads cleanly on CPython 3.10, 3.11, 3.12, 3.13 and any
 # future 3.x — no rebuild per Python version. See docs/ci.md and
@@ -86,9 +92,14 @@ default = []
 # `vle_thermo::db::component(name)` / `available()`. Pulls only serde +
 # serde_json (both optional deps above).
 component-db = ["dep:serde", "dep:serde_json"]
+# IAPWS-IF97 steam tables (M13). Off by default so `cargo add vle-thermo` stays
+# lean; a downstream Rust consumer opts in with `--features steam` to get the
+# re-exported `vle_thermo::steam` surface. The `python` feature turns it on so
+# the wheel always exposes `vle.steam`.
+steam = ["dep:vle-steam"]
 # Gate all PyO3 bindings behind this feature so `cargo add vle-thermo` pulls a
 # pure-Rust crate without dragging in Python. Maturin enables it automatically
 # from python/pyproject.toml when building the wheel. It also turns on
 # `component-db` so the wheel can expose the Rust DB lookups (`db_component`,
 # `db_available`) for testing the crate through Python.
-python = ["dep:pyo3", "dep:numpy", "dep:rayon", "component-db"]
+python = ["dep:pyo3", "dep:numpy", "dep:rayon", "component-db", "steam"]

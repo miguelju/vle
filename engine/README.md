@@ -17,10 +17,13 @@ A modern Rust port of two legacy thermodynamic codebases (VB6 ~15,000 lines + Pa
 
 ## Status
 
-`0.9.1` — pre-1.0, but the numerical core is live. The Cardano solver,
+`0.10.0` — pre-1.0, but the numerical core is live. The Cardano solver,
 Newton-Raphson / Broyden drivers, Rachford-Rice, the flash algorithms
 (isothermal, bubble/dew *T* and *P*, adiabatic *PH*), the mixture critical
-point, and kij/Aij regression all run. `0.9.1` fixes a ~1% Wong-Sandler
+point, and kij/Aij regression all run. `0.10.0` adds **IAPWS-IF97 steam
+tables** via the new sibling crate [`vle-steam`](https://crates.io/crates/vle-steam),
+re-exported here as `vle_thermo::steam` behind the optional `steam` feature
+(on by default in the Python wheel). `0.9.1` fixed a ~1% Wong-Sandler
 departure-enthalpy inconsistency (`energy::h_departure_rt_mix` dropped the
 T-dependence of the WS co-volume; the Gibbs–Helmholtz identity now holds to
 machine precision for every mixing rule). `0.9.0` added **exact temperature /
@@ -41,7 +44,7 @@ for the phase-by-phase technical detail.
 
 ```toml
 [dependencies]
-vle-thermo = "0.9"
+vle-thermo = "0.10"
 ```
 
 Or with `cargo add`:

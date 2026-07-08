@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # publish-crate.sh — publish the Rust crates to crates.io.
 #
-# Publishes vle-units first (vle-thermo depends on it) and then vle-thermo.
-# Runs `cargo publish --dry-run` by default; pass `--go` to actually upload.
+# Publishes the dependency-free siblings first (vle-units, vle-steam), then
+# vle-thermo (which depends on both — vle-units directly, vle-steam via the
+# `steam` feature the wheel turns on). Runs `cargo publish --dry-run` by
+# default; pass `--go` to actually upload.
 #
 # Prereqs:
 #   - Logged in: `cargo login <TOKEN>` (get from https://crates.io/settings/tokens)
@@ -42,6 +44,12 @@ fi
 echo "--- vle-units ---"
 cargo publish -p vle-units "${FLAGS[@]}"
 
+# vle-steam is also dependency-free (pure f64), so it can go before vle-thermo,
+# which references it via the optional `steam` feature. crates.io requires even
+# optional dependencies to be published, so this must precede vle-thermo.
+echo "--- vle-steam ---"
+cargo publish -p vle-steam "${FLAGS[@]}"
+
 echo "--- vle-thermo ---"
 cargo publish -p vle-thermo "${FLAGS[@]}"
 
@@ -54,5 +62,6 @@ if [[ $GO -eq 1 ]]; then
     echo ""
     echo "Published v${VERSION}. Verify at:"
     echo "  https://crates.io/crates/vle-units/${VERSION}"
+    echo "  https://crates.io/crates/vle-steam/${VERSION}"
     echo "  https://crates.io/crates/vle-thermo/${VERSION}"
 fi
