@@ -10,9 +10,13 @@
 //! preferred over the φ-φ (EOS-only) approach for highly non-ideal liquid
 //! mixtures such as water + alcohol, where cubic EOS gives poor liquid predictions.
 //!
-//! All 5 models are identical in both legacy codebases (VB6 `clsActivityMulticomp.cls`
-//! and Pascal `TERMOIII.PAS`). Each model requires binary interaction parameters
-//! (Aij) fit to experimental VLE data.
+//! Five of the six models are identical in both legacy codebases (VB6
+//! `clsActivityMulticomp.cls` and Pascal `TERMOIII.PAS`). **NRTL** (Renon &
+//! Prausnitz, 1968) has **no legacy counterpart** — it was added in Milestone 14
+//! for the aqueous-associating / polar mixtures (ammonia–water and the
+//! alcohol–water ladder) the downstream `stages-thermo` library needs. Each
+//! model requires binary interaction parameters (Aij) fit to experimental VLE
+//! data.
 //!
 //! # The `aij` matrix convention
 //!
@@ -21,6 +25,11 @@
 //!
 //! - **Wilson** — `aij[i][j] = λᵢⱼ − λᵢᵢ`, an interaction *energy* in
 //!   **kJ/kmol**. The diagonal is unused (Λᵢᵢ ≡ 1).
+//! - **NRTL** — `aij[i][j] = gᵢⱼ − gⱼⱼ`, an interaction *energy* in
+//!   **kJ/kmol** (so `τᵢⱼ = aij[i][j]/(R·T)`). The diagonal is 0 (τᵢᵢ = 0).
+//!   NRTL additionally needs the symmetric non-randomness matrix `alpha`
+//!   (`αᵢⱼ = αⱼᵢ`, dimensionless, typically 0.2–0.47); every other model
+//!   ignores `alpha`.
 //! - **van Laar** — `aij[i][j]` are dimensionless, with `aij[i][i] = 0`.
 //! - **Margules** — binary only: `aij[0][1] = A₁₂`, `aij[1][0] = A₂₁`,
 //!   dimensionless.
@@ -32,8 +41,12 @@
 //! `Gᴱ = RT Σᵢ xᵢ ln γᵢ`, `Hᴱ = −T² ∂(Gᴱ/T)/∂T`, `Sᴱ = (Hᴱ − Gᴱ)/T`. Per
 //! CLAUDE.md the temperature derivative is **analytical**. For Wilson the only
 //! temperature dependence is the Boltzmann factor in Λᵢⱼ, which differentiates to
-//! a closed form; for the other models the legacy programs treat `Gᴱ` as
-//! temperature-independent over the excess-property derivative (`Hᴱ = Gᴱ`,
+//! a closed form; for **NRTL** the T-dependence enters through `τᵢⱼ = aij/(R·T)`
+//! and `Gᵢⱼ = exp(−αᵢⱼτᵢⱼ)`, and the analytic `Hᴱ` comes for free from one
+//! `num-dual` evaluation seeded on T (the same "generic value path carries exact
+//! derivatives" trick the mixture core uses — FD survives only as a test oracle).
+//! For Margules, van Laar and Scatchard-Hildebrand the legacy programs treat `Gᴱ`
+//! as temperature-independent over the excess-property derivative (`Hᴱ = Gᴱ`,
 //! `Sᴱ = 0`), and we reproduce that exactly.
 
 // The generic full-vector helpers index parallel arrays (xₖ, Λₖⱼ) in nested
@@ -70,6 +83,17 @@ pub enum ActivityModel {
     /// coefficient model. Parameters: A₁₂, A₂₁ (asymmetric). Useful for
     /// quick estimates but limited accuracy for strongly non-ideal systems.
     Margules = 24,
+    /// NRTL (Non-Random Two-Liquid, Renon & Prausnitz 1968). Local-composition
+    /// model with three binary knobs per pair (τ₁₂, τ₂₁ from the energies
+    /// `aij[i][j] = gᵢⱼ − gⱼⱼ` in **kJ/kmol**, plus the symmetric
+    /// non-randomness `αᵢⱼ`). The standard model for aqueous-associating and
+    /// polar mixtures; unlike Wilson it can represent liquid-liquid splits.
+    ///
+    /// **No legacy counterpart** — the discriminant `37` is project-assigned:
+    /// the legacy VB6 model-ID space packs `CubicEos` 0–20, activity 21–25,
+    /// mixing rules 26–33, and project C-rules 34–36, so `37` is the first free
+    /// value and can never collide with a legacy ID.
+    Nrtl = 37,
 }
 
 use crate::types::R_GAS;
@@ -85,6 +109,7 @@ const CAL_TO_KJ_PER_KMOL: f64 = 4.18445;
 ///
 /// Ref (4): Da Silva & Báez (1989), `legacy/pascal/TERMOIII.PAS`; VB6
 /// `legacy/vb6/clsActivityMulticomp.cls:74`. Formulas: research paper Table 2.3.
+/// (NRTL has no legacy source — Renon & Prausnitz, 1968.)
 ///
 /// # Arguments
 /// * `model` — the activity model.
@@ -92,6 +117,8 @@ const CAL_TO_KJ_PER_KMOL: f64 = 4.18445;
 /// * `x` — mole fractions (length N).
 /// * `aij` — N×N interaction matrix; see the module docs for the per-model
 ///   convention. May be empty for `IdealSolution`/`ScatchardHildebrand`.
+/// * `alpha` — N×N symmetric NRTL non-randomness matrix (dimensionless); used
+///   only by `Nrtl`, ignored (may be empty) by every other model.
 /// * `vl` — liquid molar volumes Vᵢᴸ in **cm³/mol** (Wilson, Scatchard); may be
 ///   empty for the other models.
 /// * `delta` — solubility parameters δᵢ in **(cal/cm³)^0.5** (Scatchard only).
@@ -99,11 +126,13 @@ const CAL_TO_KJ_PER_KMOL: f64 = 4.18445;
 ///
 /// # Returns
 /// ln(γᵢ), dimensionless. γᵢ = exp(result).
+#[allow(clippy::too_many_arguments)]
 pub fn ln_gamma(
     model: ActivityModel,
     i: usize,
     x: &[f64],
     aij: &[Vec<f64>],
+    alpha: &[Vec<f64>],
     vl: &[f64],
     delta: &[f64],
     temperature: f64,
@@ -166,7 +195,55 @@ pub fn ln_gamma(
                 .sum();
             1.0 - denom_i.ln() - nested
         }
+
+        // NRTL (Renon & Prausnitz 1968), general multicomponent form:
+        //   ln γᵢ = Cᵢ/Sᵢ + Σⱼ (xⱼ Gᵢⱼ / Sⱼ)·(τᵢⱼ − Cⱼ/Sⱼ)
+        // with Sⱼ = Σₖ xₖ Gₖⱼ, Cⱼ = Σₖ xₖ τₖⱼ Gₖⱼ, τₖⱼ = aij[k][j]/(R·T),
+        // Gₖⱼ = exp(−αₖⱼ τₖⱼ). The single-component path reuses the same
+        // column sums (Sⱼ, Cⱼ). See `ln_gamma_all_generic` for the vector form.
+        ActivityModel::Nrtl => {
+            let tau = |k: usize, j: usize| aij[k][j] / (R_GAS * temperature);
+            let g = |k: usize, j: usize| (-alpha[k][j] * tau(k, j)).exp();
+            let (s, c) = nrtl_column_sums(x, &tau, &g);
+            nrtl_ln_gamma_i(i, x, &tau, &g, &s, &c)
+        }
     }
+}
+
+/// Column sums `Sⱼ = Σₖ xₖ Gₖⱼ` and `Cⱼ = Σₖ xₖ τₖⱼ Gₖⱼ` for NRTL (f64).
+fn nrtl_column_sums(
+    x: &[f64],
+    tau: &dyn Fn(usize, usize) -> f64,
+    g: &dyn Fn(usize, usize) -> f64,
+) -> (Vec<f64>, Vec<f64>) {
+    let n = x.len();
+    let mut s = vec![0.0; n];
+    let mut c = vec![0.0; n];
+    for j in 0..n {
+        for k in 0..n {
+            let gkj = g(k, j);
+            s[j] += x[k] * gkj;
+            c[j] += x[k] * tau(k, j) * gkj;
+        }
+    }
+    (s, c)
+}
+
+/// NRTL ln γᵢ from the precomputed column sums (f64).
+fn nrtl_ln_gamma_i(
+    i: usize,
+    x: &[f64],
+    tau: &dyn Fn(usize, usize) -> f64,
+    g: &dyn Fn(usize, usize) -> f64,
+    s: &[f64],
+    c: &[f64],
+) -> f64 {
+    let n = x.len();
+    let mut acc = c[i] / s[i];
+    for j in 0..n {
+        acc += x[j] * g(i, j) / s[j] * (tau(i, j) - c[j] / s[j]);
+    }
+    acc
 }
 
 /// Wilson coefficient Λᵢⱼ = (Vⱼᴸ/Vᵢᴸ)·exp(−aᵢⱼ/RT), with Λᵢᵢ ≡ 1.
@@ -269,10 +346,12 @@ impl WilsonCache {
 ///
 /// Writes into `out` (length = number of components). Arguments and
 /// units as in [`ln_gamma`].
+#[allow(clippy::too_many_arguments)]
 pub fn ln_gamma_all(
     model: ActivityModel,
     x: &[f64],
     aij: &[Vec<f64>],
+    alpha: &[Vec<f64>],
     vl: &[f64],
     delta: &[f64],
     temperature: f64,
@@ -284,7 +363,7 @@ pub fn ln_gamma_all(
         }
         _ => {
             for (i, o) in out.iter_mut().enumerate() {
-                *o = ln_gamma(model, i, x, aij, vl, delta, temperature);
+                *o = ln_gamma(model, i, x, aij, alpha, vl, delta, temperature);
             }
         }
     }
@@ -329,13 +408,15 @@ fn wilson_lambda_generic<D: DualNum<f64> + Copy>(
 /// Same models/units as [`ln_gamma`]; writes into `out` (length n).
 /// With `D = f64` this is equivalent to [`ln_gamma_all`]. Making `temperature`
 /// generic (M12.3) lets a dual seeded on T flow through the T-dependent models
-/// (Wilson's Λᵢⱼ(T), Scatchard's 1/RT) so the mixture T-derivative dual path
-/// gets exact ∂lnγᵢ/∂T; the T-independent models (Van Laar, Margules, Ideal)
-/// simply ignore the parameter.
+/// (Wilson's Λᵢⱼ(T), Scatchard's 1/RT, **NRTL's τᵢⱼ(T)/Gᵢⱼ(T)**) so the mixture
+/// T-derivative dual path gets exact ∂lnγᵢ/∂T; the T-independent models (Van
+/// Laar, Margules, Ideal) simply ignore the parameter.
+#[allow(clippy::too_many_arguments)]
 pub fn ln_gamma_all_generic<D: DualNum<f64> + Copy>(
     model: ActivityModel,
     x: &[D],
     aij: &[Vec<f64>],
+    alpha: &[Vec<f64>],
     vl: &[f64],
     delta: &[f64],
     temperature: D,
@@ -411,23 +492,51 @@ pub fn ln_gamma_all_generic<D: DualNum<f64> + Copy>(
                 out[i] = -s[i].ln() - nested + 1.0;
             }
         }
+
+        // NRTL, generic over composition AND temperature. τ and G carry the
+        // T-dual, so `excess_enthalpy` gets its analytic Hᴱ from one seed on T.
+        //   ln γᵢ = Cᵢ/Sᵢ + Σⱼ (xⱼ Gᵢⱼ / Sⱼ)·(τᵢⱼ − Cⱼ/Sⱼ)
+        ActivityModel::Nrtl => {
+            let rt = temperature * R_GAS;
+            let tau = |k: usize, j: usize| -> D { rt.recip() * aij[k][j] };
+            let g = |k: usize, j: usize| -> D { (tau(k, j) * (-alpha[k][j])).exp() };
+            // Column sums Sⱼ = Σₖ xₖ Gₖⱼ, Cⱼ = Σₖ xₖ τₖⱼ Gₖⱼ.
+            let mut s: smallvec::SmallVec<[D; 8]> = smallvec::smallvec![D::from(0.0); n];
+            let mut c: smallvec::SmallVec<[D; 8]> = smallvec::smallvec![D::from(0.0); n];
+            for j in 0..n {
+                for k in 0..n {
+                    let gkj = g(k, j);
+                    s[j] += x[k] * gkj;
+                    c[j] += x[k] * tau(k, j) * gkj;
+                }
+            }
+            for i in 0..n {
+                let mut acc = c[i] / s[i];
+                for j in 0..n {
+                    acc += x[j] * g(i, j) / s[j] * (tau(i, j) - c[j] / s[j]);
+                }
+                out[i] = acc;
+            }
+        }
     }
 }
 
 /// Dimensionless excess Gibbs energy Gᴱ/(R·T) = Σᵢ xᵢ ln γᵢ, generic over
 /// the scalar type of `x`. The GE-based mixing rules consume this form
 /// directly (they always pair Gᴱ with an RT divisor).
+#[allow(clippy::too_many_arguments)]
 pub fn excess_gibbs_rt_generic<D: DualNum<f64> + Copy>(
     model: ActivityModel,
     x: &[D],
     aij: &[Vec<f64>],
+    alpha: &[Vec<f64>],
     vl: &[f64],
     delta: &[f64],
     temperature: D,
 ) -> D {
     let n = x.len();
     let mut lng: smallvec::SmallVec<[D; 8]> = smallvec::smallvec![D::from(0.0); n];
-    ln_gamma_all_generic(model, x, aij, vl, delta, temperature, &mut lng);
+    ln_gamma_all_generic(model, x, aij, alpha, vl, delta, temperature, &mut lng);
     let mut acc = D::from(0.0);
     for i in 0..n {
         acc += x[i] * lng[i];
@@ -445,13 +554,14 @@ pub fn excess_gibbs(
     model: ActivityModel,
     x: &[f64],
     aij: &[Vec<f64>],
+    alpha: &[Vec<f64>],
     vl: &[f64],
     delta: &[f64],
     temperature: f64,
 ) -> f64 {
     let n = x.len();
     let sum: f64 = (0..n)
-        .map(|i| x[i] * ln_gamma(model, i, x, aij, vl, delta, temperature))
+        .map(|i| x[i] * ln_gamma(model, i, x, aij, alpha, vl, delta, temperature))
         .sum();
     R_GAS * temperature * sum
 }
@@ -459,10 +569,11 @@ pub fn excess_gibbs(
 /// Excess enthalpy Hᴱ = −T²·∂(Gᴱ/T)/∂T, evaluated **analytically**.
 ///
 /// Research paper eq (2.45). For Wilson the derivative runs through the
-/// Boltzmann factor in Λᵢⱼ and gives a closed form; for Margules, van Laar and
-/// Scatchard-Hildebrand the legacy treatment is Hᴱ = Gᴱ (the parameters carry
-/// the model's temperature dependence implicitly), which this reproduces.
-/// Ideal solutions have Hᴱ = 0.
+/// Boltzmann factor in Λᵢⱼ and gives a closed form; for **NRTL** it comes from
+/// one `num-dual` evaluation seeded on T (τ/G carry the T-dependence — exact,
+/// not finite differences). For Margules, van Laar and Scatchard-Hildebrand the
+/// legacy treatment is Hᴱ = Gᴱ (the parameters carry the model's temperature
+/// dependence implicitly), which this reproduces. Ideal solutions have Hᴱ = 0.
 ///
 /// # Returns
 /// Hᴱ in **kJ/kmol**.
@@ -470,6 +581,7 @@ pub fn excess_enthalpy(
     model: ActivityModel,
     x: &[f64],
     aij: &[Vec<f64>],
+    alpha: &[Vec<f64>],
     vl: &[f64],
     delta: &[f64],
     temperature: f64,
@@ -494,7 +606,7 @@ pub fn excess_enthalpy(
 
         // Legacy convention: Hᴱ = Gᴱ for these two (SE = 0).
         ActivityModel::Margules | ActivityModel::VanLaar => {
-            excess_gibbs(model, x, aij, vl, delta, temperature)
+            excess_gibbs(model, x, aij, alpha, vl, delta, temperature)
         }
 
         // Wilson, analytical: Hᴱ = Σⱼ xⱼ·(Σₖ xₖ aⱼₖ Λⱼₖ)/(Σₖ xₖ Λⱼₖ), with the
@@ -513,6 +625,18 @@ pub fn excess_enthalpy(
                 x[j] * up / down
             })
             .sum(),
+
+        // NRTL, analytic via dual: Gᴱ = RT·g_rt with g_rt = Σxᵢlnγᵢ, so
+        // Gᴱ/T = R·g_rt and Hᴱ = −T²·d(Gᴱ/T)/dT = −T²·R·dg_rt/dT. One
+        // first-order dual seeded on T gives dg_rt/dT exactly.
+        ActivityModel::Nrtl => {
+            use num_dual::Dual64;
+            let xd: smallvec::SmallVec<[Dual64; 8]> =
+                x.iter().map(|&xi| Dual64::from(xi)).collect();
+            let td = Dual64::new(temperature, 1.0);
+            let g_rt = excess_gibbs_rt_generic(model, &xd, aij, alpha, vl, delta, td);
+            -temperature * temperature * R_GAS * g_rt.eps
+        }
     }
 }
 
@@ -527,12 +651,13 @@ pub fn excess_entropy(
     model: ActivityModel,
     x: &[f64],
     aij: &[Vec<f64>],
+    alpha: &[Vec<f64>],
     vl: &[f64],
     delta: &[f64],
     temperature: f64,
 ) -> f64 {
-    let he = excess_enthalpy(model, x, aij, vl, delta, temperature);
-    let ge = excess_gibbs(model, x, aij, vl, delta, temperature);
+    let he = excess_enthalpy(model, x, aij, alpha, vl, delta, temperature);
+    let ge = excess_gibbs(model, x, aij, alpha, vl, delta, temperature);
     (he - ge) / temperature
 }
 
@@ -547,6 +672,9 @@ mod tests {
         assert_eq!(ActivityModel::ScatchardHildebrand as i32, 23);
         assert_eq!(ActivityModel::Margules as i32, 24);
         assert_eq!(ActivityModel::IdealSolution as i32, 25);
+        // NRTL has no legacy counterpart; 37 is the first free ID above the
+        // legacy space (mixing rules end at 33, project C-rules at 36).
+        assert_eq!(ActivityModel::Nrtl as i32, 37);
     }
 
     // A zeroed N×N matrix helper.
@@ -560,16 +688,25 @@ mod tests {
         let aij = zeros(2);
         for i in 0..2 {
             assert_eq!(
-                ln_gamma(ActivityModel::IdealSolution, i, &x, &aij, &[], &[], 300.0),
+                ln_gamma(
+                    ActivityModel::IdealSolution,
+                    i,
+                    &x,
+                    &aij,
+                    &[],
+                    &[],
+                    &[],
+                    300.0
+                ),
                 0.0
             );
         }
         assert_eq!(
-            excess_gibbs(ActivityModel::IdealSolution, &x, &aij, &[], &[], 300.0),
+            excess_gibbs(ActivityModel::IdealSolution, &x, &aij, &[], &[], &[], 300.0),
             0.0
         );
         assert_eq!(
-            excess_enthalpy(ActivityModel::IdealSolution, &x, &aij, &[], &[], 300.0),
+            excess_enthalpy(ActivityModel::IdealSolution, &x, &aij, &[], &[], &[], 300.0),
             0.0
         );
     }
@@ -581,8 +718,8 @@ mod tests {
         let mut aij = zeros(2);
         aij[0][1] = 0.5; // A₁₂
         aij[1][0] = 0.8; // A₂₁
-        let g1 = ln_gamma(ActivityModel::Margules, 0, &x, &aij, &[], &[], 300.0);
-        let g2 = ln_gamma(ActivityModel::Margules, 1, &x, &aij, &[], &[], 300.0);
+        let g1 = ln_gamma(ActivityModel::Margules, 0, &x, &aij, &[], &[], &[], 300.0);
+        let g2 = ln_gamma(ActivityModel::Margules, 1, &x, &aij, &[], &[], &[], 300.0);
         let e1 = x[1] * x[1] * (0.5 + 2.0 * (0.8 - 0.5) * x[0]);
         let e2 = x[0] * x[0] * (0.8 + 2.0 * (0.5 - 0.8) * x[1]);
         assert!((g1 - e1).abs() < 1e-12);
@@ -597,8 +734,8 @@ mod tests {
         let mut aij = zeros(2);
         aij[0][1] = a12;
         aij[1][0] = a21;
-        let g1 = ln_gamma(ActivityModel::VanLaar, 0, &x, &aij, &[], &[], 300.0);
-        let g2 = ln_gamma(ActivityModel::VanLaar, 1, &x, &aij, &[], &[], 300.0);
+        let g1 = ln_gamma(ActivityModel::VanLaar, 0, &x, &aij, &[], &[], &[], 300.0);
+        let g2 = ln_gamma(ActivityModel::VanLaar, 1, &x, &aij, &[], &[], &[], 300.0);
         let r1 = 1.0 + (a12 * x[0]) / (a21 * x[1]);
         let r2 = 1.0 + (a21 * x[1]) / (a12 * x[0]);
         assert!((g1 - a12 / (r1 * r1)).abs() < 1e-12);
@@ -612,7 +749,7 @@ mod tests {
         let aij = zeros(2);
         let vl = [40.0, 40.0];
         for i in 0..2 {
-            let g = ln_gamma(ActivityModel::Wilson, i, &x, &aij, &vl, &[], 320.0);
+            let g = ln_gamma(ActivityModel::Wilson, i, &x, &aij, &[], &vl, &[], 320.0);
             assert!(g.abs() < 1e-12, "ln γ should vanish, got {g}");
         }
     }
@@ -629,6 +766,7 @@ mod tests {
                 i,
                 &x,
                 &zeros(2),
+                &[],
                 &vl,
                 &delta,
                 300.0,
@@ -646,6 +784,12 @@ mod tests {
             a[1][0] = 1200.0;
             a
         };
+        let alpha = {
+            let mut a = zeros(2);
+            a[0][1] = 0.3;
+            a[1][0] = 0.3;
+            a
+        };
         let vl = [58.0, 92.0];
         let delta = [7.4, 9.2];
         for model in [
@@ -653,12 +797,13 @@ mod tests {
             ActivityModel::VanLaar,
             ActivityModel::Wilson,
             ActivityModel::ScatchardHildebrand,
+            ActivityModel::Nrtl,
         ] {
             for x in [[1.0 - 1e-9, 1e-9], [1e-9, 1.0 - 1e-9]] {
                 // Gᴱ → 0 like x_min as a component vanishes; with x_min = 1e-9 the
                 // residual is ~1e-3 kJ/kmol, vs. the hundreds–thousands a broken
                 // endpoint would leave — so a generous bound still catches bugs.
-                let ge = excess_gibbs(model, &x, &aij, &vl, &delta, 313.15);
+                let ge = excess_gibbs(model, &x, &aij, &alpha, &vl, &delta, 313.15);
                 assert!(ge.abs() < 1e-1, "{model:?}: Gᴱ at pure limit = {ge}");
             }
         }
@@ -676,14 +821,70 @@ mod tests {
         let vl = [74.0, 18.0]; // e.g. 2-propanol / water
         let t = 333.15;
         let h = 1e-2;
-        let g_over_t = |tt: f64| excess_gibbs(ActivityModel::Wilson, &x, &aij, &vl, &[], tt) / tt;
+        let g_over_t =
+            |tt: f64| excess_gibbs(ActivityModel::Wilson, &x, &aij, &[], &vl, &[], tt) / tt;
         let d = (g_over_t(t + h) - g_over_t(t - h)) / (2.0 * h);
         let he_num = -t * t * d;
-        let he_ana = excess_enthalpy(ActivityModel::Wilson, &x, &aij, &vl, &[], t);
+        let he_ana = excess_enthalpy(ActivityModel::Wilson, &x, &aij, &[], &vl, &[], t);
         assert!(
             (he_ana - he_num).abs() < 1e-2 * he_num.abs().max(1.0),
             "analytical {he_ana} vs numerical {he_num}"
         );
+    }
+
+    #[test]
+    fn nrtl_excess_enthalpy_matches_numerical_oracle() {
+        // Same test-oracle pattern as Wilson: the analytic Hᴱ (dual-number
+        // dg_rt/dT) must match a central-difference −T²·d(Gᴱ/T)/dT. NRTL's
+        // T-dependence lives in τᵢⱼ = aij/(R·T) and Gᵢⱼ = exp(−αᵢⱼτᵢⱼ).
+        let x = [0.35, 0.65];
+        let mut aij = zeros(2);
+        aij[0][1] = 2400.0; // g₁₂ − g₂₂ [kJ/kmol]
+        aij[1][0] = -1100.0; // g₂₁ − g₁₁
+        let mut alpha = zeros(2);
+        alpha[0][1] = 0.3;
+        alpha[1][0] = 0.3;
+        let t = 320.0;
+        let h = 1e-2;
+        let g_over_t =
+            |tt: f64| excess_gibbs(ActivityModel::Nrtl, &x, &aij, &alpha, &[], &[], tt) / tt;
+        let d = (g_over_t(t + h) - g_over_t(t - h)) / (2.0 * h);
+        let he_num = -t * t * d;
+        let he_ana = excess_enthalpy(ActivityModel::Nrtl, &x, &aij, &alpha, &[], &[], t);
+        assert!(
+            (he_ana - he_num).abs() < 1e-4 * he_num.abs().max(1.0),
+            "analytical {he_ana} vs numerical {he_num}"
+        );
+        // A real (nonzero) heat of mixing — this is the whole point of NRTL.
+        assert!(he_ana.abs() > 1.0, "expected nonzero Hᴱ, got {he_ana}");
+    }
+
+    #[test]
+    fn nrtl_matches_binary_closed_form() {
+        // Closed-form binary reduction (Renon & Prausnitz):
+        //   ln γ₁ = x₂²[ τ₂₁ (G₂₁/(x₁+x₂G₂₁))² + τ₁₂ G₁₂/(x₂+x₁G₁₂)² ]
+        //   ln γ₂ = x₁²[ τ₁₂ (G₁₂/(x₂+x₁G₁₂))² + τ₂₁ G₂₁/(x₁+x₂G₂₁)² ]
+        let x = [0.4, 0.6];
+        let t = 330.0;
+        let mut aij = zeros(2);
+        aij[0][1] = 1800.0;
+        aij[1][0] = 900.0;
+        let mut alpha = zeros(2);
+        alpha[0][1] = 0.25;
+        alpha[1][0] = 0.25;
+        let tau12 = aij[0][1] / (R_GAS * t);
+        let tau21 = aij[1][0] / (R_GAS * t);
+        let g12 = (-alpha[0][1] * tau12).exp();
+        let g21 = (-alpha[1][0] * tau21).exp();
+        let (x1, x2) = (x[0], x[1]);
+        let d21 = x1 + x2 * g21;
+        let d12 = x2 + x1 * g12;
+        let e1 = x2 * x2 * (tau21 * (g21 / d21).powi(2) + tau12 * g12 / (d12 * d12));
+        let e2 = x1 * x1 * (tau12 * (g12 / d12).powi(2) + tau21 * g21 / (d21 * d21));
+        let g1 = ln_gamma(ActivityModel::Nrtl, 0, &x, &aij, &alpha, &[], &[], t);
+        let g2 = ln_gamma(ActivityModel::Nrtl, 1, &x, &aij, &alpha, &[], &[], t);
+        assert!((g1 - e1).abs() < 1e-12, "ln γ₁ {g1} vs {e1}");
+        assert!((g2 - e2).abs() < 1e-12, "ln γ₂ {g2} vs {e2}");
     }
 
     #[test]
@@ -694,9 +895,9 @@ mod tests {
         aij[0][1] = 0.7;
         aij[1][0] = 1.1;
         for model in [ActivityModel::Margules, ActivityModel::VanLaar] {
-            let ge = excess_gibbs(model, &x, &aij, &[], &[], 298.15);
-            let he = excess_enthalpy(model, &x, &aij, &[], &[], 298.15);
-            let se = excess_entropy(model, &x, &aij, &[], &[], 298.15);
+            let ge = excess_gibbs(model, &x, &aij, &[], &[], &[], 298.15);
+            let he = excess_enthalpy(model, &x, &aij, &[], &[], &[], 298.15);
+            let se = excess_entropy(model, &x, &aij, &[], &[], &[], 298.15);
             assert!((he - ge).abs() < 1e-9);
             assert!(se.abs() < 1e-9);
         }
@@ -722,7 +923,7 @@ mod tests {
         let mut got = [0.0; 3];
         cache.ln_gamma_all(&x, &mut got);
         for i in 0..3 {
-            let want = ln_gamma(ActivityModel::Wilson, i, &x, &aij, &vl, &[], t);
+            let want = ln_gamma(ActivityModel::Wilson, i, &x, &aij, &[], &vl, &[], t);
             assert!(
                 (got[i] - want).abs() < 1e-14,
                 "component {i}: cached={} reference={}",
@@ -738,6 +939,7 @@ mod tests {
         // for every model (binary case — Margules/van Laar are binary-only).
         let x = [0.4, 0.6];
         let aij = vec![vec![0.0, 950.0], vec![620.0, 0.0]];
+        let alpha = vec![vec![0.0, 0.3], vec![0.3, 0.0]];
         let vl = [90.0, 116.0];
         let delta = [7.5, 8.2];
         let t = 330.0;
@@ -747,11 +949,12 @@ mod tests {
             ActivityModel::VanLaar,
             ActivityModel::Wilson,
             ActivityModel::ScatchardHildebrand,
+            ActivityModel::Nrtl,
         ] {
             let mut got = [0.0; 2];
-            ln_gamma_all(model, &x, &aij, &vl, &delta, t, &mut got);
+            ln_gamma_all(model, &x, &aij, &alpha, &vl, &delta, t, &mut got);
             for i in 0..2 {
-                let want = ln_gamma(model, i, &x, &aij, &vl, &delta, t);
+                let want = ln_gamma(model, i, &x, &aij, &alpha, &vl, &delta, t);
                 assert!(
                     (got[i] - want).abs() < 1e-14,
                     "{model:?} component {i}: {} vs {}",
@@ -759,6 +962,36 @@ mod tests {
                     want
                 );
             }
+        }
+    }
+
+    #[test]
+    fn nrtl_ternary_generic_matches_f64_per_component() {
+        // The generic (dual-capable) vector path must agree with the f64
+        // per-component `ln_gamma` on a ternary — exercises the general
+        // multicomponent form beyond the binary reduction.
+        let x = [0.25, 0.35, 0.40];
+        let aij = vec![
+            vec![0.0, 1800.0, -600.0],
+            vec![900.0, 0.0, 1500.0],
+            vec![400.0, -250.0, 0.0],
+        ];
+        let alpha = vec![
+            vec![0.0, 0.30, 0.20],
+            vec![0.30, 0.0, 0.47],
+            vec![0.20, 0.47, 0.0],
+        ];
+        let t = 345.0;
+        let mut got = [0.0f64; 3];
+        ln_gamma_all_generic(ActivityModel::Nrtl, &x, &aij, &alpha, &[], &[], t, &mut got);
+        for i in 0..3 {
+            let want = ln_gamma(ActivityModel::Nrtl, i, &x, &aij, &alpha, &[], &[], t);
+            assert!(
+                (got[i] - want).abs() < 1e-12,
+                "component {i}: generic={} f64={}",
+                got[i],
+                want
+            );
         }
     }
 }

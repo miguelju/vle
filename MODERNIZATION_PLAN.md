@@ -744,7 +744,7 @@ packaging (already available via `d_ln_phi_d_n`), DB growth beyond the 24.
 
 ---
 
-### Phase 20: Steam Tables — `vle-steam` (IAPWS-IF97) *(Milestone 13)* — **in progress**
+### Phase 20: Steam Tables — `vle-steam` (IAPWS-IF97) *(Milestone 13)* — **shipped (v0.10.0)**
 
 *Added 2026-07-07. Full design record, API sketch, and phase breakdown:
 [STEAM_TABLES_PLAN.md](STEAM_TABLES_PLAN.md). Executed by Claude Code using
@@ -817,6 +817,80 @@ R1-76) and IAPWS-95 as a high-accuracy validation oracle.
 **Key source files:** `steam/src/{lib,region1,region2,region3,region4,region5,
 regions,backward,coefficients,props,state}.rs`, `engine/src/py_steam.rs`,
 `python/src/vle/steam.py`, `python/tests/test_steam.py`
+
+---
+
+### Phase 21: NRTL Activity Model + Ammonia *(Milestone 14)* — **shipped (v0.11.0)**
+
+*Added 2026-07-08. Full design record: [NRTL_AMMONIA_PLAN.md](NRTL_AMMONIA_PLAN.md).
+Executed by Claude Code using Claude Opus 4.8 (1M context).*
+
+Adds the **NRTL** (Non-Random Two-Liquid; Renon & Prausnitz, 1968) activity model
+and the **ammonia** component. This is the vle-side *upstream* enabler for the
+downstream `stages-thermo` library's Ponchon–Savarit milestone, which teaches the
+ammonia–water enthalpy–composition method and therefore needs a liquid model with
+a real heat of mixing plus ammonia in the bundled database.
+
+**Why NRTL** (not UNIQUAC / extended UNIQUAC / a Helmholtz EOS): NRTL is the
+standard model for aqueous-associating and polar mixtures and lifts the whole
+aqueous-nonideal ladder `stages-thermo` will use (the alcohol/acetone–water
+systems and later extractive/azeotropic ternaries), not just ammonia–water. Its
+three binary knobs (τ₁₂, τ₂₁, α₁₂) fit VLE **and** Hᴱ, and it reuses the existing
+`aij` energy-matrix pattern (plain UNIQUAC would force new per-component `r`, `q`
+structural fields for no accuracy gain on two small molecules). Extended
+UNIQUAC / a Helmholtz EOS are single-use luxuries whose distinguishing capability
+serves nothing else on the stages roadmap — so `stages-thermo` reproduces the
+ammonia–water *textbook chart* from reference data rather than building single-use
+electrolyte thermodynamics here.
+
+**NRTL implementation** (`engine/src/activity.rs`): `ActivityModel::Nrtl` with the
+project-assigned discriminant **37** (the legacy VB6 model-ID space packs EOS 0–20,
+activity 21–25, mixing rules 26–33, project C-rules 34–36; 37 is the first free
+value and can never collide). Parameterized to mirror Wilson's energy convention —
+the off-diagonal `aij[i][j] = gᵢⱼ − gⱼⱼ` (kJ/kmol) gives `τᵢⱼ = aij/(R·T)`,
+`Gᵢⱼ = exp(−αᵢⱼτᵢⱼ)` — so the T-dependence lives in `1/T` and the existing
+`num-dual` generic path yields exact ∂lnγ/∂T and a nonzero analytic Hᴱ for free
+(one T-seeded dual through `excess_gibbs_rt_generic`, validated against a
+central-difference oracle — the test-oracle mandate). The **general multicomponent
+form** is implemented via column sums `Sⱼ = Σₖ xₖGₖⱼ`, `Cⱼ = Σₖ xₖτₖⱼGₖⱼ` (so the
+binary closed form is just a test oracle), written once generic over the scalar
+type — correct for the ternary+ systems `stages-thermo` M9 needs.
+
+**The `alpha` matrix (design option B):** NRTL's non-randomness `αᵢⱼ` is a
+symmetric *pair* property, so a new `alpha: &[Vec<f64>]` (N×N) is threaded in
+parallel with `aij` through `SystemSpec`, `GeSpec`, the `System` pyclass, and the
+activity / energy / mixture layers. Overloading the `aij` diagonal (option A) was
+rejected as binary-only. Threading `alpha` into `GeSpec` also lets NRTL feed the
+GE-based cubic mixing rules (Wong-Sandler / MHV) — the standard NRTL-inside-WS
+pairing — without a dead-end `Unsupported` guard.
+
+**PyO3 + Python (M5+ rule):** `alpha=` added to the four `activity_*` free
+functions, the `System` constructor, and `fit_aij` (NRTL energies fitted with α
+held fixed — the LM residual builder stays a 2-parameter fit). `vle.System` gains
+a `"nrtl"` activity alias and an `alpha=` kwarg. Tests exercise every binding
+through the wheel.
+
+**Ammonia** (`scripts/build_components_json.py`, the single generator for all
+three JSON copies): added to `RAW_NEW` (25 compounds total) with critical
+constants + a two-point saturation anchor + the load-bearing ideal-gas Cp°/R
+quartic (every enthalpy balance needs it), cross-checked against Poling, Prausnitz
+& O'Connell (30) / DIPPR. `engine/src/db.rs`'s count test becomes
+`all_25_compounds_parse`, with an ammonia spot-check.
+
+**Parameters + validation:** NH₃–H₂O uses published NRTL parameters (α ≈ 0.2–0.3)
+validated against one literature bubble-P–x dataset (few-% at moderate P; the
+elevated-P boundary is documented). Reproducing the Bošnjaković chart is a
+`stages-thermo` reference-data concern, not this milestone's.
+
+**Notebook + release:** a milestone notebook works NRTL γ + Hᴱ for NH₃–H₂O with
+the bubble-P–x validation plot per the Notebook Conventions; ships as **v0.11.0**
+(new public API surface = minor bump). `stages-thermo` M2 then bumps
+`vle-thermo = "0.11"`.
+
+**Key source files:** `engine/src/activity.rs`, `engine/src/flash/system.rs`,
+`engine/src/mixture.rs`, `engine/src/energy.rs`, `engine/src/py_system.rs`,
+`engine/src/py_bindings.rs`, `engine/src/flash/aij_regression.rs`,
+`python/src/vle/system.py`, `scripts/build_components_json.py`
 
 ---
 

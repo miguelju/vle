@@ -49,7 +49,10 @@ Design conclusion from the stages-thermo M2 planning conversation:
   (kJ/kmol) in the existing `aij` off-diagonals; define `τᵢⱼ = aij[i][j] / (R·T)`,
   `Gᵢⱼ = exp(−αᵢⱼ · τᵢⱼ)`. Because `τ` carries T-dependence through `1/T`, the existing `num-dual`
   generic path yields exact `∂lnγ/∂T` and a nonzero analytic `Hᴱ` for free — exactly as Wilson does.
-  Binary NRTL `ln γ₁ = x₂²[ τ₂₁ (G₂₁/(x₁+x₂G₂₁))² + τ₁₂ G₁₂/(x₂+x₁G₁₂)² ]` (and symmetric).
+  **Implement the general multicomponent form** (option B below exists precisely for ternary+):
+  `ln γᵢ = Σⱼτⱼᵢ Gⱼᵢ xⱼ / Σₖ Gₖᵢ xₖ + Σⱼ [xⱼGᵢⱼ / Σₖ Gₖⱼxₖ]·(τᵢⱼ − Σₘ xₘτₘⱼGₘⱼ / Σₖ Gₖⱼxₖ)`.
+  The binary reduction `ln γ₁ = x₂²[ τ₂₁ (G₂₁/(x₁+x₂G₂₁))² + τ₁₂ G₁₂/(x₂+x₁G₁₂)² ]` (and symmetric)
+  serves as a closed-form test oracle.
   If the NH₃–H₂O fit is inadequate, escalate to `τ = a + b/T` (a second matrix) — **not** in this pass.
 
 - **Non-randomness α storage — option B (chosen).** NRTL needs `αᵢⱼ` (symmetric, a *pair* property).
@@ -63,13 +66,23 @@ Design conclusion from the stages-thermo M2 planning conversation:
 ## 2. NRTL — files to touch
 
 - `engine/src/activity.rs`
-  - Add `Nrtl = 26` to `ActivityModel` (+ the `discriminant_values_match_legacy` assertion).
+  - Add `Nrtl = 37` to `ActivityModel`. **Not 26**: the discriminants live in the single legacy
+    VB6 model-ID space (`CubicEos` 0–20, `TADiPGammaModel` activity 21–25, `TADiPMR` mixing rules
+    26–33, project-assigned C-rules 34–36), and 26 is already `MixingRule::WongSandler`
+    (`engine/src/mixing.rs:38`). 37 is the first free ID. Extend
+    `discriminant_values_match_legacy` with `Nrtl as i32 == 37` plus a comment that NRTL has no
+    legacy counterpart — the value is project-assigned, chosen to never collide with the legacy space.
   - NRTL branches in `ln_gamma` (~L102), `ln_gamma_all` (~L272), `ln_gamma_all_generic<D>` (~L335),
     `excess_enthalpy` (~L469).
   - `nrtl_tau` / `nrtl_g` helpers in both f64 and `_generic<D: DualNum<f64>>` forms.
 - `engine/src/flash/system.rs` — add `alpha` to `SystemSpec` (~L28); pass into the `ln_gamma_all(...)`
-  (~L161) and `ge_ln_gamma_dt` (~L353) calls.
-- `engine/src/mixture.rs` — `GeSpec` (~L110) if NRTL should also drive the GE mixing rules.
+  (~L163) and `dln_gamma_dt` (~L354, the dual-number ∂lnγ/∂T helper) calls.
+- `engine/src/mixture.rs` — add `alpha` to `GeSpec` (~L114) so NRTL can also feed the GE mixing
+  rules (WS/HOV/HVS/MHV1/MHV2). **Decided: thread it now**, not "if needed later" — the signature
+  churn happens in this pass anyway, NRTL-inside-Wong-Sandler is a standard pairing, and skipping
+  it would require an explicit `MixError::Unsupported` guard to avoid silently-wrong γ's; threading
+  is the same effort without the dead end. `ge_terms` in `params_generic` forwards `alpha` like it
+  forwards `vl`/`delta`.
 - `engine/src/py_system.rs` — `System::new` signature (~L287) + `spec()` (~L145): add an `alpha=` kwarg.
 - `engine/src/py_bindings.rs` — extend the four `activity_*` `#[pyfunction]`s (~L873) to accept α;
   optionally extend `fit_aij_py` (~L1802) to fit NRTL τ's with α fixed.
@@ -94,8 +107,9 @@ Design conclusion from the stages-thermo M2 planning conversation:
   is no liquid-range Antoine. Approx values (verify against Poling/Prausnitz *Properties of Gases & Liquids*,
   DIPPR): mw ≈ 17.03, tc ≈ 405.4 K, pc ≈ 11333 kPa, omega ≈ 0.253, tb ≈ 239.8 K, vliq ≈ 24.7 cm³/mol.
   Then regenerate: `~/miniconda3/envs/vle/bin/python scripts/build_components_json.py`.
-- `engine/src/db.rs` — bump the `24 → 25` count test (~L191) + add an ammonia spot-check mirroring
-  `spot_check_new_compound_vs_json_literals`.
+- `engine/src/db.rs` — bump the count test `all_24_compounds_parse` (~L191): rename to
+  `all_25_compounds_parse`, assert 25, update the "M12.1 database holds 24 compounds" comment;
+  add an ammonia spot-check mirroring `spot_check_new_compound_vs_json_literals`.
 - Python DB tests: `python/tests/test_db.py`, `test_rust_db.py`, `test_components.py`, `test_components_cp.py`.
 
 ## 5. NH₃–H₂O NRTL parameters
@@ -109,7 +123,15 @@ Design conclusion from the stages-thermo M2 planning conversation:
   stages-thermo to demonstrate CMO error honestly; **not** expected to match the Bošnjaković chart (that is
   route (b) in stages-thermo M2 — reference data).
 
-## 6. Release
+## 6. Milestone notebook (repo convention — required)
+
+A milestone that ships a user-facing model must end with a milestone notebook (see CLAUDE.md
+*Per-milestone artifact workflow* + *Notebook Conventions*): NRTL γ's + `Hᴱ` for NH₃–H₂O,
+the bubble-P-vs-x validation plot against the literature dataset from §5, the required
+structure (setup cell, research-paper context, worked example, ≥2 exercises, references),
+executed top-to-bottom via `nbconvert --execute`, and catalogued in `deploy/NOTEBOOKS.md`.
+
+## 7. Release
 
 Doc-sync the files above, model-attribution line, `cargo fmt --check`, bump both version fields
 (→ **0.11.0**), land on `main`; Miguel signs the `v0.11.0` tag; `release.yml` publishes to crates.io + PyPI.

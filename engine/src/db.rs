@@ -188,9 +188,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_24_compounds_parse() {
-        // The M12.1 database holds 24 compounds; every one must map cleanly.
-        assert_eq!(available().len(), 24);
+    fn all_25_compounds_parse() {
+        // The M12.1 database held 24 compounds; M14 added ammonia (→ 25);
+        // every one must map cleanly.
+        assert_eq!(available().len(), 25);
     }
 
     #[test]
@@ -228,6 +229,22 @@ mod tests {
         assert_eq!(toluene.tc, 591.75);
         assert_eq!(toluene.pc, 4126.3);
         assert_eq!(toluene.omega, 0.2657);
+    }
+
+    #[test]
+    fn spot_check_ammonia_vs_json_literals() {
+        // ammonia — added in M14 for the NH₃–H₂O method. Values are the
+        // literals in engine/data/components.json (thermo 0.6.0 / chemicals
+        // 1.5.2 via the generator).
+        let nh3 = component("ammonia").unwrap();
+        assert_eq!(nh3.tc, 405.56);
+        assert_eq!(nh3.pc, 11363.4);
+        assert_eq!(nh3.omega, 0.256);
+        assert_eq!(nh3.mw, 17.03052);
+        assert_eq!(nh3.psat_coeffs, vec![5.595032, 2132.497737, -32.98]);
+        assert_eq!(nh3.liquid_volume, 28.24);
+        assert_eq!(nh3.sat_model, SatPressureModel::Antoine);
+        assert!(nh3.cp_coeffs[0] != 0.0);
     }
 
     #[test]

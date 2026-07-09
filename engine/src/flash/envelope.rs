@@ -320,6 +320,7 @@ mod tests {
             mixing_rule: MixingRule::Classical,
             kij: &[],
             aij: &[],
+            alpha: &[],
             vl: &[],
             delta: &[],
             sat_models: &[],

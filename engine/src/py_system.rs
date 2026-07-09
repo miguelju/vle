@@ -102,6 +102,8 @@ pub struct System {
     mixing_rule: MixingRule,
     kij: Vec<Vec<f64>>,
     aij: Vec<Vec<f64>>,
+    /// NRTL non-randomness matrix αᵢⱼ (N×N, symmetric); empty ⇒ ignored.
+    alpha: Vec<Vec<f64>>,
     vl: Vec<f64>,
     delta: Vec<f64>,
     ge_model: Option<ActivityModel>,
@@ -150,6 +152,7 @@ impl System {
             mixing_rule: self.mixing_rule,
             kij: &self.kij,
             aij: &self.aij,
+            alpha: &self.alpha,
             vl: &self.vl,
             delta: &self.delta,
             sat_models: &[],
@@ -286,8 +289,8 @@ impl System {
     #[new]
     #[pyo3(signature = (tcs, pcs, omegas, vapor_kind="cubic", liquid_kind="cubic",
         vapor_eos=None, liquid_eos=None, liquid_activity=None,
-        mixing_rule=MixingRule::Classical, kij=vec![], aij=vec![], vl=vec![],
-        delta=vec![], psat_coeffs=vec![], cp_coeffs=vec![], tbs=vec![],
+        mixing_rule=MixingRule::Classical, kij=vec![], aij=vec![], alpha=vec![],
+        vl=vec![], delta=vec![], psat_coeffs=vec![], cp_coeffs=vec![], tbs=vec![],
         names=vec![], ge_model=None, t_ref=298.15, p_ref=101.325))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -302,6 +305,7 @@ impl System {
         mixing_rule: MixingRule,
         kij: Vec<Vec<f64>>,
         aij: Vec<Vec<f64>>,
+        alpha: Vec<Vec<f64>>,
         vl: Vec<f64>,
         delta: Vec<f64>,
         psat_coeffs: Vec<Vec<f64>>,
@@ -397,6 +401,7 @@ impl System {
             mixing_rule,
             kij,
             aij,
+            alpha,
             vl,
             delta,
             ge_model,

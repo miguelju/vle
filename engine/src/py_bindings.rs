@@ -866,64 +866,70 @@ fn liquid_molar_volume(
 }
 
 /// ln(γᵢ) for component `i`. See the Rust [`crate::activity::ln_gamma`] for the
-/// per-model `aij` convention; `vl` (cm³/mol) and `delta` ((cal/cm³)^0.5) may be
-/// empty lists for models that don't use them. `t` in K.
+/// per-model `aij` convention; `alpha` is the N×N symmetric NRTL non-randomness
+/// matrix (empty for every other model); `vl` (cm³/mol) and `delta`
+/// ((cal/cm³)^0.5) may be empty lists for models that don't use them. `t` in K.
 #[pyfunction]
-#[pyo3(signature = (model, i, x, aij, vl=vec![], delta=vec![], t=298.15))]
+#[pyo3(signature = (model, i, x, aij, alpha=vec![], vl=vec![], delta=vec![], t=298.15))]
+#[allow(clippy::too_many_arguments)]
 fn activity_ln_gamma(
     model: ActivityModel,
     i: usize,
     x: Vec<f64>,
     aij: Vec<Vec<f64>>,
+    alpha: Vec<Vec<f64>>,
     vl: Vec<f64>,
     delta: Vec<f64>,
     t: f64,
 ) -> f64 {
-    ln_gamma_rs(model, i, &x, &aij, &vl, &delta, t)
+    ln_gamma_rs(model, i, &x, &aij, &alpha, &vl, &delta, t)
 }
 
 /// Excess Gibbs energy Gᴱ = RT Σ xᵢ ln γᵢ, in kJ/kmol. Args as in
 /// [`activity_ln_gamma`] (minus the component index).
 #[pyfunction]
-#[pyo3(signature = (model, x, aij, vl=vec![], delta=vec![], t=298.15))]
+#[pyo3(signature = (model, x, aij, alpha=vec![], vl=vec![], delta=vec![], t=298.15))]
 fn activity_excess_gibbs(
     model: ActivityModel,
     x: Vec<f64>,
     aij: Vec<Vec<f64>>,
+    alpha: Vec<Vec<f64>>,
     vl: Vec<f64>,
     delta: Vec<f64>,
     t: f64,
 ) -> f64 {
-    excess_gibbs_rs(model, &x, &aij, &vl, &delta, t)
+    excess_gibbs_rs(model, &x, &aij, &alpha, &vl, &delta, t)
 }
 
 /// Excess enthalpy Hᴱ (analytical), in kJ/kmol. Args as in [`activity_excess_gibbs`].
 #[pyfunction]
-#[pyo3(signature = (model, x, aij, vl=vec![], delta=vec![], t=298.15))]
+#[pyo3(signature = (model, x, aij, alpha=vec![], vl=vec![], delta=vec![], t=298.15))]
 fn activity_excess_enthalpy(
     model: ActivityModel,
     x: Vec<f64>,
     aij: Vec<Vec<f64>>,
+    alpha: Vec<Vec<f64>>,
     vl: Vec<f64>,
     delta: Vec<f64>,
     t: f64,
 ) -> f64 {
-    excess_enthalpy_rs(model, &x, &aij, &vl, &delta, t)
+    excess_enthalpy_rs(model, &x, &aij, &alpha, &vl, &delta, t)
 }
 
 /// Excess entropy Sᴱ = (Hᴱ − Gᴱ)/T, in kJ/(kmol·K). Args as in
 /// [`activity_excess_gibbs`].
 #[pyfunction]
-#[pyo3(signature = (model, x, aij, vl=vec![], delta=vec![], t=298.15))]
+#[pyo3(signature = (model, x, aij, alpha=vec![], vl=vec![], delta=vec![], t=298.15))]
 fn activity_excess_entropy(
     model: ActivityModel,
     x: Vec<f64>,
     aij: Vec<Vec<f64>>,
+    alpha: Vec<Vec<f64>>,
     vl: Vec<f64>,
     delta: Vec<f64>,
     t: f64,
 ) -> f64 {
-    excess_entropy_rs(model, &x, &aij, &vl, &delta, t)
+    excess_entropy_rs(model, &x, &aij, &alpha, &vl, &delta, t)
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -995,6 +1001,7 @@ fn ge_spec<'a>(
     ge_model.map(|model| GeSpec {
         model,
         aij: ge_aij,
+        alpha: &[],
         vl: ge_vl,
         delta: ge_delta,
     })
@@ -1464,6 +1471,7 @@ fn flash_pt(
         mixing_rule,
         kij: &kij,
         aij: &aij,
+        alpha: &[],
         vl: &vl,
         delta: &[],
         sat_models: &[],
@@ -1520,6 +1528,7 @@ fn flash_k_values_py(
         mixing_rule,
         kij: &kij,
         aij: &aij,
+        alpha: &[],
         vl: &vl,
         delta: &[],
         sat_models: &[],
@@ -1555,6 +1564,7 @@ fn flash_stability(
         mixing_rule,
         kij: &kij,
         aij: &[],
+        alpha: &[],
         vl: &[],
         delta: &[],
         sat_models: &[],
@@ -1615,6 +1625,7 @@ fn saturation_binding(
         mixing_rule,
         kij: &kij,
         aij: &aij,
+        alpha: &[],
         vl: &vl,
         delta: &[],
         sat_models: &[],
@@ -1713,6 +1724,7 @@ fn critical_point_py(
         mixing_rule: MixingRule::Classical,
         kij: &kij,
         aij: &[],
+        alpha: &[],
         vl: &[],
         delta: &[],
         sat_models: &[],
@@ -1754,6 +1766,7 @@ fn flash_adiabatic_py(
         mixing_rule: MixingRule::Classical,
         kij: &kij,
         aij: &[],
+        alpha: &[],
         vl: &[],
         delta: &[],
         sat_models: &[],
@@ -1794,10 +1807,12 @@ fn fit_kij_py(
 
 /// Fit binary activity-model parameters `(A₁₂, A₂₁)` to bubble-pressure data
 /// by Levenberg–Marquardt. `data` is a list of `(T [K], x1, P_exp [kPa])`.
+/// `alpha` is the fixed 2×2 NRTL non-randomness matrix (pass `[]` for the
+/// non-NRTL models; α is held constant, only the energies are fitted).
 /// Returns `(a12, a21, sse, rmse, iterations)`.
 #[pyfunction]
 #[pyo3(signature = (model, tcs, pcs, omegas, psat_coeffs, data, a12_0, a21_0,
-    vl=vec![], tol=1e-10, max_iter=100))]
+    alpha=vec![], vl=vec![], tol=1e-10, max_iter=100))]
 #[allow(clippy::too_many_arguments)]
 fn fit_aij_py(
     model: ActivityModel,
@@ -1808,6 +1823,7 @@ fn fit_aij_py(
     data: Vec<(f64, f64, f64)>,
     a12_0: f64,
     a21_0: f64,
+    alpha: Vec<Vec<f64>>,
     vl: Vec<f64>,
     tol: f64,
     max_iter: usize,
@@ -1817,8 +1833,10 @@ fn fit_aij_py(
         .into_iter()
         .map(|(t, x1, p_exp)| AijBubblePoint { t, x1, p_exp })
         .collect();
-    let fit =
-        fit_aij(model, &comps, &vl, &pts, a12_0, a21_0, tol, max_iter).map_err(map_flash_err)?;
+    let fit = fit_aij(
+        model, &comps, &alpha, &vl, &pts, a12_0, a21_0, tol, max_iter,
+    )
+    .map_err(map_flash_err)?;
     Ok((fit.a12, fit.a21, fit.sse, fit.rmse, fit.iterations))
 }
 
@@ -1846,6 +1864,7 @@ fn trace_envelope_py(
         mixing_rule: MixingRule::Classical,
         kij: &kij,
         aij: &[],
+        alpha: &[],
         vl: &[],
         delta: &[],
         sat_models: &[],

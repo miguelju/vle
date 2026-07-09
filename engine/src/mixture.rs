@@ -117,6 +117,9 @@ pub struct GeSpec<'a> {
     /// N×N binary interaction matrix (may be empty for IdealSolution /
     /// Scatchard-Hildebrand).
     pub aij: &'a [Vec<f64>],
+    /// NRTL non-randomness matrix αᵢⱼ (N×N, symmetric) — used **only** when
+    /// `model` is NRTL; empty ⇒ ignored.
+    pub alpha: &'a [Vec<f64>],
     /// Liquid molar volumes in **cm³/mol** (Wilson, Scatchard).
     pub vl: &'a [f64],
     /// Solubility parameters in **(cal/cm³)^0.5** (Scatchard only).
@@ -366,7 +369,7 @@ pub fn mixture_params<D: DualNum<f64> + Copy>(
     let ge_terms = |x: &[D]| -> (Buf<D>, D) {
         let ge = spec.ge.expect("validated: GE rule has GeSpec");
         let mut lng: Buf<D> = smallvec::smallvec![D::from(0.0); n];
-        ln_gamma_all_generic(ge.model, x, ge.aij, ge.vl, ge.delta, t, &mut lng);
+        ln_gamma_all_generic(ge.model, x, ge.aij, ge.alpha, ge.vl, ge.delta, t, &mut lng);
         let mut g_rt = D::from(0.0);
         for i in 0..n {
             g_rt += x[i] * lng[i];
@@ -1270,6 +1273,7 @@ mod tests {
         let ge = GeSpec {
             model: ActivityModel::VanLaar,
             aij: &aij,
+            alpha: &[],
             vl: &[40.7],
             delta: &[],
         };
@@ -1358,6 +1362,7 @@ mod tests {
         let ge = GeSpec {
             model: ActivityModel::VanLaar,
             aij: &aij,
+            alpha: &[],
             vl: &vl,
             delta: &[],
         };
@@ -1458,6 +1463,7 @@ mod tests {
         let ge = GeSpec {
             model: ActivityModel::VanLaar,
             aij: &aij,
+            alpha: &[],
             vl: &vl,
             delta: &[],
         };
@@ -1521,6 +1527,7 @@ mod tests {
         let ge = GeSpec {
             model: ActivityModel::VanLaar,
             aij: &aij,
+            alpha: &[],
             vl: &vl,
             delta: &[],
         };
@@ -1611,6 +1618,7 @@ mod tests {
         let ge = GeSpec {
             model: ActivityModel::VanLaar,
             aij: &aij,
+            alpha: &[],
             vl: &vl,
             delta: &[],
         };
@@ -1628,7 +1636,7 @@ mod tests {
         // Rebuild D from its definition and check A = B·D.
         let pure = pure_params(CubicEos::PR1976, t, p, &comps);
         let mut lng = [0.0; 2];
-        crate::activity::ln_gamma_all(ActivityModel::VanLaar, &x, &aij, &vl, &[], t, &mut lng);
+        crate::activity::ln_gamma_all(ActivityModel::VanLaar, &x, &aij, &[], &vl, &[], t, &mut lng);
         let g_rt: f64 = (0..2).map(|i| x[i] * lng[i]).sum();
         let c_star = hv_c_constant(CubicEos::PR1976);
         let d: f64 = (0..2)
@@ -1761,6 +1769,7 @@ mod tests {
         let ge = GeSpec {
             model: ActivityModel::VanLaar,
             aij: &aij,
+            alpha: &[],
             vl: &vl,
             delta: &[],
         };
@@ -1823,6 +1832,7 @@ mod tests {
         let ge = GeSpec {
             model: ActivityModel::VanLaar,
             aij: &aij,
+            alpha: &[],
             vl: &vl,
             delta: &[],
         };
@@ -1867,6 +1877,7 @@ mod tests {
         let ge = GeSpec {
             model: ActivityModel::VanLaar,
             aij: &aij,
+            alpha: &[],
             vl: &vl,
             delta: &[],
         };
@@ -1918,6 +1929,7 @@ mod tests {
         let ge = GeSpec {
             model: ActivityModel::VanLaar,
             aij: &aij,
+            alpha: &[],
             vl: &vl,
             delta: &[],
         };

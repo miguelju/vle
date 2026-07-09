@@ -155,6 +155,60 @@ def test_margules_van_laar_enthalpy_equals_gibbs() -> None:
         assert se == pytest.approx(0.0, abs=1e-9)
 
 
+# =============================================================================
+# NRTL (Milestone 14) — through the wheel, with the symmetric ``alpha`` matrix
+# =============================================================================
+
+R_GAS = 8.31451  # kJ/(kmol·K)
+
+
+def test_nrtl_matches_binary_closed_form() -> None:
+    """NRTL γ vs the Renon & Prausnitz binary closed form."""
+    x = [0.4, 0.6]
+    t = 330.0
+    aij = [[0.0, 1800.0], [900.0, 0.0]]      # gᵢⱼ − gⱼⱼ in kJ/kmol
+    alpha = [[0.0, 0.25], [0.25, 0.0]]
+    tau12, tau21 = aij[0][1] / (R_GAS * t), aij[1][0] / (R_GAS * t)
+    g12, g21 = math.exp(-alpha[0][1] * tau12), math.exp(-alpha[1][0] * tau21)
+    x1, x2 = x
+    d21, d12 = x1 + x2 * g21, x2 + x1 * g12
+    e1 = x2**2 * (tau21 * (g21 / d21) ** 2 + tau12 * g12 / d12**2)
+    e2 = x1**2 * (tau12 * (g12 / d12) ** 2 + tau21 * g21 / d21**2)
+    g1 = e.activity_ln_gamma(e.ActivityModel.Nrtl, 0, x, aij, alpha=alpha, t=t)
+    g2 = e.activity_ln_gamma(e.ActivityModel.Nrtl, 1, x, aij, alpha=alpha, t=t)
+    assert g1 == pytest.approx(e1, rel=1e-12)
+    assert g2 == pytest.approx(e2, rel=1e-12)
+
+
+def test_nrtl_excess_enthalpy_matches_numerical_oracle() -> None:
+    """Analytic NRTL Hᴱ (dual dg/dT) vs central-difference of −T²·d(Gᴱ/T)/dT."""
+    x = [0.35, 0.65]
+    aij = [[0.0, 2400.0], [-1100.0, 0.0]]
+    alpha = [[0.0, 0.3], [0.3, 0.0]]
+    t, h = 320.0, 1e-2
+
+    def g_over_t(tt: float) -> float:
+        return e.activity_excess_gibbs(e.ActivityModel.Nrtl, x, aij, alpha=alpha, t=tt) / tt
+
+    he_num = -t * t * (g_over_t(t + h) - g_over_t(t - h)) / (2 * h)
+    he_ana = e.activity_excess_enthalpy(e.ActivityModel.Nrtl, x, aij, alpha=alpha, t=t)
+    assert he_ana == pytest.approx(he_num, rel=1e-4)
+    # A real (nonzero) heat of mixing — the reason NRTL exists here.
+    assert abs(he_ana) > 1.0
+
+
+def test_nrtl_entropy_is_consistent() -> None:
+    """Sᴱ = (Hᴱ − Gᴱ)/T must hold for NRTL through the wheel."""
+    x = [0.4, 0.6]
+    aij = [[0.0, 1800.0], [900.0, 0.0]]
+    alpha = [[0.0, 0.3], [0.3, 0.0]]
+    t = 330.0
+    ge = e.activity_excess_gibbs(e.ActivityModel.Nrtl, x, aij, alpha=alpha, t=t)
+    he = e.activity_excess_enthalpy(e.ActivityModel.Nrtl, x, aij, alpha=alpha, t=t)
+    se = e.activity_excess_entropy(e.ActivityModel.Nrtl, x, aij, alpha=alpha, t=t)
+    assert se == pytest.approx((he - ge) / t, rel=1e-10)
+
+
 def test_gibbs_duhem_consistency_binary() -> None:
     """At fixed T,P a binary must satisfy x₁ d(lnγ₁) + x₂ d(lnγ₂) = 0.
 

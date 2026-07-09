@@ -40,6 +40,9 @@ pub struct SystemSpec<'a> {
     /// Activity binary-parameter matrix (N×N) — used by the γ-φ liquid and
     /// by GE-based mixing rules; empty ⇒ all-zero.
     pub aij: &'a [Vec<f64>],
+    /// NRTL non-randomness matrix αᵢⱼ (N×N, symmetric) — used **only** by the
+    /// NRTL activity model; empty ⇒ ignored (every other model reads none).
+    pub alpha: &'a [Vec<f64>],
     /// Liquid molar volumes Vᵢᴸ in **cm³/mol** (Wilson/Scatchard activity,
     /// Poynting correction); empty ⇒ Poynting disabled.
     pub vl: &'a [f64],
@@ -73,6 +76,7 @@ impl<'a> SystemSpec<'a> {
         self.ge_model.map(|model| GeSpec {
             model,
             aij: self.aij,
+            alpha: self.alpha,
             vl: self.vl,
             delta: self.delta,
         })
@@ -160,7 +164,16 @@ pub fn k_values(
         // --- γ-φ: activity-model liquid ---
         LiquidModel::Activity(model) => {
             let mut ln_gamma = vec![0.0; n];
-            ln_gamma_all(model, x, spec.aij, spec.vl, spec.delta, t, &mut ln_gamma);
+            ln_gamma_all(
+                model,
+                x,
+                spec.aij,
+                spec.alpha,
+                spec.vl,
+                spec.delta,
+                t,
+                &mut ln_gamma,
+            );
             gamma_phi_k(spec, t, p, &ln_gamma, &vap)
         }
         LiquidModel::IdealSolution => {
@@ -357,7 +370,9 @@ fn dln_gamma_dt(spec: &SystemSpec, model: ActivityModel, t: f64, x: &[f64]) -> V
     let xd: Vec<Dual64> = x.iter().map(|&xi| Dual64::from(xi)).collect();
     let td = Dual64::new(t, 1.0);
     let mut lng = vec![Dual64::from(0.0); n];
-    crate::activity::ln_gamma_all_generic(model, &xd, spec.aij, spec.vl, spec.delta, td, &mut lng);
+    crate::activity::ln_gamma_all_generic(
+        model, &xd, spec.aij, spec.alpha, spec.vl, spec.delta, td, &mut lng,
+    );
     lng.iter().map(|v| v.eps).collect()
 }
 
@@ -547,7 +562,7 @@ pub fn phase_enthalpy_entropy(
             // Excess (0 for the ideal solution).
             let (he, se) = match spec.liquid {
                 LiquidModel::Activity(model) => {
-                    excess_h_s(model, comp, spec.aij, spec.vl, spec.delta, t)
+                    excess_h_s(model, comp, spec.aij, spec.alpha, spec.vl, spec.delta, t)
                 }
                 _ => (0.0, 0.0),
             };
@@ -593,6 +608,7 @@ mod tests {
             mixing_rule: MixingRule::Classical,
             kij,
             aij: &[],
+            alpha: &[],
             vl: &[],
             delta: &[],
             sat_models: &[],
@@ -631,6 +647,7 @@ mod tests {
             mixing_rule: MixingRule::Classical,
             kij: &[],
             aij: &[],
+            alpha: &[],
             vl: &[],
             delta: &[],
             sat_models: &[],
@@ -682,6 +699,7 @@ mod tests {
             mixing_rule: MixingRule::Classical,
             kij: &[],
             aij: &aij,
+            alpha: &[],
             vl: &vl,
             delta: &[],
             sat_models: &[],
@@ -812,6 +830,7 @@ mod tests {
             mixing_rule: MixingRule::Classical,
             kij: &[],
             aij: &aij,
+            alpha: &[],
             vl: &vl,
             delta: &[],
             sat_models: &[],
@@ -847,6 +866,7 @@ mod tests {
             mixing_rule: MixingRule::Classical,
             kij: &[],
             aij: &aij,
+            alpha: &[],
             vl: &vl,
             delta: &[],
             sat_models: &[],

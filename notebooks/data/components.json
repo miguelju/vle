@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "description": "vle-thermo bundled component database (Milestone 10; Cp added M12.1)",
+    "description": "vle-thermo bundled component database (Milestone 10; Cp added M12.1; ammonia added M14)",
     "units": {
       "tc": "K",
       "pc": "kPa (absolute)",
@@ -729,6 +729,36 @@
       ],
       "cp_source": "Poling, Prausnitz & O'Connell 5th ed. (30) ideal-gas Cp\u00b0/R (POLING_POLY via CalebBell/chemicals); degree-4 fit in T [K] over cp_t_range",
       "liquid_volume": 195.84
+    },
+    "ammonia": {
+      "formula": "NH3",
+      "cas": "7664-41-7",
+      "mw": 17.03052,
+      "tc": 405.56,
+      "pc": 11363.4,
+      "omega": 0.256,
+      "zc": 0.24605,
+      "vc": 73.014,
+      "tb": 239.834,
+      "psat_coeffs": [
+        5.595032,
+        2132.497737,
+        -32.98
+      ],
+      "psat_source": "chemicals Antoine-Poling (log10, bar) A=4.4854, B=926.132, C=-32.98, converted exactly",
+      "cp_coeffs": [
+        4.237975848935592,
+        -0.00421497598000556,
+        2.040988368965912e-05,
+        -2.125987884576933e-08,
+        7.60995663294e-12
+      ],
+      "cp_t_range": [
+        200.0,
+        1000.0
+      ],
+      "cp_source": "Poling, Prausnitz & O'Connell 5th ed. (30) ideal-gas Cp\u00b0/R (POLING_POLY via CalebBell/chemicals); degree-4 fit in T [K] over cp_t_range",
+      "liquid_volume": 28.24
     }
   }
 }

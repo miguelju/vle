@@ -2,7 +2,7 @@
 
 Covers the G1/G2 downstream gaps:
 
-* the DB grew from 15 to 24 compounds (the distillation/absorber set);
+* the DB grew from 15 to 25 compounds (the distillation/absorber set + ammonia);
 * every compound now carries a dimensionless ``cp_coeffs`` (Cp°/R polynomial)
   that is actually threaded through :class:`vle.System` into the engine, so a
   DB-built system's enthalpy includes the (usually dominant) ideal-gas part.
@@ -21,10 +21,11 @@ from vle.system import System
 
 R_GAS = 8.31451  # kJ/(kmol·K) == J/(mol·K)
 
-# The nine compounds added in M12.1 (15 → 24).
+# The nine compounds added in M12.1 (15 → 24) plus ammonia (M14 → 25); all
+# freshly sourced from thermo/chemicals, so they hold to the tight 1% psat bound.
 NEW_COMPOUNDS = [
     "toluene", "ethanol", "acetone", "chloroform", "isobutane",
-    "isopentane", "n-octane", "n-nonane", "n-decane",
+    "isopentane", "n-octane", "n-nonane", "n-decane", "ammonia",
 ]
 
 # Pinned ideal-gas Cp°(298.15 K) in **J/(mol·K)** (numerically == kJ/(kmol·K)),
@@ -39,7 +40,7 @@ CP298_LIT = {
     "water": 33.518, "2-propanol": 89.585, "toluene": 103.613, "ethanol": 65.383,
     "acetone": 74.700, "chloroform": 65.426, "isobutane": 96.955,
     "isopentane": 118.970, "n-octane": 188.461, "n-nonane": 211.142,
-    "n-decane": 233.868,
+    "n-decane": 233.868, "ammonia": 35.688,
 }
 
 
@@ -58,9 +59,9 @@ def _ideal_enthalpy_integral(coeffs: list[float], t: float, t_ref: float) -> flo
 # ── DB expansion (G1) ──────────────────────────────────────────────────────
 
 
-def test_db_has_24_compounds_including_the_new_nine():
+def test_db_has_25_compounds_including_the_new_nine_plus_ammonia():
     names = components.available()
-    assert len(names) == 24
+    assert len(names) == 25
     for nm in NEW_COMPOUNDS:
         assert nm in names, f"{nm} missing from the bundled DB"
 

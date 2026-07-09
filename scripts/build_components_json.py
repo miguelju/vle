@@ -120,10 +120,12 @@ RAW = {
                    (4.8610, 1357.427, -75.814), 76.92),
 }
 
-# Milestone 12.1 additions (9 compounds → 24 total): the classic
-# distillation / absorber validation set the downstream stages-thermo library
-# needs. Sourced 2026-07-05 from thermo 0.6.0 / chemicals 1.5.2; Antoine from
-# the chemicals Antoine-Poling table (bar form = published Pa form − 5).
+# Milestone 12.1 additions (9 compounds) + Milestone 14's ammonia (→ 25 total):
+# the classic distillation / absorber validation set the downstream stages-thermo
+# library needs, plus ammonia for the ammonia–water Ponchon–Savarit method.
+# Sourced from thermo 0.6.0 / chemicals 1.5.2 (M12.1 on 2026-07-05, ammonia on
+# 2026-07-08); Antoine from the chemicals Antoine-Poling table (bar form =
+# published Pa form − 5), cross-checked vs Poling, Prausnitz & O'Connell (30).
 RAW_NEW = {
     "toluene": ("C7H8", "108-88-3", 92.1384, 591.750, 4126.30, 0.2657, 0.26465, 315.557, 383.746,
                 (4.05043, 1327.62, -55.525), 106.86),
@@ -143,6 +145,13 @@ RAW_NEW = {
                  (4.07356, 1438.03, -70.456), 179.61),
     "n-decane": ("C10H22", "124-18-5", 142.2817, 617.700, 2103.00, 0.4884, 0.24968, 609.756, 447.270,
                  (4.06853, 1495.17, -79.292), 195.84),
+    # Milestone 14 — for the ammonia–water enthalpy–composition method. The
+    # Antoine-Poling range (193–254 K) is below the critical region, so the
+    # reduced fit is extrapolated at higher T (allowed; Psat(Tb) stays honest).
+    # liquid_volume is the saturated-liquid molar volume at ~298 K (thermo
+    # VolumeLiquid, HEOS_FIT) — ammonia is a pressurized liquid there.
+    "ammonia": ("NH3", "7664-41-7", 17.03052, 405.560, 11363.40, 0.256, 0.24605, 73.014, 239.834,
+                (4.48540, 926.132, -32.98), 28.24),
 }
 
 # Two-point (T [K], Psat [kPa]) anchors for the compounds without a usable
@@ -185,6 +194,7 @@ CP = {
     "n-octane": ([10.823938317338229, 0.004982971603407559, 0.00017750898842486308, -2.3136868149321465e-07, 8.979948825729673e-11], [200.0, 1000.0]),
     "n-nonane": ([12.151930749472886, 0.004574973928474323, 0.00020415883655467348, -2.677684740607602e-07, 1.0464940363169358e-10], [200.0, 1000.0]),
     "n-decane": ([13.466923255690485, 0.00413897641310502, 0.00023126868206308312, -3.047682632090871e-07, 1.1969931786635066e-10], [200.0, 1000.0]),
+    "ammonia": ([4.237975848935592, -0.00421497598000556, 2.040988368965912e-05, -2.125987884576933e-08, 7.60995663294e-12], [200.0, 1000.0]),
 }
 
 CP_SOURCE = (
@@ -251,7 +261,7 @@ def build() -> dict:
         compounds[name] = entry
     return {
         "_meta": {
-            "description": "vle-thermo bundled component database (Milestone 10; Cp added M12.1)",
+            "description": "vle-thermo bundled component database (Milestone 10; Cp added M12.1; ammonia added M14)",
             "units": {
                 "tc": "K", "pc": "kPa (absolute)", "vc": "cm3/mol", "tb": "K",
                 "mw": "g/mol", "liquid_volume": "cm3/mol at ~298 K",

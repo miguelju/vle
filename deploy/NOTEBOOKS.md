@@ -78,8 +78,9 @@ of the research paper's Chapter IV validation cases.
 | `10_chapter4_validation_walkthrough.ipynb`          | 11        | End-to-end walkthrough of Chapter IV            |
 | `11_derivatives_and_database.ipynb`                 | 12        | T/P derivatives of fugacity & K-values, real-mixture Cp, partial molar enthalpy, 24-compound DB tour (v0.9.0) |
 | `12_steam_tables.ipynb`                             | 13        | IAPWS-IF97 steam tables (`vle.steam`): saturation-table page, T–s dome, isentropic turbine expansion, flash-steam & reboiler-duty exercises (v0.10.0) |
+| `13_nrtl_ammonia.ipynb`                             | 14        | NRTL activity model + ammonia: NH₃–H₂O activity coefficients, exothermic excess enthalpy, bubble-P curve; α-sensitivity & Aij-regression exercises (v0.11.0) |
 
-The collection is **complete** — all 17 notebooks above ship with the
+The collection is **complete** — all 18 notebooks above ship with the
 repository and execute top-to-bottom in a fresh kernel.
 
 ## Data

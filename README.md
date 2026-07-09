@@ -36,7 +36,7 @@ The full research paper is available in both [English](docs/en/research-paper/RE
 - **22+ cubic equations of state**: Peng-Robinson, RKS, van der Waals, Schmidt-Wenzel, Patel-Teja, and 17 more variants
 - **Chao-Seader** liquid fugacity correlation (with special H2/methane handling)
 - **Second virial equation** (Pitzer/Tsonopoulos correlation)
-- **5 activity coefficient models**: Wilson, van Laar, Margules, Scatchard-Hildebrand, Ideal
+- **6 activity coefficient models**: NRTL, Wilson, van Laar, Margules, Scatchard-Hildebrand, Ideal
 - **11 mixing rules**: Classical (IVDW, IIVDW), Wong-Sandler, Huron-Vidal (original + simplified), MHV1, MHV2, plus 3 C-parameter rules for the three-parameter EOS — all with **exact composition derivatives** (analytic or dual-number AD, never finite differences)
 
 ### Calculations
@@ -257,7 +257,7 @@ Each milestone records which AI model was used (e.g., `Claude Opus 4.6 (1M conte
 
 ## Getting Started
 
-**Status**: Milestones 0–12 are **complete** and **Milestone 13** (steam tables) is code-complete. The full engine (22+ EOS, mixing rules with exact derivatives, energy properties, and the modern flash/regression suite), the high-level `vle.System` Python API with a parallel batch numpy layer, and 17 notebooks — all validated against the thesis's Chapter IV tables. Latest shipped release: **v0.9.1** on PyPI + crates.io; **Milestone 13** targets **v0.10.0**. **Milestone 13** adds a new dependency-free crate **`vle-steam`** implementing the **IAPWS-IF97** industrial steam tables ("VLE for water only") — all five regions + the saturation line + backward equations, verified against the R7-97(2012) tables to 9 significant figures — surfaced as **`vle.steam`** with unit-aware inputs and a batch numpy API (notebook `12_steam_tables.ipynb`). **Milestone 12** — the downstream derivative & database release — is done across two releases: **v0.8.2** grew the bundled database to **24 compounds** with ideal-gas Cp°/R coefficients; **v0.9.0** added a Rust-side component database (`vle_thermo::db`, `component-db` feature), **exact temperature/pressure derivatives** of fugacity and K-values (dual-number AD), **real-mixture heat capacity** and **partial molar enthalpy**, and a packaged γ-φ phase enthalpy — the property surface a downstream staged-separation library consumes. **v0.9.1** is a patch fixing a ~1% Wong-Sandler departure-enthalpy inconsistency that the M12.3 Gibbs–Helmholtz invariant surfaced (root cause + fix in [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md) §7). See [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md). Per-milestone detail: [ROADMAP.md](ROADMAP.md).
+**Status**: Milestones 0–14 are **complete**. The full engine (22+ EOS, mixing rules with exact derivatives, energy properties, and the modern flash/regression suite), the high-level `vle.System` Python API with a parallel batch numpy layer, and 18 notebooks — all validated against the thesis's Chapter IV tables. Latest release: **v0.11.0** on PyPI + crates.io; **v0.10.0** shipped the steam tables. **Milestone 14** adds the **NRTL** activity model (general multicomponent, with analytic ∂lnγ/∂T and excess enthalpy via dual-number AD) and **ammonia** to the bundled database (now 25 compounds) — the upstream liquid model the downstream `stages-thermo` library needs for the ammonia–water enthalpy–composition method (notebook `13_nrtl_ammonia.ipynb`). **Milestone 13** adds a new dependency-free crate **`vle-steam`** implementing the **IAPWS-IF97** industrial steam tables ("VLE for water only") — all five regions + the saturation line + backward equations, verified against the R7-97(2012) tables to 9 significant figures — surfaced as **`vle.steam`** with unit-aware inputs and a batch numpy API (notebook `12_steam_tables.ipynb`). **Milestone 12** — the downstream derivative & database release — is done across two releases: **v0.8.2** grew the bundled database to **24 compounds** with ideal-gas Cp°/R coefficients; **v0.9.0** added a Rust-side component database (`vle_thermo::db`, `component-db` feature), **exact temperature/pressure derivatives** of fugacity and K-values (dual-number AD), **real-mixture heat capacity** and **partial molar enthalpy**, and a packaged γ-φ phase enthalpy — the property surface a downstream staged-separation library consumes. **v0.9.1** is a patch fixing a ~1% Wong-Sandler departure-enthalpy inconsistency that the M12.3 Gibbs–Helmholtz invariant surfaced (root cause + fix in [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md) §7). See [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md). Per-milestone detail: [ROADMAP.md](ROADMAP.md).
 
 ### Prerequisites
 - Python 3.10+
@@ -267,7 +267,7 @@ Each milestone records which AI model was used (e.g., `Claude Opus 4.6 (1M conte
 ### Component Database
 ```bash
 PYTHONPATH=python/src python -m vle.cli.main init               # Create database
-PYTHONPATH=python/src python -m vle.cli.main seed --source chapter4  # Seed 24 compounds
+PYTHONPATH=python/src python -m vle.cli.main seed --source chapter4  # Seed 25 compounds
 PYTHONPATH=python/src python -m vle.cli.main list               # Browse components
 PYTHONPATH=python/src python -m vle.cli.main show methane       # View details
 ```
@@ -285,6 +285,7 @@ pytest python/tests/                  # Run the Python test suite
 ## Documentation
 
 - [Developer Setup Guide](docs/en/SETUP.md) — Prerequisites, build instructions, and development workflow (Rust, Python/conda, maturin)
+- [Mixing Rules — A Student's Guide](docs/en/mixing-rules.md) — What mixing rules are, the classical vs EOS/Gᴱ families, how to choose one, and the 11 rules implemented here
 - [Dimensional Analysis](docs/en/units/dimensional-analysis.md) — Units add-on design: SI dimensions, gauge pressure, extensible unit registry
 - [Modernization Plan](MODERNIZATION_PLAN.md) — Full technical plan with academic references, algorithm mapping, and performance improvements
 - [Performance Proposal](PERFORMANCE_PROPOSAL.md) — The speed/convergence plan (2026-07): modern flash algorithms, exact-derivative core, batch numpy API

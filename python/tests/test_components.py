@@ -55,5 +55,18 @@ def test_search_matches_name_formula_cas():
     assert any(c.formula == "CO2" for c in components.search("CO2"))
 
 
+def test_ammonia_present_with_canonical_units():
+    """Ammonia (M14, for the NH₃–H₂O method) is in the bundled DB."""
+    nh3 = components.get("ammonia")
+    assert nh3.name == "ammonia"
+    assert nh3.tc == pytest.approx(405.56)  # K
+    assert nh3.pc == pytest.approx(11363.4)  # kPa
+    assert nh3.tb == pytest.approx(239.834)  # K
+    # Reduced Antoine reproduces the normal boiling point within a few %.
+    a1, a2, a3 = nh3.psat_coeffs
+    psat_tb = nh3.pc * math.exp(a1 - a2 / (a3 + nh3.tb))  # kPa
+    assert psat_tb == pytest.approx(101.325, rel=0.05)
+
+
 def test_all_components_roundtrip_count():
     assert len(components.all_components()) == len(components.available())

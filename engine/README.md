@@ -9,7 +9,7 @@ Vapor-liquid equilibrium (VLE) thermodynamic calculator in Rust.
 A modern Rust port of two legacy thermodynamic codebases (VB6 ~15,000 lines + Pascal ~2,500 lines) supporting:
 
 - **22+ cubic equations of state** — Peng-Robinson, RKS, van der Waals, Schmidt-Wenzel, Patel-Teja, and more
-- **5 activity coefficient models** — Wilson, van Laar, Margules, Scatchard-Hildebrand, Ideal
+- **6 activity coefficient models** — NRTL, Wilson, van Laar, Margules, Scatchard-Hildebrand, Ideal (NRTL with analytic ∂lnγ/∂T and excess enthalpy via dual-number AD)
 - **11 mixing rules** — Classical (IVDW, IIVDW), Wong-Sandler, Huron-Vidal, MHV1/MHV2
 - **6 saturation pressure correlations** — Antoine, Riedel, Müller, RPM, polynomial, Maxwell
 - **6 flash calculation types** — bubble/dew point (T/P), isothermal, adiabatic (PH)
@@ -17,10 +17,13 @@ A modern Rust port of two legacy thermodynamic codebases (VB6 ~15,000 lines + Pa
 
 ## Status
 
-`0.10.0` — pre-1.0, but the numerical core is live. The Cardano solver,
+`0.11.0` — pre-1.0, but the numerical core is live. The Cardano solver,
 Newton-Raphson / Broyden drivers, Rachford-Rice, the flash algorithms
 (isothermal, bubble/dew *T* and *P*, adiabatic *PH*), the mixture critical
-point, and kij/Aij regression all run. `0.10.0` adds **IAPWS-IF97 steam
+point, and kij/Aij regression all run. `0.11.0` adds the **NRTL** activity
+model (`ActivityModel::Nrtl`, general multicomponent, with analytic ∂lnγ/∂T
+and excess enthalpy via dual-number AD) and **ammonia** to the bundled
+database. `0.10.0` adds **IAPWS-IF97 steam
 tables** via the new sibling crate [`vle-steam`](https://crates.io/crates/vle-steam),
 re-exported here as `vle_thermo::steam` behind the optional `steam` feature
 (on by default in the Python wheel). `0.9.1` fixed a ~1% Wong-Sandler
@@ -44,7 +47,7 @@ for the phase-by-phase technical detail.
 
 ```toml
 [dependencies]
-vle-thermo = "0.10"
+vle-thermo = "0.11"
 ```
 
 Or with `cargo add`:
@@ -56,7 +59,7 @@ cargo add vle-thermo
 The crate is `no-pyo3` by default — PyO3 bindings are gated behind the optional
 `python` feature and are only needed when maturin builds the Python wheel.
 
-Opt into the bundled 24-compound property database with the `component-db`
+Opt into the bundled 25-compound property database with the `component-db`
 feature (`cargo add vle-thermo --features component-db`), which adds
 `vle_thermo::db::component(name)` / `available()` for name-based lookups
 (pulls only `serde` + `serde_json`; off by default).

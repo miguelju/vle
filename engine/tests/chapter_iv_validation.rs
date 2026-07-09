@@ -58,6 +58,7 @@ fn chapter_iv_isothermal_flash_table_4_10() {
         mixing_rule: MixingRule::Classical,
         kij: &[],
         aij: &[],
+        alpha: &[],
         vl: &[],
         delta: &[],
         sat_models: &[],

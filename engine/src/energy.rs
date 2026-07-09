@@ -345,8 +345,8 @@ fn t_dln_ab_dt_mix(spec: &MixtureSpec, t: f64, p: f64, x: &[f64]) -> Result<(f64
                 t_dalpha_sum += x[i] * alpha_i * (t_dln_ai[i] + 1.0);
             }
             // Gᴱ/RT and T·d(Gᴱ/RT)/dT = −Hᴱ/RT.
-            let g_rt = excess_gibbs_rt(ge.model, x, ge.aij, ge.vl, ge.delta, t);
-            let he = consistent_excess_enthalpy(ge.model, x, ge.aij, ge.vl, ge.delta, t);
+            let g_rt = excess_gibbs_rt(ge.model, x, ge.aij, ge.alpha, ge.vl, ge.delta, t);
+            let he = consistent_excess_enthalpy(ge.model, x, ge.aij, ge.alpha, ge.vl, ge.delta, t);
             let t_dg_rt = -he / (R_GAS * t);
             // Σxᵢ ln(B/Bᵢ) and its T-derivative: T·d ln(B/Bᵢ)/dT =
             // T dlnB − T dlnBᵢ = (−1) − (−1) = 0. So the b-log term is
@@ -433,8 +433,8 @@ fn t_dln_ab_dt_mix(spec: &MixtureSpec, t: f64, p: f64, x: &[f64]) -> Result<(f64
                 d += x[i] * alpha_i;
                 t_dd += x[i] * alpha_i * (t_dln_ai[i] + 1.0);
             }
-            let g_rt = excess_gibbs_rt(ge.model, x, ge.aij, ge.vl, ge.delta, t);
-            let he = consistent_excess_enthalpy(ge.model, x, ge.aij, ge.vl, ge.delta, t);
+            let g_rt = excess_gibbs_rt(ge.model, x, ge.aij, ge.alpha, ge.vl, ge.delta, t);
+            let he = consistent_excess_enthalpy(ge.model, x, ge.aij, ge.alpha, ge.vl, ge.delta, t);
             d += g_rt / c_star;
             t_dd += (-he / (R_GAS * t)) / c_star;
             let one_minus_d = 1.0 - d;
@@ -469,11 +469,12 @@ fn excess_gibbs_rt(
     model: ActivityModel,
     x: &[f64],
     aij: &[Vec<f64>],
+    alpha: &[Vec<f64>],
     vl: &[f64],
     delta: &[f64],
     t: f64,
 ) -> f64 {
-    crate::activity::excess_gibbs(model, x, aij, vl, delta, t) / (R_GAS * t)
+    crate::activity::excess_gibbs(model, x, aij, alpha, vl, delta, t) / (R_GAS * t)
 }
 
 /// Excess enthalpy **consistent with the temperature dependence of γ as the
@@ -494,13 +495,14 @@ fn consistent_excess_enthalpy(
     model: ActivityModel,
     x: &[f64],
     aij: &[Vec<f64>],
+    alpha: &[Vec<f64>],
     vl: &[f64],
     delta: &[f64],
     t: f64,
 ) -> f64 {
     match model {
         ActivityModel::Margules | ActivityModel::VanLaar => 0.0,
-        _ => excess_enthalpy(model, x, aij, vl, delta, t),
+        _ => excess_enthalpy(model, x, aij, alpha, vl, delta, t),
     }
 }
 
@@ -599,13 +601,14 @@ pub fn excess_h_s(
     model: ActivityModel,
     x: &[f64],
     aij: &[Vec<f64>],
+    alpha: &[Vec<f64>],
     vl: &[f64],
     delta: &[f64],
     t: f64,
 ) -> (f64, f64) {
     (
-        excess_enthalpy(model, x, aij, vl, delta, t),
-        excess_entropy(model, x, aij, vl, delta, t),
+        excess_enthalpy(model, x, aij, alpha, vl, delta, t),
+        excess_entropy(model, x, aij, alpha, vl, delta, t),
     )
 }
 
@@ -778,6 +781,7 @@ mod tests {
         let ge = GeSpec {
             model: ActivityModel::VanLaar,
             aij: &aij,
+            alpha: &[],
             vl: &vl,
             delta: &[],
         };
@@ -935,12 +939,14 @@ mod tests {
         let aij = vec![vec![0.0, 0.847], vec![0.522, 0.0]];
         let vl = [40.7, 18.07];
         let x = [0.4, 0.6];
-        let (he, se) = excess_h_s(ActivityModel::Wilson, &x, &aij, &vl, &[], 340.0);
+        let (he, se) = excess_h_s(ActivityModel::Wilson, &x, &aij, &[], &vl, &[], 340.0);
         assert!(
-            (he - excess_enthalpy(ActivityModel::Wilson, &x, &aij, &vl, &[], 340.0)).abs() < 1e-12
+            (he - excess_enthalpy(ActivityModel::Wilson, &x, &aij, &[], &vl, &[], 340.0)).abs()
+                < 1e-12
         );
         assert!(
-            (se - excess_entropy(ActivityModel::Wilson, &x, &aij, &vl, &[], 340.0)).abs() < 1e-12
+            (se - excess_entropy(ActivityModel::Wilson, &x, &aij, &[], &vl, &[], 340.0)).abs()
+                < 1e-12
         );
     }
 
@@ -961,6 +967,7 @@ mod tests {
         let ge = GeSpec {
             model: ActivityModel::VanLaar,
             aij: &aij,
+            alpha: &[],
             vl: &vl,
             delta: &[],
         };
@@ -1077,6 +1084,7 @@ mod tests {
             mixing_rule: MixingRule::Classical,
             kij: &[],
             aij: &aij,
+            alpha: &[],
             vl: &vl,
             delta: &[],
             sat_models: &[],
@@ -1093,7 +1101,7 @@ mod tests {
             let dpsat = crate::saturation::d_psat_dt(comps[i].sat_model, &comps[i], t).unwrap();
             h_cond += x[i] * R * t * t * dpsat / psat_i;
         }
-        let (he, _) = excess_h_s(ActivityModel::VanLaar, &x, &aij, &vl, &[], t);
+        let (he, _) = excess_h_s(ActivityModel::VanLaar, &x, &aij, &[], &vl, &[], t);
         let expect = h_ideal - h_cond + he;
         assert!(
             (h - expect).abs() <= 1e-9 * expect.abs().max(1.0),

@@ -50,7 +50,8 @@ VALUES
     ('isopentane',          'C5H12', '78-78-4',    72.1488,  460.350,   3378.00, 0.2274,   0.26981,  305.717,  300.976,  0.11,  'thermo/DIPPR', 'M12.1: debutanizer / depropanizer columns'),
     ('n-octane',            'C8H18', '111-65-9',  114.2285,  568.740,   2483.59, 0.3980,   0.25860,  492.368,  398.794,  0.0,   'thermo/DIPPR', 'M12.1: wide-boiling absorber / naphtha cases'),
     ('n-nonane',            'C9H20', '111-84-2',  128.2551,  594.550,   2281.00, 0.4433,   0.25493,  552.486,  423.913,  0.0,   'thermo/DIPPR', 'M12.1: wide-boiling absorber / naphtha cases'),
-    ('n-decane',            'C10H22','124-18-5',  142.2817,  617.700,   2103.00, 0.4884,   0.24968,  609.756,  447.270,  0.0,   'thermo/DIPPR', 'M12.1: absorber oil');
+    ('n-decane',            'C10H22','124-18-5',  142.2817,  617.700,   2103.00, 0.4884,   0.24968,  609.756,  447.270,  0.0,   'thermo/DIPPR', 'M12.1: absorber oil'),
+    ('ammonia',             'NH3',   '7664-41-7',  17.03052, 405.560,  11363.40, 0.2560,   0.24605,   73.014,  239.834,  1.47,  'thermo/DIPPR', 'M14: ammonia-water Ponchon-Savarit / absorber');
 
 -- ============================================================================
 -- ACTIVITY MODEL PARAMETERS (from Chapter IV tables)

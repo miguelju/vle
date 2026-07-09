@@ -179,12 +179,13 @@ class TestChapter4SeedArtifact:
     ``data/components.db`` currently contains on the developer machine.
     """
 
-    def test_seed_produces_all_24_compounds(self, tmp_db):
+    def test_seed_produces_all_25_compounds(self, tmp_db):
         from vle.db.seed import seed_chapter4
 
-        # 15 Chapter IV compounds + the 9 M12.1 distillation/absorber additions.
+        # 15 Chapter IV compounds + 9 M12.1 distillation/absorber additions
+        # + M14 ammonia (ammonia–water Ponchon–Savarit).
         count = seed_chapter4()
-        assert count == 24
+        assert count == 25
 
         chapter4 = [
             "methane", "ethane", "propane", "n-butane", "n-pentane",

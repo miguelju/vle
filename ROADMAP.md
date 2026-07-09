@@ -10,7 +10,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Analyze legacy VB6 codebase (~15,000 lines)
 - [x] Analyze legacy Pascal codebase (~2,500 lines)
 - [x] Create Pascal vs VB6 comparison document
-- [x] Create modernization plan with 20 implementation phases *(originally 17; Phase 11 — Performance Foundation — added 2026-07-01; Phase 19 — Downstream Derivative & Database Release — added 2026-07-05; Phase 20 — Steam Tables (IAPWS-IF97) — added 2026-07-07)*
+- [x] Create modernization plan with 21 implementation phases *(originally 17; Phase 11 — Performance Foundation — added 2026-07-01; Phase 19 — Downstream Derivative & Database Release — added 2026-07-05; Phase 20 — Steam Tables (IAPWS-IF97) — added 2026-07-07; Phase 21 — NRTL Activity Model + Ammonia — added 2026-07-08)*
 - [x] Map algorithms to 30 academic references (ACS format) *(originally 22; (23)–(29) added 2026-07-01 with PERFORMANCE_PROPOSAL.md; (30) added 2026-07-05 with DERIVATIVE_RELEASE_PLAN.md)*
 - [x] Propose 8 algorithm performance improvements (A–H) *(extended to §A–§M + Performance Engineering tracks 2026-07-01 — see [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md))*
 - [x] Initialize git repository
@@ -353,7 +353,7 @@ core). Execution order 12.1 → 12.5; 12.4 depends on 12.3.
 - [x] Extended criterion benches: `k_values` vs `k_values_with_derivs` (measured ~3.5×, computing k + dT + dP) and `phase_cp` in `engine/benches/engine_bench.rs`
 - [x] Full doc sync (README, package READMEs, `deploy/NOTEBOOKS.md`, parameter reference) + bump to **0.9.0** (shipped 2026-07-06)
 
-## Milestone 13: Steam Tables — `vle-steam` (IAPWS-IF97) — **code-complete (v0.10.0 release tag pending)**
+## Milestone 13: Steam Tables — `vle-steam` (IAPWS-IF97) — **shipped (v0.10.0)**
 **Goal**: Add an industrial steam-tables capability ("VLE for water only") as a new dependency-free workspace crate `vle-steam` implementing the IAPWS Industrial Formulation 1997 (IF97, R7-97 rev. 2012) — regions 1–5, the saturation line, and backward equations — surfaced through the wheel as `vle.steam` with pint/gauge units and a batch numpy API. Ships as **v0.10.0** (new public API surface = minor bump). Full design record: [STEAM_TABLES_PLAN.md](STEAM_TABLES_PLAN.md).
 *Phase 20 of MODERNIZATION_PLAN.md*
 
@@ -401,13 +401,42 @@ computer-program verification tables, asserted to full published precision.
 - [x] `engine` `steam` feature (`dep:vle-steam`); `py_steam.rs` (`SteamState`/`SatState` pyclasses + module fns + rayon batch kernels)
 - [x] `vle.steam` Python wrapper (`Water(...)`, `saturation`, `properties`/`ph_flash`/`sat_table`) with pint/gauge units; `test_steam.py` (18 tests, 443 pytest pass)
 
-### Milestone 13.6 — Notebook, README, docs & v0.10.0 release — **code-complete (release tag pending)**
+### Milestone 13.6 — Notebook, README, docs & v0.10.0 release — **shipped (v0.10.0)**
 *Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
 - [x] Milestone notebook `notebooks/12_steam_tables.ipynb` (T–s dome, turbine expansion worked example, flash-steam + reboiler-duty exercises) per Notebook Conventions
 - [x] `steam/README.md` (crates.io page); criterion benches (`steam/benches/steam_bench.rs`, one point per region + PH flash)
 - [x] CLAUDE.md release-rule entry (#12) + architecture tree; full doc sync (README, package READMEs, NOTEBOOKS); version bumped workspace-wide to **v0.10.0**; `vle-steam` wired into `publish-crate.sh` + `release.yml`
-- [ ] **Operator step:** tag `v0.10.0` (signed) + publish (vle-units → vle-steam → vle-thermo) — YubiKey-gated, not automatable here
+- [x] **Operator step:** signed `v0.10.0` tag pushed + published (vle-units → vle-steam → vle-thermo); GitHub Release is Latest (2026-07-08)
+
+---
+
+## Milestone 14: NRTL Activity Model + Ammonia (vle-thermo 0.11.0) — **shipped (v0.11.0)**
+
+*Phase 21 of MODERNIZATION_PLAN.md*
+
+*Executed by Claude Code using Claude Opus 4.8 (1M context)*
+
+Upstream enabler for the downstream `stages-thermo` library's Ponchon–Savarit
+milestone (heat-of-mixing on the ammonia–water enthalpy–composition method). Adds
+the **NRTL** activity model (general multicomponent form; analytic ∂lnγ/∂T and Hᴱ
+via `num-dual`) and **ammonia** to the bundled component database. Design record:
+[NRTL_AMMONIA_PLAN.md](NRTL_AMMONIA_PLAN.md).
+
+- [x] `ActivityModel::Nrtl` (project ID 37) — general multicomponent γ + column-sum
+      form, generic over the scalar type; f64 + dual paths; analytic Hᴱ via a
+      T-seeded dual; binary closed-form + ternary generic-vs-f64 + Hᴱ-vs-oracle tests
+- [x] Symmetric `alpha` non-randomness matrix threaded through `SystemSpec`,
+      `GeSpec`, the `System` pyclass, and the activity / energy / mixture layers
+      (option B — correct for ternary, serves the later extractive systems)
+- [x] PyO3: `alpha=` on the four `activity_*` free functions, the `System`
+      constructor, and `fit_aij` (NRTL energies fitted with α fixed)
+- [x] Python: `"nrtl"` alias + `alpha=` kwarg on `vle.System`
+- [x] Ammonia in the component DB (generator + all three JSON copies + Cp°/R
+      quartic); Rust `all_25_compounds_parse` + Python DB tests updated
+- [x] Milestone notebook (`notebooks/13_nrtl_ammonia.ipynb`) + NOTEBOOKS catalogue — NH₃–H₂O γ, exothermic Hᴱ, bubble-P curve (α = 0.2), with α-sensitivity and Aij-regression exercises; executes top-to-bottom
+- [~] NH₃–H₂O NRTL parameters — qualitatively correct behavior demonstrated (α = 0.2 + illustrative energies: negative deviation, exothermic mixing, ammonia-rich vapor). Regression against a published bubble-P–x dataset is deferred; the definitive ammonia–water chart is reproduced from reference data downstream in `stages-thermo`, per the plan's accuracy bar
+- [x] **Operator step:** version bumped → v0.11.0; signed `v0.11.0` tag pushed; `release.yml` publishes vle-thermo to crates.io + PyPI — YubiKey-gated
 
 ---
 

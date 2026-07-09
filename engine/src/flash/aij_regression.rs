@@ -58,21 +58,27 @@ pub struct AijFit {
 fn sse(
     model: ActivityModel,
     components: &[Component],
+    alpha: &[Vec<f64>],
     vl: &[f64],
     data: &[AijBubblePoint],
     a12: f64,
     a21: f64,
 ) -> f64 {
-    residuals(model, components, vl, data, a12, a21)
+    residuals(model, components, alpha, vl, data, a12, a21)
         .iter()
         .map(|r| r * r)
         .sum()
 }
 
 /// Bubble-pressure residual vector `P_calc − P_exp` at `(a12, a21)`.
+///
+/// `alpha` is the fixed NRTL non-randomness matrix (only read when `model` is
+/// NRTL; pass `&[]` for the 2-parameter models). The fit only ever adjusts the
+/// two energy parameters `(a12, a21)` — α is held constant, per the plan.
 fn residuals(
     model: ActivityModel,
     components: &[Component],
+    alpha: &[Vec<f64>],
     vl: &[f64],
     data: &[AijBubblePoint],
     a12: f64,
@@ -86,6 +92,7 @@ fn residuals(
         mixing_rule: MixingRule::Classical,
         kij: &[],
         aij: &aij,
+        alpha,
         vl,
         delta: &[],
         sat_models: &[],
@@ -109,6 +116,9 @@ fn residuals(
 /// * `model` — the activity model ([`ActivityModel::Margules`],
 ///   `VanLaar`, or `Wilson`).
 /// * `components` — exactly two components with `psat_coeffs`.
+/// * `alpha` — fixed NRTL non-randomness matrix (2×2 symmetric); only read
+///   when `model` is NRTL, pass `&[]` for Margules/van Laar/Wilson. The fit
+///   never adjusts α — only the two energy parameters `(a12, a21)`.
 /// * `vl` — liquid molar volumes in **cm³/mol** (needed by Wilson; pass
 ///   `&[]` for Margules/van Laar).
 /// * `data` — experimental bubble points.
@@ -126,6 +136,7 @@ fn residuals(
 pub fn fit_aij(
     model: ActivityModel,
     components: &[Component],
+    alpha: &[Vec<f64>],
     vl: &[f64],
     data: &[AijBubblePoint],
     a12_0: f64,
@@ -145,17 +156,17 @@ pub fn fit_aij(
 
     let (mut a12, mut a21) = (a12_0, a21_0);
     let mut lambda = 1e-3;
-    let mut sse_cur = sse(model, components, vl, data, a12, a21);
+    let mut sse_cur = sse(model, components, alpha, vl, data, a12, a21);
     let mut iters = 0;
 
     for iter in 0..max_iter {
         iters = iter + 1;
-        let r = residuals(model, components, vl, data, a12, a21);
+        let r = residuals(model, components, alpha, vl, data, a12, a21);
         // Numerical Jacobian columns ∂r/∂A₁₂ and ∂r/∂A₂₁ (outer-loop FD).
         let h12 = 1e-4 * a12.abs().max(1.0);
         let h21 = 1e-4 * a21.abs().max(1.0);
-        let r12 = residuals(model, components, vl, data, a12 + h12, a21);
-        let r21 = residuals(model, components, vl, data, a12, a21 + h21);
+        let r12 = residuals(model, components, alpha, vl, data, a12 + h12, a21);
+        let r21 = residuals(model, components, alpha, vl, data, a12, a21 + h21);
         let m = r.len();
         // Normal-equation accumulators for the 2×2 system JᵀJ·δ = −Jᵀr.
         let (mut j11, mut j12, mut j22) = (0.0, 0.0, 0.0);
@@ -179,7 +190,7 @@ pub fn fit_aij(
         }
         let d_a12 = -(c * g1 - b * g2) / det;
         let d_a21 = -(-b * g1 + a * g2) / det;
-        let sse_new = sse(model, components, vl, data, a12 + d_a12, a21 + d_a21);
+        let sse_new = sse(model, components, alpha, vl, data, a12 + d_a12, a21 + d_a21);
         if sse_new < sse_cur {
             // Accept the step, reduce damping (toward Gauss–Newton).
             let rel = (sse_cur - sse_new) / sse_cur.max(1e-300);
@@ -240,6 +251,7 @@ mod tests {
     fn synth_data(
         model: ActivityModel,
         comps: &[Component],
+        alpha: &[Vec<f64>],
         vl: &[f64],
         a12: f64,
         a21: f64,
@@ -252,6 +264,7 @@ mod tests {
             mixing_rule: MixingRule::Classical,
             kij: &[],
             aij: &aij,
+            alpha,
             vl,
             delta: &[],
             sat_models: &[],
@@ -273,10 +286,11 @@ mod tests {
     fn recovers_known_van_laar_parameters() {
         let comps = [methanol(), water()];
         let (a12t, a21t) = (0.85, 0.52);
-        let data = synth_data(ActivityModel::VanLaar, &comps, &[], a12t, a21t);
+        let data = synth_data(ActivityModel::VanLaar, &comps, &[], &[], a12t, a21t);
         let fit = fit_aij(
             ActivityModel::VanLaar,
             &comps,
+            &[],
             &[],
             &data,
             0.3,
@@ -299,10 +313,11 @@ mod tests {
         let comps = [methanol(), water()];
         let vl = [40.7, 18.07];
         let (a12t, a21t) = (1100.0, 550.0); // kJ/kmol
-        let data = synth_data(ActivityModel::Wilson, &comps, &vl, a12t, a21t);
+        let data = synth_data(ActivityModel::Wilson, &comps, &[], &vl, a12t, a21t);
         let fit = fit_aij(
             ActivityModel::Wilson,
             &comps,
+            &[],
             &vl,
             &data,
             500.0,
@@ -317,12 +332,36 @@ mod tests {
     }
 
     #[test]
+    fn recovers_known_nrtl_parameters() {
+        // NRTL energy round-trip with α held fixed (the plan's fit strategy).
+        let comps = [methanol(), water()];
+        let alpha = vec![vec![0.0, 0.3], vec![0.3, 0.0]];
+        let (a12t, a21t) = (1800.0, 900.0); // g₁₂−g₂₂, g₂₁−g₁₁ [kJ/kmol]
+        let data = synth_data(ActivityModel::Nrtl, &comps, &alpha, &[], a12t, a21t);
+        let fit = fit_aij(
+            ActivityModel::Nrtl,
+            &comps,
+            &alpha,
+            &[],
+            &data,
+            500.0,
+            500.0,
+            1e-12,
+            200,
+        )
+        .unwrap();
+        // Reproduce the synthetic pressures to well within measurement noise.
+        assert!(fit.rmse < 1.0, "rmse={} kPa", fit.rmse);
+    }
+
+    #[test]
     fn rejects_non_binary() {
         let comps = [methanol()];
         assert!(matches!(
             fit_aij(
                 ActivityModel::VanLaar,
                 &comps,
+                &[],
                 &[],
                 &[AijBubblePoint {
                     t: 298.15,

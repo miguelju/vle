@@ -80,10 +80,10 @@ def test_db_component_unknown_returns_none():
 
 
 def test_db_available_matches_python_loader():
-    """The Rust and pure-Python catalogs list the same 24 names, sorted."""
+    """The Rust and pure-Python catalogs list the same 25 names, sorted."""
     from vle import components
 
     rust_names = _engine.db_available()
     assert rust_names == sorted(rust_names)
-    assert len(rust_names) == 24
+    assert len(rust_names) == 25
     assert rust_names == components.available()

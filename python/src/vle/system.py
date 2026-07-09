@@ -80,6 +80,7 @@ _ACTIVITY_ALIASES = {
     "margules": ActivityModel.Margules,
     "scatchard_hildebrand": ActivityModel.ScatchardHildebrand,
     "scatchard-hildebrand": ActivityModel.ScatchardHildebrand,
+    "nrtl": ActivityModel.Nrtl,
 }
 
 _MIXING_ALIASES = {
@@ -180,12 +181,16 @@ class System:
         liquid_model: ``"cubic"`` (default), ``"activity"``, ``"ideal"``, or
             ``"chao_seader"``.
         activity: Activity model when ``liquid_model="activity"``; alias
-            ("wilson", "van_laar", …) or an ``ActivityModel`` instance.
+            ("wilson", "van_laar", "nrtl", …) or an ``ActivityModel`` instance.
         mixing_rule: Mixing rule; alias ("classical", "wong-sandler", …) or a
             ``MixingRule`` instance. Default ``"classical"``.
         kij: Binary interaction parameters — an n×n matrix, or a single float
             for a binary (broadcast to a symmetric 2×2 with zero diagonal).
-        aij: Activity-model interaction matrix (n×n), used by γ-models.
+        aij: Activity-model interaction matrix (n×n), used by γ-models. For
+            NRTL these are the interaction energies ``gᵢⱼ − gⱼⱼ`` in **kJ/kmol**.
+        alpha: NRTL non-randomness matrix (n×n, symmetric, dimensionless; a
+            single float broadcasts to a binary). Required for ``activity="nrtl"``,
+            ignored by every other model.
         t_ref: Ideal-gas enthalpy/entropy reference temperature in **K**.
         p_ref: Ideal-gas reference pressure in **kPa absolute**.
     """
@@ -203,6 +208,7 @@ class System:
         mixing_rule: Union[str, MixingRule] = "classical",
         kij=None,
         aij=None,
+        alpha=None,
         t_ref: float = 298.15,
         p_ref: float = 101.325,
     ) -> None:
@@ -234,6 +240,7 @@ class System:
             mixing_rule=rule,
             kij=self._square_matrix(kij, n, "kij"),
             aij=self._square_matrix(aij, n, "aij"),
+            alpha=self._square_matrix(alpha, n, "alpha"),
             vl=[c.liquid_volume for c in comps],
             psat_coeffs=[list(c.psat_coeffs) for c in comps],
             # Ideal-gas Cp°/R polynomial (M12.1). Threading this fixes the
