@@ -79,6 +79,7 @@ of the research paper's Chapter IV validation cases.
 | `11_derivatives_and_database.ipynb`                 | 12        | T/P derivatives of fugacity & K-values, real-mixture Cp, partial molar enthalpy, 24-compound DB tour (v0.9.0) |
 | `12_steam_tables.ipynb`                             | 13        | IAPWS-IF97 steam tables (`vle.steam`): saturation-table page, T–s dome, isentropic turbine expansion, flash-steam & reboiler-duty exercises (v0.10.0) |
 | `13_nrtl_ammonia.ipynb`                             | 14        | NRTL activity model + ammonia: NH₃–H₂O activity coefficients, exothermic excess enthalpy, bubble-P curve; α-sensitivity & Aij-regression exercises (v0.11.0) |
+| `14_pvt_surface.ipynb`                              | —         | The water P–v–T surface in 3-D (36k+ IAPWS-IF97 points via the batch `vle.steam` API): liquid wall, ruled two-phase dome, superheat sheet; isobaric-heating-path & ideal-gas-envelope exercises. Showcase of Milestone 13's steam tables; static version: `docs/assets/pvt_surface_hero.png` |
 
 The collection is **complete** — all 18 notebooks above ship with the
 repository and execute top-to-bottom in a fresh kernel.

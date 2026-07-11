@@ -6,6 +6,12 @@ A modern Rust + Python reimplementation of a multicomponent vapor-liquid equilib
 
 *Every point above was computed by this library's Rust engine — the **phase-envelope dome** (left) traced through each mixture's critical point by Michelsen continuation, with the critical locus from the Heidemann–Khalil solver riding the ridge, and the **P–x–y "sail"** (right) from the γ-φ bubble/dew solvers. Explore and regenerate them in [`notebooks/09_3d_phase_surfaces.ipynb`](notebooks/09_3d_phase_surfaces.ipynb).*
 
+![The water P–v–T surface computed by vle-steam (IAPWS-IF97): liquid wall, two-phase dome ruled in quality, superheat sheet](docs/assets/pvt_surface_hero.png)
+
+*The classic **P–v–T surface of water** — 36,000+ state points, every one evaluated by this repo's `vle-steam` crate (IAPWS-IF97). Legend: the bright sheets are the single-phase regions (the near-vertical **liquid wall**, the sweeping **superheat sheet**, and the supercritical region joining them above T<sub>c</sub>); the darker inset is the **two-phase dome**, a ruled surface swept in quality x between the saturated-liquid (green) and saturated-vapor (orange) boundary curves, which merge at the **critical point** (★, 373.95 °C / 22.064 MPa). Color encodes temperature. Build it step by step in [`notebooks/14_pvt_surface.ipynb`](notebooks/14_pvt_surface.ipynb), or regenerate this image with [`scripts/render_pvt_hero.py`](scripts/render_pvt_hero.py).*
+
+**Why steam is here at all:** water properties are the one calculation this project ships that does *not* come from the research papers it modernizes — they earned their place through practice. In industry, multicomponent VLE almost always lives inside a process simulator; but alongside it, every practicing engineer keeps a steam-table utility within reach, and those utilities are built on **IAPWS-IF97**, the formulation the [International Association for the Properties of Water and Steam](https://iapws.org/faqs/faq2) maintains as the international standard of the steam power industry ([R7-97(2012)](https://iapws.org/documents/release/IF97-Rev)) — adopted by ASME for its [official steam tables](https://www.asme.org/publications-submissions/books/find-book/steam-properties-industrial-use-based-iapws-if97-professional-version) and used for turbine contracting and acceptance testing. The same water-property formulations sit inside the thermal-hydraulics codes behind nuclear and fossil power plants (e.g. [RELAP-7](https://www.degruyterbrill.com/document/doi/10.3139/124.110802/html) and [TRACE](https://www.sciencedirect.com/science/article/abs/pii/S0306454920304527)), where steam drives the turbines that generate electricity. `vle-steam` implements IF97 directly — all five regions plus the saturation line — so this "VLE for water only" companion gives every energy balance in the stack a reference-quality water model.
+
 ## About This Project
 
 This project modernizes legacy thermodynamic software — originally written in VB6 (1999) and Pascal (1989) — into a fast **Rust computation engine** with **Python bindings** (via PyO3) and **Jupyter notebooks** for interactive exploration.
@@ -202,7 +208,7 @@ vle/
 │   ├── db/                  # Component database (connection, queries, models)
 │   │   └── sql/             # Bundled schema.sql + seed_chapter4.sql (ship in wheel)
 │   └── cli/                 # CLI tool (vle-db)
-├── notebooks/               # 17 Jupyter notebooks (00–12 + 01_introduction + index; see deploy/NOTEBOOKS.md)
+├── notebooks/               # 20 Jupyter notebooks (00–14 + 01_introduction + index; see deploy/NOTEBOOKS.md)
 │   └── data/                # Pre-computed 3-D surface datasets (CSV, committed)
 ├── units/                   # Independent units crate (dimensional analysis, gauge pressure, custom units)
 ├── steam/                   # Independent steam-tables crate `vle-steam` (IAPWS-IF97, dependency-free; M13)
