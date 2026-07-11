@@ -541,7 +541,6 @@ pub fn phase_enthalpy_entropy(
 
         // γ-φ liquid: ideal − condensation + excess.
         PhaseId::Liquid => {
-            let n = spec.n();
             // Ideal-gas mixture baseline (each component as an ideal gas).
             let h_ideal = ideal_enthalpy_mix(spec.components, comp, t, t_ref, h_ref);
             let s_ideal = ideal_entropy_mix(spec.components, comp, t, p, t_ref, p_ref, s_ref);
@@ -549,15 +548,15 @@ pub fn phase_enthalpy_entropy(
             // ΔH_vap,ᵢ = R·T²·dln(Psatᵢ)/dT; the liquid sits ΔH_vap below the gas.
             let mut h_cond = 0.0;
             let mut s_cond = 0.0;
-            for i in 0..n {
+            for (i, &z_i) in comp.iter().enumerate() {
                 let c = &spec.components[i];
                 let psat_i =
                     psat(spec.sat_model(i), c, t).map_err(|e| FlashError::Thermo(e.to_string()))?;
                 let dpsat_dt = crate::saturation::d_psat_dt(spec.sat_model(i), c, t)
                     .map_err(|e| FlashError::Thermo(e.to_string()))?;
                 let dh_vap = R * t * t * dpsat_dt / psat_i;
-                h_cond += comp[i] * dh_vap;
-                s_cond += comp[i] * (dh_vap / t); // ΔS_vap = ΔH_vap/T
+                h_cond += z_i * dh_vap;
+                s_cond += z_i * (dh_vap / t); // ΔS_vap = ΔH_vap/T
             }
             // Excess (0 for the ideal solution).
             let (he, se) = match spec.liquid {
@@ -767,8 +766,8 @@ mod tests {
         let kv = k_values_with_derivs(spec, t, p, x, y).unwrap();
         let k_ref = k_values(spec, t, p, x, y).unwrap();
         // K field bit-identical to k_values.
-        for i in 0..k_ref.len() {
-            assert_eq!(kv.k[i], k_ref[i], "{label}: K[{i}] not bit-identical");
+        for (i, &k_i) in k_ref.iter().enumerate() {
+            assert_eq!(kv.k[i], k_i, "{label}: K[{i}] not bit-identical");
         }
         let fd_t = dlnk_dt_fd(spec, t, p, x, y, 1e-3);
         let fd_p = dlnk_dp_fd(spec, t, p, x, y, 1e-2);
