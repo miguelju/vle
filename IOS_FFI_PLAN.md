@@ -1,10 +1,16 @@
 # iOS FFI Plan — `vle-ffi` (Rust → Swift via UniFFI, local-only builds)
 
-**Status: PROPOSED — not yet scheduled.** Planning record for compiling the
-vle Rust engine into a static library for Apple targets and calling it from
-Swift. On adoption this becomes **Milestone 14** and the CLAUDE.md
-ROADMAP/TODO/MODERNIZATION_PLAN synchronization rules apply. Nothing here is
-implemented yet.
+**Status: IMPLEMENTED (2026-07-11) as Milestone 15 / Phase 22** — renumbered
+from the "M14" this plan assumed, per §8.5, because NRTL + ammonia landed as
+M14 first. This file remains the *design record* (alternatives considered,
+rationale); the as-built state lives in ROADMAP.md M15 /
+MODERNIZATION_PLAN.md Phase 22, and the user-facing guide is
+[`docs/en/ios/README.md`](docs/en/ios/README.md). Two as-built deviations
+from §4: the bindgen's `--module-name` only names the *modulemap* (the
+generated Swift's import is set via `ffi_module_name` in `ffi/uniffi.toml`),
+and the `--xcframework` flag is not used (it emits a `framework module`
+declaration — wrong for our bare static-library slices; plain `module` is
+what Xcode needs there).
 
 **Hard constraint (Miguel):** all compilation happens **on this Mac** — no
 GitHub Actions, no CI involvement, no cross-repo deploy coupling. `release.yml`

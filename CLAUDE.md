@@ -142,12 +142,20 @@ The target architecture is documented in `MODERNIZATION_PLAN.md` and the merge s
 engine/     — Rust crate (core computation), PyO3 bindings via maturin
 units/      — Rust crate `vle-units` (dimensional analysis, gauge pressure)
 steam/      — Rust crate `vle-steam` (IAPWS-IF97 steam tables; M13)
+ffi/        — Rust crate `vle-ffi` (UniFFI Swift wrapper; publish = false; M15)
+swift/      — Local Swift package `VleThermo` (binaryTarget + XCTests; M15)
 python/     — Python wrapper package (high-level API, plotting, component DB, steam)
 notebooks/  — Jupyter notebooks reproducing research paper results
 docs/       — English translations and parameter reference
 ```
 
 **Build chain:** Rust (engine/) -> PyO3/maturin -> Python native module -> Python wrapper (python/) -> Jupyter notebooks
+
+**Apple build chain (local-only, M15):** Rust (ffi/) -> `scripts/build-ios.sh`
+(3 targets -> UniFFI bindgen -> `VleFFI.xcframework`, all gitignored) ->
+Swift package (swift/VleThermo) -> iOS/macOS app (separate repo). Never in
+CI; `release.yml` untouched. The engine is always built **without** the
+`python` feature here. Guide: `docs/en/ios/README.md`.
 
 ## Python Environment (conda `vle` env — mandatory)
 

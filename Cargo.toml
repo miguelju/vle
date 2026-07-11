@@ -11,7 +11,11 @@
 
 [workspace]
 resolver = "2"
-members = ["engine", "steam", "units"]
+# `ffi` (the UniFFI Swift wrapper, publish = false) and its tiny
+# `ffi/uniffi-bindgen` helper binary are workspace members so `cargo build
+# -p vle-ffi --target aarch64-apple-ios` and `cargo test -p vle-ffi` work
+# from the repo root, but neither is ever published to crates.io.
+members = ["engine", "steam", "units", "ffi", "ffi/uniffi-bindgen"]
 
 # Release profile (PERFORMANCE_PROPOSAL.md §C5): fat LTO + single codegen
 # unit let LLVM inline across crate boundaries (the α dispatch and cubic

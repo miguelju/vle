@@ -13,7 +13,7 @@ Repository, documentation structure, and legacy analysis complete.
 - [x] Analyze legacy VB6 codebase (~15,000 lines)
 - [x] Analyze legacy Pascal codebase (~2,500 lines)
 - [x] Create Pascal vs VB6 comparison document
-- [x] Create modernization plan with 21 implementation phases *(originally 17; Phase 11 — Performance Foundation — added 2026-07-01; Phase 19 — Downstream Derivative & Database Release — added 2026-07-05; Phase 20 — Steam Tables (IAPWS-IF97) — added 2026-07-07; Phase 21 — NRTL Activity Model + Ammonia — added 2026-07-08)*
+- [x] Create modernization plan with 22 implementation phases *(originally 17; Phase 11 — Performance Foundation — added 2026-07-01; Phase 19 — Downstream Derivative & Database Release — added 2026-07-05; Phase 20 — Steam Tables (IAPWS-IF97) — added 2026-07-07; Phase 21 — NRTL Activity Model + Ammonia — added 2026-07-08; Phase 22 — iOS/macOS FFI via UniFFI — added 2026-07-11)*
 - [x] Map algorithms to 30 academic references (ACS format) *(originally 22; (23)–(29) added 2026-07-01 with PERFORMANCE_PROPOSAL.md; (30) added 2026-07-05 with DERIVATIVE_RELEASE_PLAN.md)*
 - [x] Propose 8 algorithm performance improvements (A–H) *(extended to §A–§M + Performance Engineering tracks 2026-07-01 — see PERFORMANCE_PROPOSAL.md)*
 - [x] Initialize git repository
@@ -427,6 +427,55 @@ Design record: [NRTL_AMMONIA_PLAN.md](NRTL_AMMONIA_PLAN.md).
 
 ---
 
+## Milestone 15: iOS/macOS FFI — `vle-ffi` (Rust → Swift via UniFFI)
+*Phase 22 of MODERNIZATION_PLAN.md*
+*Executed by Claude Code using Claude Fable 5*
+
+Local-only Apple builds (no CI, no published/committed binaries — see the
+hard constraint in [IOS_FFI_PLAN.md](IOS_FFI_PLAN.md); drafted as "M14",
+renumbered on adoption). No release: nothing on crates.io/PyPI changed. No
+milestone notebook (Swift isn't executable from Jupyter) — the learning doc
++ XCTest suite fill that role.
+
+### 15.1 `ffi/` wrapper crate end-to-end (~4–6h) — **done**
+- [x] `ffi/` (`vle-ffi`, `publish = false`, `staticlib`+`lib`) + workspace
+      membership; engine dep with `component-db` + `steam`, **never** `python`
+- [x] `ffi/uniffi-bindgen/` bin crate (`uniffi-bindgen-swift`, feature `cli`,
+      version-locked via one workspace Cargo.lock) + `ffi/uniffi.toml`
+      (`ffi_module_name = "VleFFI"` — must match modulemap + binaryTarget)
+- [x] `scripts/build-ios.sh`: 3 targets → library-mode bindgen → plain
+      (non-`framework`) `module.modulemap` → `xcodebuild -create-xcframework`
+      → copy generated Swift → `swift test`; iOS 16 / macOS 13 pinned
+
+### 15.2 Real API surface + tests (~6–10h) — **done**
+- [x] `version()`; `db_available()` / `db_component()` → `ComponentData`
+      (lossless mirror of `types::Component`, incl. `SatModel`)
+- [x] Steam: `steam_tp/tx/px/ph/ps`, `steam_sat_t/sat_p`, `steam_latent_heat`
+      → `SteamStateData` / `SatPropsData` (mass-basis kJ/kg units documented)
+- [x] `VleSystem` UniFFI object: `new(components:…)` + `from_db(names:…)`;
+      enums `CubicEosKind` (22), `ActivityModelKind` (6), `MixingRuleKind`
+      (11), `VaporSpec`/`LiquidSpec` (associated values); `SystemOptions`
+      (kij/aij/alpha/vl/delta/ge_model; empty = unused sentinel); methods
+      `flash_tp`, `bubble_p/t`, `dew_p/t`, `k_values`
+- [x] `VleFfiError` (`NotFound`/`InvalidInput`/`Flash`/`Steam`) with the same
+      error-classification policy as the Python bindings
+- [x] 15 Rust tests (`cargo test -p vle-ffi`) + 10 XCTests through the real
+      boundary (IF97 Table 5 point, 1-atm boiling, Ch. IV flash config,
+      bubble/dew bracketing, error mapping) — the FFI analog of the M5+
+      PyO3-parity rule
+
+### 15.3 Documentation (~3–5h) — **done**
+- [x] `docs/en/ios/README.md` learning guide (C ABI, lift/lower, .a vs
+      XCFramework anatomy, device-vs-sim arm64, modulemap gotcha, why
+      binaries stay out of git, troubleshooting table)
+- [x] README (Swift channel + project tree), `.gitignore`
+      (`*.xcframework`, `*.generated.swift`, `.build/`), deploy/README note,
+      ROADMAP/TODO/MODERNIZATION_PLAN sync as M15/Phase 22
+- [ ] Future (separate repo): `vle-ios` SwiftUI Multiplatform app consuming
+      `swift/VleThermo` as a local package
+
+---
+
 ## Summary
 
 | Milestone | Est. Total | Status |
@@ -446,6 +495,7 @@ Design record: [NRTL_AMMONIA_PLAN.md](NRTL_AMMONIA_PLAN.md).
 | 12. Downstream Derivative & Database Release | ~25–38h | **Done** — M12.1 (v0.8.2: 24-compound DB + Cp), M12.2 (Rust-side `component-db` DB), M12.3 (T/P derivatives of fugacity + K), M12.4 (real Cp + partial molar H + γ-φ enthalpy), M12.5 (notebook 11 + benches); shipped as **v0.9.0**, plus **v0.9.1** patch (WS departure-enthalpy fix) |
 | 13. Steam Tables — `vle-steam` (IAPWS-IF97) | ~27–39h | **Shipped as v0.10.0** — 13.1–13.6 done (crate, all 5 regions + saturation + backward eqs, verified vs R7-97 tables; PyO3 `vle.steam` + batch numpy; notebook 12; README + benches). Signed tag pushed + published |
 | 14. NRTL Activity Model + Ammonia | ~14–20h | **Shipped as v0.11.0** — NRTL model (general multicomponent, analytic Hᴱ via `num-dual`), `alpha` matrix threaded, PyO3 + Python wrapper, ammonia in the 25-compound DB, milestone notebook 13. Rigorous NH₃–H₂O param regression deferred (qualitative demo shipped) |
-| **Total** | **~303–423h** | |
+| 15. iOS/macOS FFI (`vle-ffi` via UniFFI) | ~13–21h | **Done (unreleased)** — `ffi/` wrapper crate + bindgen bin, `scripts/build-ios.sh` (3 Apple targets → XCFramework), `swift/VleThermo` package (10 XCTests green), learning doc `docs/en/ios/`. Local-build artifact only; app itself is a future separate repo |
+| **Total** | **~316–444h** | |
 
 Each active milestone's total now includes: milestone notebook (~2–4h) + notebook-catalogue update (~0.3h). Deploying to the hosted hub is a separate operator-side step in a private operator repository, not counted here.

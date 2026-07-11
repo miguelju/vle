@@ -1,0 +1,24 @@
+# The standard UniFFI "bindgen binary" pattern: a 3-line bin crate that
+# re-exposes uniffi's own Swift generator CLI, so the generator version is
+# resolved by *this workspace's* Cargo.lock and can never drift from the
+# scaffolding version compiled into libvle_ffi.a.
+#
+# Invoked by scripts/build-ios.sh as:
+#   cargo run -p vle-uniffi-bindgen --release -- <libvle_ffi.a> <outdir> ...
+
+[package]
+name = "vle-uniffi-bindgen"
+description = "uniffi-bindgen-swift runner for vle-ffi (local tool, never published)"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "uniffi-bindgen-swift"
+path = "src/main.rs"
+
+[dependencies]
+# `cli` pulls in clap + the bindgen driver behind uniffi_bindgen_swift().
+uniffi = { version = "0.32", features = ["cli"] }

@@ -10,7 +10,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Analyze legacy VB6 codebase (~15,000 lines)
 - [x] Analyze legacy Pascal codebase (~2,500 lines)
 - [x] Create Pascal vs VB6 comparison document
-- [x] Create modernization plan with 21 implementation phases *(originally 17; Phase 11 — Performance Foundation — added 2026-07-01; Phase 19 — Downstream Derivative & Database Release — added 2026-07-05; Phase 20 — Steam Tables (IAPWS-IF97) — added 2026-07-07; Phase 21 — NRTL Activity Model + Ammonia — added 2026-07-08)*
+- [x] Create modernization plan with 22 implementation phases *(originally 17; Phase 11 — Performance Foundation — added 2026-07-01; Phase 19 — Downstream Derivative & Database Release — added 2026-07-05; Phase 20 — Steam Tables (IAPWS-IF97) — added 2026-07-07; Phase 21 — NRTL Activity Model + Ammonia — added 2026-07-08; Phase 22 — iOS/macOS FFI via UniFFI — added 2026-07-11)*
 - [x] Map algorithms to 30 academic references (ACS format) *(originally 22; (23)–(29) added 2026-07-01 with PERFORMANCE_PROPOSAL.md; (30) added 2026-07-05 with DERIVATIVE_RELEASE_PLAN.md)*
 - [x] Propose 8 algorithm performance improvements (A–H) *(extended to §A–§M + Performance Engineering tracks 2026-07-01 — see [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md))*
 - [x] Initialize git repository
@@ -437,6 +437,52 @@ via `num-dual`) and **ammonia** to the bundled component database. Design record
 - [x] Milestone notebook (`notebooks/13_nrtl_ammonia.ipynb`) + NOTEBOOKS catalogue — NH₃–H₂O γ, exothermic Hᴱ, bubble-P curve (α = 0.2), with α-sensitivity and Aij-regression exercises; executes top-to-bottom
 - [~] NH₃–H₂O NRTL parameters — qualitatively correct behavior demonstrated (α = 0.2 + illustrative energies: negative deviation, exothermic mixing, ammonia-rich vapor). Regression against a published bubble-P–x dataset is deferred; the definitive ammonia–water chart is reproduced from reference data downstream in `stages-thermo`, per the plan's accuracy bar
 - [x] **Operator step:** version bumped → v0.11.0; signed `v0.11.0` tag pushed; `release.yml` publishes vle-thermo to crates.io + PyPI — YubiKey-gated
+
+---
+
+## Milestone 15: iOS/macOS FFI — `vle-ffi` (Rust → Swift via UniFFI) — **done (unreleased; local-build artifact)**
+
+*Phase 22 of MODERNIZATION_PLAN.md*
+
+*Executed by Claude Code using Claude Fable 5*
+
+Compiles the engine into a Swift package for native Apple apps — steam
+tables, the bundled component DB, and mixture flash callable from SwiftUI
+on iOS **and** macOS (the XCFramework carries a native slice per platform,
+so one Multiplatform app serves both). **All builds are local to a Mac by
+design**: no CI involvement, no published or committed binaries — the repo
+ships source + one build script, and `docs/en/ios/README.md` teaches anyone
+to reproduce the artifact. No release needed: nothing published to
+crates.io/PyPI changed. No milestone notebook: the artifact is a Swift
+package, which Jupyter cannot execute — its teaching role is filled by the
+learning doc + the XCTest suite. Design record:
+[IOS_FFI_PLAN.md](IOS_FFI_PLAN.md) (drafted as "M14", renumbered on
+adoption since NRTL landed first).
+
+- [x] `ffi/` crate (`vle-ffi`, `publish = false`, staticlib+lib) — UniFFI
+      proc-macro wrapper: `version()`, component DB (`db_available`,
+      `db_component` → `ComponentData`), steam tables (`steam_tp/tx/px/ph/ps`,
+      `sat_t/sat_p`, latent heat), mixture `VleSystem` object
+      (explicit-components + `from_db` constructors; 22 cubic EOS, 6 activity
+      models, 11 mixing rules as mirrored enums; `flash_tp`, `bubble_p/t`,
+      `dew_p/t`, `k_values`), one `VleFfiError` → Swift `throws`; engine built
+      **without** the `python` feature (no pyo3 in the Apple graph); 15 Rust
+      wrapper tests
+- [x] `ffi/uniffi-bindgen/` bin crate (library-mode `uniffi-bindgen-swift`,
+      version-locked to the scaffolding) + `ffi/uniffi.toml`
+      (`ffi_module_name = "VleFFI"`)
+- [x] `scripts/build-ios.sh` — idempotent: 3 targets (`aarch64-apple-ios`,
+      `-ios-sim`, `-darwin`) → bindings → `VleFFI.xcframework` →
+      `swift test`; deployment targets iOS 16 / macOS 13
+- [x] `swift/VleThermo/` Swift package — `binaryTarget` + generated wrapper
+      (gitignored) + hand-written `Extensions.swift` + 10 XCTests through the
+      real FFI boundary (IAPWS-IF97 verification point, Chapter IV flash
+      configuration, error mapping) — green on the macOS slice
+- [x] Learning doc `docs/en/ios/README.md` (C ABI, static libs vs
+      XCFramework, UniFFI lift/lower, device-vs-simulator arm64, the
+      `module.modulemap` gotcha, troubleshooting) + README/`.gitignore` sync
+- [ ] The actual iOS/macOS app (separate repo, out of scope here) — consumes
+      `swift/VleThermo` as a local package
 
 ---
 

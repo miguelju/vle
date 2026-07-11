@@ -1,0 +1,10 @@
+# UniFFI bindings configuration for vle-ffi (read by ffi/uniffi-bindgen at
+# generation time — see scripts/build-ios.sh).
+#
+# `ffi_module_name` is the name of the low-level C module the generated
+# Swift `import`s. It must match the `module …` declaration in the
+# module.modulemap packaged inside VleFFI.xcframework (the script passes
+# the same name via --module-name) and the binaryTarget name in
+# swift/VleThermo/Package.swift. One name, three places: VleFFI.
+[bindings.swift]
+ffi_module_name = "VleFFI"

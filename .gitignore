@@ -28,6 +28,13 @@ venv/
 # Jupyter
 .ipynb_checkpoints/
 
+# Apple / Swift FFI build products (M15) — regenerate with scripts/build-ios.sh.
+# `build/` above already covers build/ios/ (bindgen output).
+*.xcframework
+*.generated.swift
+.build/
+.swiftpm/
+
 # IDE
 .vscode/
 .idea/

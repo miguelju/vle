@@ -12,11 +12,14 @@ each one exists for a different kind of user.
 | Python users (most readers) | **PyPI** | `pip install vle-thermo` |
 | Learners working through the bundled notebooks | **GitHub** ([`notebooks/`](https://github.com/miguelju/vle/tree/main/notebooks)) | clone the repo, `pip install "vle-thermo[plot]" jupyterlab`, then open in your preferred notebook viewer — no special kernel needed |
 | Rust developers embedding the engine | **crates.io** | `cargo add vle-thermo` &nbsp; `cargo add vle-units` |
+| Swift developers building iOS/macOS apps | **GitHub (source) + local build** — nothing published, by design | clone the repo, `scripts/build-ios.sh`, then add `swift/VleThermo` as a local package in Xcode — see [docs/en/ios/README.md](../docs/en/ios/README.md) |
 
-The three channels share **one source of truth**: the same Rust source is
-published to crates.io and compiled into the PyPI wheels, and the notebooks
-exercise that published library. There are no parallel implementations to keep
-in sync.
+The channels share **one source of truth**: the same Rust source is
+published to crates.io, compiled into the PyPI wheels, and compiled locally
+into the Swift package's XCFramework; the notebooks exercise that published
+library. There are no parallel implementations to keep in sync. (The Swift
+row is deliberately *not* a registry: the XCFramework is a ~60 MB
+machine-built binary, so the repo distributes the recipe, not the artifact.)
 
 ### crates.io — Rust source distribution
 

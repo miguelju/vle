@@ -892,6 +892,80 @@ the bubble-P–x validation plot per the Notebook Conventions; ships as **v0.11.
 `engine/src/py_bindings.rs`, `engine/src/flash/aij_regression.rs`,
 `python/src/vle/system.py`, `scripts/build_components_json.py`
 
+### Phase 22: iOS/macOS FFI — `vle-ffi` (Rust → Swift via UniFFI) *(Milestone 15)* — **done (unreleased; local-build artifact)**
+
+*Added 2026-07-11. Full design record: [IOS_FFI_PLAN.md](IOS_FFI_PLAN.md)
+(drafted as "M14"; renumbered to M15/Phase 22 on adoption because NRTL landed
+first). Executed by Claude Code using Claude Fable 5.*
+
+Compiles the engine into a Swift package consumable by native iOS **and**
+macOS apps. **Hard constraint honored: all compilation is local to a Mac** —
+no GitHub Actions, `release.yml` untouched, and every build product
+(`VleFFI.xcframework` ~60 MB, generated Swift) is gitignored, never committed
+or published. The repo ships source + `scripts/build-ios.sh`;
+[`docs/en/ios/README.md`](docs/en/ios/README.md) teaches the pipeline (C ABI,
+UniFFI lift/lower, XCFramework anatomy) to a newcomer.
+
+**Architecture:** a new `ffi/` wrapper crate (`vle-ffi`, `publish = false`,
+`crate-type = ["staticlib", "lib"]`) adapts the engine's idiomatic API into
+FFI-shaped flat records/enums using UniFFI **0.32 proc-macro mode** (no
+`.udl`). It pulls `vle-thermo` with `component-db` + `steam` features and
+**never** `python` — pyo3 stays out of the Apple dependency graph. Bindings
+are generated in *library mode* (from the compiled `.a`) by the standard
+3-line `ffi/uniffi-bindgen/` bin crate, so generator and scaffolding versions
+can't drift (one workspace `Cargo.lock`). The workspace's unwinding panic
+profile is exactly what UniFFI needs (panics become Swift errors, not app
+aborts) — no profile changes.
+
+**Exported v1 surface** (canonical units only — K, kPa absolute; steam
+mass-basis kJ/kg; unit strings stay on the Swift side): `version()`;
+component DB (`db_available`, `db_component` → `ComponentData`, a lossless
+`types::Component` mirror); steam tables (`steam_tp/tx/px/ph/ps`,
+`steam_sat_t/sat_p`, `steam_latent_heat`); and the `VleSystem` UniFFI
+*object* (Swift class over `Arc`) with `new`/`from_db` constructors, mirrored
+selection enums (`CubicEosKind` ×22, `ActivityModelKind` ×6,
+`MixingRuleKind` ×11, `VaporSpec`/`LiquidSpec` with associated values),
+`SystemOptions` (kij/aij/alpha/vl/delta/ge_model; empty = unused sentinel,
+vl/delta default from component data), and `flash_tp` / `bubble_p` /
+`bubble_t` / `dew_p` / `dew_t` / `k_values` returning `FlashSplit` /
+`SaturationPoint` records. One `VleFfiError` enum (NotFound / InvalidInput /
+Flash / Steam) maps to Swift `throws` with the same classification policy as
+the Python bindings. Deferred: kij regression, envelopes, batch APIs.
+
+**Build pipeline** (`scripts/build-ios.sh`, idempotent): cargo-build the
+static lib for `aarch64-apple-ios` (device), `aarch64-apple-ios-sim`
+(simulator — same CPU as device but a *different platform target*), and
+`aarch64-apple-darwin` (native macOS: powers `swift test` with no simulator
+*and* native Mac apps / SwiftUI Multiplatform); generate Swift sources +
+header + modulemap; assemble `VleFFI.xcframework` with
+`xcodebuild -create-xcframework`; copy the generated wrapper into
+`swift/VleThermo/Sources/`; run the XCTests. Deployment targets iOS 16 /
+macOS 13, pinned in the script and mirrored in `Package.swift`. Intel slices
+deliberately omitted (documented `lipo` path if ever needed).
+
+**Gotchas captured for posterity** (all encoded in the script + learning
+doc): the C-module name must agree in three places (`ffi_module_name` in
+`ffi/uniffi.toml` → the generated Swift's `import`; `--module-name` → the
+modulemap; the `binaryTarget` name in `Package.swift`); the modulemap must be
+named exactly `module.modulemap`; and the bindgen's `--xcframework` flag
+emits a `framework module` declaration that is *wrong* for bare
+static-library slices — plain `module` is required (we hit both at build
+time).
+
+**Verification ladder (all local):** 15 Rust wrapper tests
+(`cargo test -p vle-ffi` — record round-trips, IF97 Table 5 point, Ch. IV
+flash configuration, wrapper-vs-engine bit-identity, error mapping) → 10
+XCTests through the real FFI boundary on the macOS slice → manual Xcode
+"Add Local Package" smoke test in a throwaway app (documented; the real app
+is a future separate repo). This is the FFI analog of the M5+ PyO3 rule: a
+new engine capability an app should reach gets its export + tests in the
+same commit series.
+
+**Key source files:** `ffi/src/{lib,error,component,steam,system}.rs`,
+`ffi/uniffi.toml`, `ffi/uniffi-bindgen/src/main.rs`, `scripts/build-ios.sh`,
+`swift/VleThermo/{Package.swift,Sources/VleThermo/Extensions.swift,Tests/}`,
+`docs/en/ios/README.md`
+
 ---
 
 ## Parameter Reference Document (to be created at `docs/parameters/parameter_reference.md`)
