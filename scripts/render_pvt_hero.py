@@ -119,13 +119,14 @@ assert not (np.isnan(XA).any() or np.isnan(XB).any() or np.isnan(XD).any())
 print(f"IF97 state points on the surface: {n_pts}")
 
 # ── render ───────────────────────────────────────────────────────────────
-fig = plt.figure(figsize=(12, 8), facecolor=BG)
+fig = plt.figure(figsize=(14, 6.0), facecolor=BG)
 ax = fig.add_subplot(111, projection="3d", facecolor=BG)
+ax.set_position([0.02, 0.0, 0.78, 0.92])
 ax.set_facecolor(BG)
 for pane in (ax.xaxis, ax.yaxis, ax.zaxis):
     pane.set_pane_color((1, 1, 1, 0.02))
     pane.label.set_color(FG)
-    pane.set_tick_params(colors=FG, labelsize=8)
+    pane.set_tick_params(colors=FG, labelsize=9)
 ax.grid(False)
 
 # One sequential job: surface color encodes temperature (plasma, the repo's
@@ -149,17 +150,17 @@ vc = st.Water(T=T_C - 0.2, P=P_C * 0.999).v  # ≈ critical volume
 ax.scatter([np.log10(vc)], [T_C - K0], [np.log10(P_C)], color=ACCENT, s=110,
            marker="*", zorder=11, depthshade=False)
 
-ax.set_xlabel("specific volume v (m$^3$/kg)", color=FG, fontsize=9, labelpad=8)
-ax.set_ylabel("T (°C)", color=FG, fontsize=9, labelpad=8)
-ax.set_zlabel("P (kPa)", color=FG, fontsize=9, labelpad=6)
+ax.set_xlabel("specific volume v (m$^3$/kg)", color=FG, fontsize=10, labelpad=8)
+ax.set_ylabel("T (°C)", color=FG, fontsize=10, labelpad=8)
+ax.set_zlabel("P (kPa)", color=FG, fontsize=10, labelpad=6)
 ax.set_xticks([-3, -2, -1, 0, 1, 2])
 ax.set_xticklabels(["0.001", "0.01", "0.1", "1", "10", "100"])
 ax.set_zticks([0, 1, 2, 3, 4, 5])
 ax.set_zticklabels(["1", "10", "10$^2$", "10$^3$", "10$^4$", "10$^5$"])
 ax.view_init(elev=22, azim=-58)
-ax.set_title(
+fig.suptitle(
     "Water P–v–T surface — every point from vle-steam (IAPWS-IF97)",
-    color=FG, fontsize=11, pad=12,
+    color=FG, fontsize=14, y=0.97,
 )
 
 # Full legend (proxy artists — plot_surface has no direct legend support).
@@ -171,15 +172,22 @@ legend_items = [
     (Line2D([], [], color=ACCENT, marker="*", ms=11, lw=0), "critical point (373.95 °C, 22.064 MPa)"),
 ]
 ax.legend([h for h, _ in legend_items], [t for _, t in legend_items],
-          loc="upper left", fontsize=8, facecolor=BG, edgecolor="none",
-          labelcolor=FG)
+          loc="upper left", bbox_to_anchor=(0.01, 0.88),
+          bbox_transform=fig.transFigure, fontsize=10,
+          facecolor=BG, edgecolor="none", labelcolor=FG)
 
 sm = cm.ScalarMappable(norm=norm, cmap="plasma")
-cb = fig.colorbar(sm, ax=ax, shrink=0.55, pad=0.06)
-cb.set_label("temperature (°C)", color=FG, fontsize=9)
-cb.ax.tick_params(colors=FG, labelsize=8)
+cax = fig.add_axes([0.88, 0.18, 0.013, 0.58])
+cb = fig.colorbar(sm, cax=cax)
+cb.set_label("temperature (°C)", color=FG, fontsize=10)
+cb.ax.tick_params(colors=FG, labelsize=9)
 cb.outline.set_visible(False)
 
+# Explicit margins instead of bbox_inches="tight", mirroring
+# render_3d_hero.py: the export is exactly 14 in x 170 dpi = 2380 px
+# wide -- the SAME width as phase_surfaces_hero.png -- so GitHub
+# renders both banners at identical scale and the fonts (matched
+# point sizes) come out the same visual size.
 OUT.parent.mkdir(parents=True, exist_ok=True)
-fig.savefig(OUT, dpi=170, facecolor=BG, bbox_inches="tight")
+fig.savefig(OUT, dpi=170, facecolor=BG)
 print(f"saved {OUT}")
