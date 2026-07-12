@@ -146,9 +146,14 @@ Doc-sync the files above, model-attribution line, `cargo fmt --check`, bump both
   `~/miniconda3/envs/vle/bin/pytest python/tests/test_m8_activity.py python/tests/test_db.py`.
 - NH₃–H₂O bubble-P-vs-x vs one literature dataset (few-% target at moderate P).
 
-## 8. Follow-up (PROPOSED 2026-07-11, Miguel): van Laar vs NRTL on methanol–water in notebook 13
+## 8. Follow-up (proposed 2026-07-11, Miguel): van Laar vs NRTL on methanol–water in notebook 13
 
-**Status: proposed — not yet scheduled.** Origin: reviewing the README P–x–y "sail"
+**Status: EXECUTED 2026-07-12** (by Claude Code using Claude Fable 5) — notebook 13 gained the
+comparison section + the α-identifiability exercise (Exercise 3); catalogued in
+`deploy/NOTEBOOKS.md`. Measured on the Table 4.6 points: van Laar (thesis Table 4.5 params)
+RMSE 0.126 kPa vs fitted NRTL (α = 0.30) RMSE 0.069 kPa — both ~1 % of pressure, comparable
+as predicted below; the refits at α = 0.20/0.47 land at the same RMSE, confirming α is not
+identifiable from one isotherm. Origin: reviewing the README P–x–y "sail"
 (methanol/water, van Laar), Miguel asked whether NRTL is the better model for that
 mixture now that M14 shipped it. Decision: the **hero image stays van Laar** — it
 showcases the thesis's validated configuration (Chapter IV Table 4.6 is methanol/water
@@ -185,15 +190,29 @@ New section in `notebooks/13_nrtl_ammonia.ipynb` after the NH₃–H₂O materia
 
 ### Tasks
 
-- [ ] Extend `scripts/build_notebook_m14.py` (it generates notebook 13) with the new
+- [x] Extend `scripts/build_notebook_m14.py` (it generates notebook 13) with the new
       section + exercise cells; regenerate; verify fresh-kernel execution
-      (`jupyter execute`).
-- [ ] Cross-check the Table 4.6 literals against notebook 04 (single source of truth:
+      (the generator executes via `NotebookClient` before writing).
+- [x] Cross-check the Table 4.6 literals against notebook 04 (single source of truth:
       copy the same list, comment pointing at 04).
-- [ ] Doc sync per CLAUDE.md: `deploy/NOTEBOOKS.md` row for notebook 13 gains
+- [x] Doc sync per CLAUDE.md: `deploy/NOTEBOOKS.md` row for notebook 13 gains
       "van Laar-vs-NRTL methanol–water comparison"; no ROADMAP/TODO/plan renumbering
       (this is a notebook update inside shipped M14 scope, not a new milestone).
-- [ ] No release: notebooks distribute via GitHub; no crate/wheel change.
+- [x] No release: notebooks distribute via GitHub; no crate/wheel change.
 
-**Estimate:** 2–4 h. **Verification:** notebook executes top-to-bottom; assertions
-green; both RMSE values printed; visual check of the overlay plot.
+**Estimate:** 2–4 h. **Verification (done 2026-07-12):** notebook executes top-to-bottom
+fresh-kernel; assertion cells green (fit converges in 23 LM iterations, NRTL RMSE ≤ 1.5×
+van Laar, spot-γ ranges); both RMSE values printed (0.126 / 0.069 kPa); overlay plot
+renders both curves over the six Table 4.6 points.
+
+**Implementation notes (what differed from the design):**
+- `fit_aij_py` in the shipped 0.11.0 wheel already accepts `model=Nrtl` + `alpha=` —
+  no binding work was needed.
+- The low-level `bubble_pressure_py` has **no `alpha` kwarg** in 0.11.0, so the model
+  curves go through `vle.System(..., activity=..., aij=..., alpha=...)` with the
+  bundled-DB methanol/water (the fit is fed the same DB `psat_coeffs`, keeping fit and
+  curves on one saturation correlation). The notebook therefore runs against the
+  published wheel — no engine change, honoring "no release".
+- The α-sensitivity item shipped as notebook Exercise 3 (refit at α = 0.20/0.47 →
+  α-identifiability lesson); the optional 60 °C extrapolation exercise was skipped
+  (no literature dataset to grade against).

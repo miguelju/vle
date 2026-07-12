@@ -9,6 +9,12 @@ temperature-dependent model captures, and a bubble-pressure curve — the
 liquid-phase piece the downstream ``stages-thermo`` library needs for the
 ammonia–water Ponchon–Savarit (enthalpy–composition) method.
 
+Also contains the NRTL_AMMONIA_PLAN.md §8 follow-up (added 2026-07-12): the
+"same data, two models" van Laar-vs-NRTL comparison on the thesis's own
+methanol–water Table 4.6 data, with an LM refit exercise on the α
+non-randomness. The Table 4.6 literals are copied verbatim from
+``build_notebook_m9_bubble_dew.py`` (notebook 04) — single source of truth.
+
 Structure follows CLAUDE.md *Notebook Conventions*; generated deterministically
 and executed top-to-bottom in a fresh kernel before saving.
 
@@ -266,6 +272,149 @@ def build() -> nbf.NotebookNode:
         "reference data downstream in `stages-thermo`, not from this fit."
     ))
 
+    # ---- §8 follow-up: van Laar vs NRTL on methanol–water ---------------
+    cells.append(md(
+        "## Same data, two models: van Laar vs NRTL on methanol–water\n"
+        "\n"
+        "The thesis's validated methanol–water case ([Chapter IV Table 4.6]"
+        "(../docs/en/research-paper/chapter-4-validation.md), reproduced in "
+        "[notebook 04](04_bubble_dew_point.ipynb)) uses **van Laar** — and the "
+        "README's P–x–y hero image deliberately keeps it, because provenance "
+        "wins there. But now that NRTL is in the engine, a fair question is: "
+        "*would NRTL describe that same mixture better?*\n"
+        "\n"
+        "Here we answer it the way a practitioner would with a DECHEMA table: "
+        "**fit NRTL to the thesis's own six bubble-pressure points** "
+        "(Levenberg–Marquardt via `fit_aij_py` — Milestone 9's regression "
+        "driving Milestone 14's model — with $\\alpha_{12} = 0.30$ held fixed, "
+        "the standard aqueous-alcohol value) and overlay both models on the "
+        "data."
+    ))
+    cells.append(code(
+        "from vle import components\n"
+        "\n"
+        "# Thesis Table 4.6: methanol(1)/water(2) bubble points at 298 K.\n"
+        "# Literals copied from notebook 04 (single source of truth) —\n"
+        "# see scripts/build_notebook_m9_bubble_dew.py.\n"
+        "T_MW = 298.0                                   # K\n"
+        "TABLE46 = [\n"
+        "    # (x1, y1_thesis, P_thesis [kPa])\n"
+        "    (0.0873, 0.4416, 5.1998),\n"
+        "    (0.1900, 0.6287, 7.0028),\n"
+        "    (0.3417, 0.7538, 9.1151),\n"
+        "    (0.4943, 0.8334, 10.9757),\n"
+        "    (0.6919, 0.9090, 13.2939),\n"
+        "    (0.8492, 0.9583, 15.1678),\n"
+        "]\n"
+        "# van Laar parameters the thesis validated against (Table 4.5).\n"
+        "AIJ_VL = [[0.0, 0.5853], [0.3458, 0.0]]\n"
+        "# NRTL non-randomness, fixed during the fit.\n"
+        "ALPHA_MW = [[0.0, 0.30], [0.30, 0.0]]\n"
+        "\n"
+        "meoh, h2o = components.get('methanol'), components.get('water')\n"
+        "\n"
+        "sys_vl = System(['methanol', 'water'], vapor_model='ideal',\n"
+        "                liquid_model='activity', activity='van_laar', aij=AIJ_VL)\n"
+        "\n"
+        "def rmse(sys_):\n"
+        "    r = [sys_.bubble_pressure([x1, 1 - x1], T_MW).value - p_ref\n"
+        "         for x1, _, p_ref in TABLE46]\n"
+        "    return float(np.sqrt(np.mean(np.square(r))))\n"
+        "\n"
+        "rmse_vl = rmse(sys_vl)\n"
+        "print(f'van Laar (thesis Table 4.5 parameters): RMSE = {rmse_vl:.4f} kPa')"
+    ))
+    cells.append(code(
+        "# Fit the two NRTL energies to the six thesis points (alpha fixed).\n"
+        "# fit_aij_py takes the pure-component data explicitly — we feed it the\n"
+        "# same bundled-DB methanol/water the System uses, so the fit and the\n"
+        "# System evaluate identical saturation pressures.\n"
+        "data = [(T_MW, x1, p_ref) for x1, _, p_ref in TABLE46]\n"
+        "a12_mw, a21_mw, sse_mw, rmse_fit, iters_mw = e.fit_aij_py(\n"
+        "    e.ActivityModel.Nrtl,\n"
+        "    [meoh.tc, h2o.tc], [meoh.pc, h2o.pc], [meoh.omega, h2o.omega],\n"
+        "    [list(meoh.psat_coeffs), list(h2o.psat_coeffs)],\n"
+        "    data, 1000.0, 1000.0, alpha=ALPHA_MW,\n"
+        ")\n"
+        "print(f'NRTL fit: g12-g22 = {a12_mw:.1f}, g21-g11 = {a21_mw:.1f} kJ/kmol '\n"
+        "      f'({iters_mw} LM iterations)')\n"
+        "\n"
+        "sys_nrtl = System(['methanol', 'water'], vapor_model='ideal',\n"
+        "                  liquid_model='activity', activity='nrtl',\n"
+        "                  aij=[[0.0, a12_mw], [a21_mw, 0.0]], alpha=ALPHA_MW)\n"
+        "rmse_nrtl = rmse(sys_nrtl)\n"
+        "print(f'NRTL (fitted to Table 4.6):             RMSE = {rmse_nrtl:.4f} kPa')"
+    ))
+    cells.append(code(
+        "# Overlay: both model curves over the thesis points, plus the activity\n"
+        "# coefficients each model implies.\n"
+        "x_mw = np.linspace(0.03, 0.97, 33)\n"
+        "P_vl   = [sys_vl.bubble_pressure([x1, 1 - x1], T_MW).value for x1 in x_mw]\n"
+        "P_nrtl = [sys_nrtl.bubble_pressure([x1, 1 - x1], T_MW).value for x1 in x_mw]\n"
+        "\n"
+        "AIJ_NRTL_MW = [[0.0, a12_mw], [a21_mw, 0.0]]\n"
+        "def gam(model, i, x1, **kw):\n"
+        "    return np.exp(e.activity_ln_gamma(model, i, [x1, 1 - x1], **kw))\n"
+        "g1_vl   = [gam(e.ActivityModel.VanLaar, 0, x1, aij=AIJ_VL) for x1 in x_mw]\n"
+        "g2_vl   = [gam(e.ActivityModel.VanLaar, 1, x1, aij=AIJ_VL) for x1 in x_mw]\n"
+        "g1_nrtl = [gam(e.ActivityModel.Nrtl, 0, x1, aij=AIJ_NRTL_MW, alpha=ALPHA_MW, t=T_MW) for x1 in x_mw]\n"
+        "g2_nrtl = [gam(e.ActivityModel.Nrtl, 1, x1, aij=AIJ_NRTL_MW, alpha=ALPHA_MW, t=T_MW) for x1 in x_mw]\n"
+        "\n"
+        "fig, (axp, axg) = plt.subplots(1, 2, figsize=(11, 4))\n"
+        "axp.plot(x_mw, P_vl, '-', label='van Laar (thesis params)')\n"
+        "axp.plot(x_mw, P_nrtl, '--', label=r'NRTL (fitted, $\\alpha=0.30$)')\n"
+        "axp.plot([r[0] for r in TABLE46], [r[2] for r in TABLE46], 'ko',\n"
+        "         mfc='none', label='Table 4.6 data')\n"
+        "axp.set_xlabel(r'$x_{CH_3OH}$'); axp.set_ylabel('bubble P [kPa]')\n"
+        "axp.set_title('Methanol–water at 298 K'); axp.legend()\n"
+        "\n"
+        "axg.plot(x_mw, g1_vl, '-', color='C0', label=r'$\\gamma_1$ van Laar')\n"
+        "axg.plot(x_mw, g2_vl, '-', color='C2', label=r'$\\gamma_2$ van Laar')\n"
+        "axg.plot(x_mw, g1_nrtl, '--', color='C0', label=r'$\\gamma_1$ NRTL')\n"
+        "axg.plot(x_mw, g2_nrtl, '--', color='C2', label=r'$\\gamma_2$ NRTL')\n"
+        "axg.axhline(1.0, color='gray', lw=0.8, ls=':')\n"
+        "axg.set_xlabel(r'$x_{CH_3OH}$'); axg.set_ylabel(r'$\\gamma_i$')\n"
+        "axg.set_title('Activity coefficients'); axg.legend(fontsize=8)\n"
+        "fig.tight_layout(); plt.show()"
+    ))
+    cells.append(md(
+        "Both models sit on the data. The freshly fitted NRTL edges out van "
+        "Laar's *literature* parameters on RMSE — unsurprisingly, since NRTL "
+        "was fitted to these exact six points while the van Laar constants "
+        "came from Table 4.5 (Orbey & Sandler) — but both errors are of order "
+        "**1% of the pressure**, inside the saturation-correlation band the "
+        "thesis itself flags. The honest conclusion: **for a fully miscible "
+        "binary on a single isotherm, van Laar and NRTL fit comparably.** "
+        "NRTL's real advantages are structural, not a better one-isotherm "
+        "fit:\n"
+        "\n"
+        "- **temperature extrapolation** — $\\tau = \\Delta g/(RT)$ carries "
+        "built-in T-dependence; van Laar's constants are frozen at 298 K;\n"
+        "- a **non-zero analytic $H^E$** (the whole point of the NH₃–H₂O "
+        "sections above; van Laar's crude legacy $H^E = G^E$ has the wrong "
+        "shape *and* no T-dependence);\n"
+        "- **multicomponent and LLE reach** — the general NRTL form extends "
+        "to ternaries (extractive/azeotropic distillation) where van Laar "
+        "does not.\n"
+        "\n"
+        "That is also why the README hero image *stays* van Laar: it "
+        "showcases the thesis's validated configuration, and NRTL would not "
+        "visibly improve the picture."
+    ))
+    cells.append(code(
+        "# Pin the comparison so a regression shows up as a failing notebook.\n"
+        "assert iters_mw < 100, 'NRTL LM fit failed to converge'\n"
+        "assert rmse_nrtl <= 1.5 * rmse_vl, (\n"
+        "    'NRTL fit should be comparable to van Laar on its own data')\n"
+        "# Spot gammas: methanol-water shows mild POSITIVE deviation (contrast\n"
+        "# with NH3-H2O's gamma < 1 above) and both models agree on that.\n"
+        "g1v = gam(e.ActivityModel.VanLaar, 0, 0.5, aij=AIJ_VL)\n"
+        "g1n = gam(e.ActivityModel.Nrtl, 0, 0.5, aij=AIJ_NRTL_MW, alpha=ALPHA_MW, t=T_MW)\n"
+        "assert 1.0 < g1v < 1.3 and 1.0 < g1n < 1.3\n"
+        "print(f'RMSE: van Laar {rmse_vl:.4f} kPa, NRTL {rmse_nrtl:.4f} kPa; '\n"
+        "      f'gamma1(0.5): van Laar {g1v:.4f}, NRTL {g1n:.4f}')"
+    ))
+
     # ---- Exercises ------------------------------------------------------
     cells.append(md(
         "## Exercises\n"
@@ -339,6 +488,46 @@ def build() -> nbf.NotebookNode:
         "pressures the model predicts).\n"
         "</details>"
     ))
+    cells.append(md(
+        "### Exercise 3 — is α identifiable from one isotherm?\n"
+        "\n"
+        "Exercise 1 showed that at *fixed energies*, changing α moves "
+        "$\\gamma_{NH_3}$ by several percent. Now flip the question for the "
+        "methanol–water comparison: **refit** the NRTL energies to Table 4.6 "
+        "with $\\alpha_{12} = 0.20$ and $0.47$ (instead of 0.30) and compare "
+        "the RMSEs. What does that say about fitting α itself from a single "
+        "isotherm?"
+    ))
+    cells.append(code(
+        "# TODO: for a in (0.20, 0.47): build al = [[0, a], [a, 0]], call\n"
+        "# e.fit_aij_py(...) exactly as in the comparison section (same data,\n"
+        "# same initial guesses), and print the fitted energies + rmse.\n"
+    ))
+    cells.append(md(
+        "<details><summary>Show solution</summary>\n"
+        "\n"
+        "```python\n"
+        "for a in (0.20, 0.47):\n"
+        "    al = [[0.0, a], [a, 0.0]]\n"
+        "    f12, f21, _, r, it = e.fit_aij_py(\n"
+        "        e.ActivityModel.Nrtl,\n"
+        "        [meoh.tc, h2o.tc], [meoh.pc, h2o.pc], [meoh.omega, h2o.omega],\n"
+        "        [list(meoh.psat_coeffs), list(h2o.psat_coeffs)],\n"
+        "        data, 1000.0, 1000.0, alpha=al,\n"
+        "    )\n"
+        "    print(f'alpha={a}: g12-g22={f12:7.1f}  g21-g11={f21:7.1f} kJ/kmol  '\n"
+        "          f'rmse={r:.4f} kPa  ({it} iters)')\n"
+        "```\n"
+        "\n"
+        "All three α choices converge to essentially the **same RMSE** — the "
+        "energies simply shift to compensate. On a single isotherm of P–x data "
+        "α is **not identifiable**: fixing it to a literature value (0.30 for "
+        "aqueous alcohols, 0.20 for ammonia) and fitting only the energies is "
+        "the statistically honest procedure. Discriminating α requires data "
+        "the parameter actually leverages — multiple temperatures, $H^E$ "
+        "measurements, or LLE.\n"
+        "</details>"
+    ))
 
     # ---- References -----------------------------------------------------
     cells.append(md(
@@ -357,8 +546,11 @@ def build() -> nbf.NotebookNode:
         "of the α coefficient in the NRTL model … refrigerant mixtures. "
         "*Int. J. Refrig.* **2019**; Zhang, X. *et al.* I&EC Res. **2017**, "
         "*56*, 12525.\n"
-        "- Design record: `NRTL_AMMONIA_PLAN.md`; `MODERNIZATION_PLAN.md` "
-        "Phase 21 (Milestone 14).\n"
+        "- Design record: `NRTL_AMMONIA_PLAN.md` (§8 = the van Laar-vs-NRTL "
+        "comparison); `MODERNIZATION_PLAN.md` Phase 21 (Milestone 14).\n"
+        "- Table 4.6 data and the thesis's van Laar validation: "
+        "[notebook 04](04_bubble_dew_point.ipynb) and "
+        "[Chapter IV §4.3](../docs/en/research-paper/chapter-4-validation.md).\n"
         "\n"
         "**Why this milestone exists:** ammonia–water is the classic absorption "
         "working pair, and teaching its enthalpy–composition (Ponchon–Savarit) "
