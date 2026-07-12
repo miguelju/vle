@@ -142,8 +142,9 @@ The target architecture is documented in `MODERNIZATION_PLAN.md` and the merge s
 engine/     — Rust crate (core computation), PyO3 bindings via maturin
 units/      — Rust crate `vle-units` (dimensional analysis, gauge pressure)
 steam/      — Rust crate `vle-steam` (IAPWS-IF97 steam tables; M13)
-ffi/        — Rust crate `vle-ffi` (UniFFI Swift wrapper; publish = false; M15)
+ffi/        — Rust crate `vle-ffi` (UniFFI wrapper, Swift + Kotlin; publish = false; M15/M16)
 swift/      — Local Swift package `VleThermo` (binaryTarget + XCTests; M15)
+kotlin/     — Local Android/Kotlin library module `VleThermo` (Gradle + smoke tests; M16)
 python/     — Python wrapper package (high-level API, plotting, component DB, steam)
 notebooks/  — Jupyter notebooks reproducing research paper results
 docs/       — English translations and parameter reference
@@ -156,6 +157,17 @@ docs/       — English translations and parameter reference
 Swift package (swift/VleThermo) -> iOS/macOS app (separate repo). Never in
 CI; `release.yml` untouched. The engine is always built **without** the
 `python` feature here. Guide: `docs/en/ios/README.md`.
+
+**Android/desktop-JVM build chain (local-only, M16):** Rust (ffi/, same
+wrapper crate, now also `cdylib`) -> `scripts/build-android.sh` (cargo-ndk
+per-ABI `.so`s + host lib -> first-party UniFFI Kotlin bindgen ->
+`kotlin/VleThermo/src/main/{jniLibs,kotlin/dev/}`, all gitignored) ->
+Android Studio app / Compose Multiplatform Windows desktop app (separate
+repo). Same rules: never in CI, no committed binaries (incl. the Gradle
+wrapper), engine without `python`. Guide: `docs/en/android/README.md`.
+Design record: `ANDROID_FFI_PLAN.md`. The C#/.NET route is documented but
+version-blocked (uniffi 0.32 vs uniffi-bindgen-cs 0.31, as of 2026-07-12):
+`docs/en/dotnet/README.md`.
 
 ## Python Environment (conda `vle` env — mandatory)
 

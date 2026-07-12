@@ -35,6 +35,22 @@ venv/
 .build/
 .swiftpm/
 
+# Kotlin / Android FFI build products (M16) — regenerate with
+# scripts/build-android.sh. The whole generated-bindings package plus the
+# cross-compiled .so trees stay out of git; the hand-written Gradle files
+# and tests around them are committed. `build/` above already covers
+# Gradle's per-module build/ directories, and `*.so` above covers the
+# libraries themselves.
+kotlin/VleThermo/src/main/kotlin/dev/
+kotlin/VleThermo/src/main/jniLibs/
+.gradle/
+local.properties
+# Gradle wrapper is generated locally (`gradle wrapper`), never committed —
+# no binaries in the repo (the wrapper includes a .jar).
+kotlin/gradle/
+kotlin/gradlew
+kotlin/gradlew.bat
+
 # IDE
 .vscode/
 .idea/

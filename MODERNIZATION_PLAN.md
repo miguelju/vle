@@ -968,6 +968,83 @@ same commit series.
 
 ---
 
+### Phase 23: Android/Kotlin FFI — `vle-ffi` → Kotlin via UniFFI *(Milestone 16)* — **code complete (first Android Studio run pending)**
+
+*Added 2026-07-12. Full design record: [ANDROID_FFI_PLAN.md](ANDROID_FFI_PLAN.md).
+Executed by Claude Code using Claude Fable 5.*
+
+Second consumer language for the Phase 22 wrapper crate — **zero new FFI
+surface**. The engine becomes a Kotlin library consumed by a native Android
+app (Jetpack Compose) and by a **Windows desktop app** via Compose
+Multiplatform (the same Compose UI on the desktop JVM). Framework decision
+log lives in the plan doc: Kotlin/Compose chosen over .NET MAUI (weak 2026
+stability record; mobile-native is its strength, not Windows desktop) and
+Avalonia (desktop-first, tiny Android community); "run the APK on Windows"
+rejected because Microsoft killed Windows Subsystem for Android on
+2025-03-05. The C#/.NET route is documented and deliberately parked in
+[docs/en/dotnet/README.md](docs/en/dotnet/README.md): `uniffi-bindgen-cs`
+targets uniffi 0.31, this workspace pins 0.32, and there are no plans to
+downgrade (status dated 2026-07-12).
+
+**Hard constraints (inherited from Phase 22, honored):** all builds local
+(`scripts/build-android.sh`); no GitHub Actions, `release.yml` untouched;
+every build product gitignored (generated `vle_ffi.kt`, `jniLibs/` `.so`
+trees, Gradle caches, and even the Gradle wrapper — it contains a jar);
+engine built **without** the `python` feature; the app itself is a future
+separate repo.
+
+**Architecture:** `ffi/` gains `"cdylib"` in `crate-type` — Kotlin/JNA
+loads a *shared* library at runtime (`libvle_ffi.so` Android/Linux,
+`libvle_ffi.dylib` macOS, `vle_ffi.dll` Windows), unlike Xcode's staticlib
+link. `ffi/uniffi-bindgen/` gains a second 3-line bin, `uniffi-bindgen`
+(uniffi's general CLI; `generate --library … --language kotlin`), with the
+same can't-drift guarantee (one workspace `Cargo.lock`). `ffi/uniffi.toml`
+gains `[bindings.kotlin]` (`package_name = "dev.migueljackson.vle.ffi"`,
+`cdylib_name = "vle_ffi"`); `android = true` deliberately NOT set — the
+default plain-JVM flavor runs on Android *and* the desktop JVM, so one
+generated binding serves both targets. The Kotlin-facing API is exactly
+Phase 22's (component DB read-only + fully custom `ComponentData` records,
+steam tables, `VleSystem` object); JNA is the single runtime dependency.
+
+**Build pipeline** (`scripts/build-android.sh`, idempotent): cargo-ndk
+cross-compiles per-ABI `.so`s (default `arm64-v8a` — every modern device +
+Apple Silicon emulator — and `x86_64` — Intel/Windows emulators; `ABIS=`
+env override, `armeabi-v7a` documented) into
+`kotlin/VleThermo/src/main/jniLibs/`; a host `cargo build -p vle-ffi
+--release` supplies the bindgen input, the Gradle-unit-test library, and
+the Compose-Desktop dev library; library-mode bindgen emits
+`src/main/kotlin/dev/migueljackson/vle/ffi/vle_ffi.kt`; host-JVM tests run
+when a Gradle is available. The Windows leg is just
+`cargo build -p vle-ffi --release` on the Windows machine →
+`vle_ffi.dll` + `jna.library.path` (or bundle-as-resource for
+distribution).
+
+**Consumer packaging:** `kotlin/` is a standalone Gradle build (open
+directly in Android Studio; no wrapper committed) holding the
+`kotlin/VleThermo` `com.android.library` module — AGP 8.7 / Kotlin 2.1 /
+compileSdk 35 / minSdk 24 / JVM target 17; JNA 5.17 as `@aar` for the
+device plus the plain jar test-scope for host-JVM tests
+(`jna.library.path` wired `projectDir`-relative to `target/release/` so it
+survives being `include()`d from an app repo by absolute path).
+
+**Verification ladder (all local):** unchanged `cargo test -p vle-ffi` →
+host-side pipeline proof on this Mac (cdylib builds; general bindgen emits
+`vle_ffi.kt` with the expected package/API) → 5 committed host-JVM smoke
+tests through the real JNA boundary (version, water lookup, IF97
+Psat(373.15 K) ≈ 101.42 kPa, Ch. IV heptane/butane RKS flash two-phase
+split with K-value ordering, `InvalidInput` on wrong-length feed) — to be
+first executed from Android Studio on the dev machine → emulator/device
+smoke via the future app repo.
+
+**Key source files:** `ffi/Cargo.toml` (crate-type), `ffi/uniffi.toml`,
+`ffi/uniffi-bindgen/src/general.rs`, `scripts/build-android.sh`,
+`kotlin/{settings.gradle.kts,build.gradle.kts,gradle.properties}`,
+`kotlin/VleThermo/{build.gradle.kts,src/main/AndroidManifest.xml,src/test/kotlin/dev/migueljackson/vle/VleThermoSmokeTest.kt}`,
+`docs/en/android/README.md`, `docs/en/dotnet/README.md`,
+`ANDROID_FFI_PLAN.md`
+
+---
+
 ## Parameter Reference Document (to be created at `docs/parameters/parameter_reference.md`)
 
 Will document all required parameters organized by category:

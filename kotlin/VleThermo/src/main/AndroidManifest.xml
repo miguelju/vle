@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Library manifest: intentionally empty. The namespace lives in
+     build.gradle.kts (AGP 8+ convention); consuming apps merge this
+     manifest at build time. -->
+<manifest />

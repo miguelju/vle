@@ -1,5 +1,6 @@
 # vle-ffi — the UniFFI wrapper crate that exposes the vle engine to Swift
-# (iOS / macOS). See IOS_FFI_PLAN.md and docs/en/ios/README.md.
+# (iOS / macOS) and Kotlin (Android / Compose Desktop). See IOS_FFI_PLAN.md,
+# ANDROID_FFI_PLAN.md, docs/en/ios/README.md, and docs/en/android/README.md.
 #
 # This crate is a *thin adapter*: it owns no thermodynamics. It converts
 # between the engine's idiomatic Rust API (borrowed slices, data-carrying
@@ -9,7 +10,7 @@
 
 [package]
 name = "vle-ffi"
-description = "UniFFI (Swift) wrapper for the vle-thermo engine — local Apple builds only, never published"
+description = "UniFFI (Swift + Kotlin) wrapper for the vle-thermo engine — local builds only, never published"
 publish = false
 version.workspace = true
 edition.workspace = true
@@ -22,9 +23,11 @@ homepage.workspace = true
 [lib]
 name = "vle_ffi"
 # `staticlib` produces the `libvle_ffi.a` that Xcode links into an app;
-# `lib` (an rlib) is what `cargo test -p vle-ffi` links against. Both are
-# built from the same source — no cfg differences between them.
-crate-type = ["staticlib", "lib"]
+# `cdylib` produces the shared library the Kotlin/JNA side loads at runtime
+# (`libvle_ffi.so` on Android/Linux, `libvle_ffi.dylib` on macOS,
+# `vle_ffi.dll` on Windows); `lib` (an rlib) is what `cargo test -p vle-ffi`
+# links against. All are built from the same source — no cfg differences.
+crate-type = ["staticlib", "cdylib", "lib"]
 
 [dependencies]
 # The engine WITHOUT the `python` feature: pyo3 must never enter the Apple

@@ -1,6 +1,8 @@
 # Plan: Add NRTL activity model + ammonia to vle-thermo
 
-**Status:** planned, not started. **Driver:** downstream — stages-thermo Milestone 2
+**Status:** SHIPPED as Milestone 14 / v0.11.0 (2026-07-09) — §§1–7 are the executed design
+record. **§8 (methanol–water van Laar vs NRTL comparison) is a PROPOSED follow-up, not yet
+scheduled.** **Driver:** downstream — stages-thermo Milestone 2
 (Ponchon–Savarit) needs a proper heat-of-mixing model and the ammonia component to teach
 the ammonia–water enthalpy–composition method. This is the vle-side upstream milestone that
 gates stages-thermo M2 (sibling to the derivative release tracked in `DERIVATIVE_RELEASE_PLAN.md`).
@@ -143,3 +145,55 @@ Doc-sync the files above, model-attribution line, `cargo fmt --check`, bump both
 - `maturin develop` (from `python/`) then
   `~/miniconda3/envs/vle/bin/pytest python/tests/test_m8_activity.py python/tests/test_db.py`.
 - NH₃–H₂O bubble-P-vs-x vs one literature dataset (few-% target at moderate P).
+
+## 8. Follow-up (PROPOSED 2026-07-11, Miguel): van Laar vs NRTL on methanol–water in notebook 13
+
+**Status: proposed — not yet scheduled.** Origin: reviewing the README P–x–y "sail"
+(methanol/water, van Laar), Miguel asked whether NRTL is the better model for that
+mixture now that M14 shipped it. Decision: the **hero image stays van Laar** — it
+showcases the thesis's validated configuration (Chapter IV Table 4.6 is methanol/water
+*with van Laar* at 298.15 K), so provenance wins there. The comparison belongs in
+**notebook 13** (the NRTL notebook), as a new worked section + exercise.
+
+### Design
+
+New section in `notebooks/13_nrtl_ammonia.ipynb` after the NH₃–H₂O material:
+**"Same data, two models: van Laar vs NRTL on methanol–water."**
+
+1. **Data:** the Table 4.6 bubble-pressure points (T = 298.15 K, x₁ sweep) — already
+   transcribed in `notebooks/04_bubble_dew_point.ipynb`; reuse those literals so the two
+   notebooks pin identical numbers.
+2. **Fit NRTL to the thesis's own data** — no external parameter sourcing needed:
+   `vle._engine.fit_aij_py(model=NRTL, …, data=[(T, x1, P_exp)…], alpha=[[0,0.3],[0.3,0]])`
+   fits the two energies by Levenberg–Marquardt with α₁₂ = 0.30 held fixed (the standard
+   aqueous-alcohol value). This showcases M9's regression + M14's model in one cell —
+   the same workflow a practitioner uses with DECHEMA data.
+3. **Compare:** overlay bubble-P–x₁ curves (van Laar with the thesis's A₁₂/A₂₁ vs the
+   freshly fitted NRTL) over the Table 4.6 points; report RMSE of both fits; plot
+   γ₁, γ₂ vs x₁ for both models. Expected outcome (state it honestly in prose): for this
+   fully miscible binary at one temperature the two models fit comparably — NRTL's real
+   advantages are T-extrapolation (τ = Δg/RT), a nonzero analytic Hᴱ, and multicomponent/
+   LLE reach, not a better single-isotherm fit.
+4. **Assertion cells:** NRTL fit converges; NRTL RMSE ≤ ~1.5× van Laar RMSE (guards
+   against a silently broken fit without over-pinning); one spot γ value each model.
+5. **Exercise (with hidden solution):** refit at α₁₂ = 0.2 and 0.47 and discuss
+   sensitivity — connects back to the NH₃–H₂O α-sensitivity exercise already in the
+   notebook. Optionally a second exercise: predict the 60 °C bubble curve with both
+   models' 25 °C parameters and discuss which extrapolates more credibly (NRTL's
+   T-dependence vs van Laar's constant A's) — needs a literature 60 °C dataset to
+   grade against, else keep qualitative.
+
+### Tasks
+
+- [ ] Extend `scripts/build_notebook_m14.py` (it generates notebook 13) with the new
+      section + exercise cells; regenerate; verify fresh-kernel execution
+      (`jupyter execute`).
+- [ ] Cross-check the Table 4.6 literals against notebook 04 (single source of truth:
+      copy the same list, comment pointing at 04).
+- [ ] Doc sync per CLAUDE.md: `deploy/NOTEBOOKS.md` row for notebook 13 gains
+      "van Laar-vs-NRTL methanol–water comparison"; no ROADMAP/TODO/plan renumbering
+      (this is a notebook update inside shipped M14 scope, not a new milestone).
+- [ ] No release: notebooks distribute via GitHub; no crate/wheel change.
+
+**Estimate:** 2–4 h. **Verification:** notebook executes top-to-bottom; assertions
+green; both RMSE values printed; visual check of the overlay plot.

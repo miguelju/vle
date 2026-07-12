@@ -1,14 +1,21 @@
-# The standard UniFFI "bindgen binary" pattern: a 3-line bin crate that
-# re-exposes uniffi's own Swift generator CLI, so the generator version is
+# The standard UniFFI "bindgen binary" pattern: tiny bin crates that
+# re-expose uniffi's own generator CLIs, so the generator version is
 # resolved by *this workspace's* Cargo.lock and can never drift from the
-# scaffolding version compiled into libvle_ffi.a.
+# scaffolding version compiled into libvle_ffi.a / libvle_ffi.dylib.
 #
-# Invoked by scripts/build-ios.sh as:
-#   cargo run -p vle-uniffi-bindgen --release -- <libvle_ffi.a> <outdir> ...
+# Two binaries, one per generator CLI shape:
+#   - `uniffi-bindgen-swift` — Swift has its own dedicated CLI entry point.
+#     Invoked by scripts/build-ios.sh as:
+#       cargo run -p vle-uniffi-bindgen --release --bin uniffi-bindgen-swift -- \
+#         <libvle_ffi.a> <outdir> ...
+#   - `uniffi-bindgen` — the general multi-language CLI (Kotlin, Python, Ruby).
+#     Invoked by scripts/build-android.sh as:
+#       cargo run -p vle-uniffi-bindgen --release --bin uniffi-bindgen -- \
+#         generate --library <libvle_ffi.dylib> --language kotlin --out-dir <dir>
 
 [package]
 name = "vle-uniffi-bindgen"
-description = "uniffi-bindgen-swift runner for vle-ffi (local tool, never published)"
+description = "uniffi-bindgen runners (Swift + general/Kotlin) for vle-ffi (local tool, never published)"
 publish = false
 version.workspace = true
 edition.workspace = true
@@ -18,6 +25,10 @@ authors.workspace = true
 [[bin]]
 name = "uniffi-bindgen-swift"
 path = "src/main.rs"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/general.rs"
 
 [dependencies]
 # `cli` pulls in clap + the bindgen driver behind uniffi_bindgen_swift().

@@ -476,6 +476,57 @@ milestone notebook (Swift isn't executable from Jupyter) — the learning doc
 
 ---
 
+## Milestone 16: Android/Kotlin FFI — `vle-ffi` → Kotlin via UniFFI
+*Phase 23 of MODERNIZATION_PLAN.md*
+*Executed by Claude Code using Claude Fable 5*
+
+Local-only builds again (no CI, no committed binaries — see
+[ANDROID_FFI_PLAN.md](ANDROID_FFI_PLAN.md), incl. the framework decision
+log and the parked C#/.NET route). No release; no milestone notebook
+(Kotlin isn't executable from Jupyter).
+
+### 16.1 Kotlin pipeline on the existing wrapper (~2–3h) — **done**
+- [x] `ffi/` `crate-type` += `"cdylib"` (JNA loads shared libs); no new
+      FFI surface — M15's API is the API
+- [x] `ffi/uniffi-bindgen/` second bin `uniffi-bindgen`
+      (`uniffi::uniffi_bindgen_main()`, general CLI) + `ffi/uniffi.toml`
+      `[bindings.kotlin]` (package `dev.migueljackson.vle.ffi`; no
+      `android = true` so one binding serves Android + desktop JVM)
+- [x] `scripts/build-android.sh`: cargo-ndk (arm64-v8a + x86_64, `ABIS=`
+      override) → host lib → library-mode Kotlin bindgen → module drop-in
+      → optional host-JVM tests; host-verified end-to-end on this Mac
+      (cdylib builds, bindgen emits `vle_ffi.kt`)
+
+### 16.2 Gradle module + smoke tests (~2–4h) — **done (code); Studio run pending**
+- [x] `kotlin/` standalone Gradle build (no wrapper committed) +
+      `kotlin/VleThermo/` `com.android.library` module: AGP 8.7 /
+      Kotlin 2.1 / compileSdk 35 / minSdk 24; JNA 5.17 `@aar` +
+      test-scope desktop jar; `jna.library.path` → `target/release/`
+- [x] 5 committed smoke tests through the real JNA boundary
+      (`VleThermoSmokeTest.kt`): version, water lookup (critical point in
+      canonical units), IF97 Psat(373.15 K), Ch. IV heptane/butane RKS
+      flash, `InvalidInput` error mapping
+- [ ] First Android Studio verification on the dev machine (open
+      `kotlin/`, run tests; then emulator via the app repo)
+
+### 16.3 Documentation (~2–3h) — **done**
+- [x] `ANDROID_FFI_PLAN.md` design record (decision log: Kotlin/Compose
+      over MAUI/Avalonia; WSA dead; Compose Multiplatform = Windows path)
+- [x] `docs/en/android/README.md` learning guide (pipeline diagram,
+      prerequisites, consume-from-Android-Studio, Windows DLL leg,
+      troubleshooting table)
+- [x] `docs/en/dotnet/README.md` — C#/.NET route documented and parked:
+      uniffi-bindgen-cs targets 0.31, workspace pins 0.32, no downgrade
+      planned (dated 2026-07-12)
+- [x] README (Kotlin channel + tree), CLAUDE.md (build chain),
+      deploy/README (channel row), `.gitignore` (generated bindings,
+      jniLibs, Gradle wrapper), ROADMAP/TODO/MODERNIZATION_PLAN sync as
+      M16/Phase 23
+- [ ] Future (separate repo): Compose Multiplatform app (Android +
+      Windows desktop) consuming `kotlin/VleThermo` by path
+
+---
+
 ## Summary
 
 | Milestone | Est. Total | Status |
@@ -496,6 +547,7 @@ milestone notebook (Swift isn't executable from Jupyter) — the learning doc
 | 13. Steam Tables — `vle-steam` (IAPWS-IF97) | ~27–39h | **Shipped as v0.10.0** — 13.1–13.6 done (crate, all 5 regions + saturation + backward eqs, verified vs R7-97 tables; PyO3 `vle.steam` + batch numpy; notebook 12; README + benches). Signed tag pushed + published |
 | 14. NRTL Activity Model + Ammonia | ~14–20h | **Shipped as v0.11.0** — NRTL model (general multicomponent, analytic Hᴱ via `num-dual`), `alpha` matrix threaded, PyO3 + Python wrapper, ammonia in the 25-compound DB, milestone notebook 13. Rigorous NH₃–H₂O param regression deferred (qualitative demo shipped) |
 | 15. iOS/macOS FFI (`vle-ffi` via UniFFI) | ~13–21h | **Done (unreleased)** — `ffi/` wrapper crate + bindgen bin, `scripts/build-ios.sh` (3 Apple targets → XCFramework), `swift/VleThermo` package (10 XCTests green), learning doc `docs/en/ios/`. Local-build artifact only; app itself is a future separate repo |
-| **Total** | **~316–444h** | |
+| 16. Android/Kotlin FFI (`vle-ffi` via UniFFI) | ~6–10h | **Code complete** — `cdylib` + general bindgen bin + `[bindings.kotlin]`, `scripts/build-android.sh` (cargo-ndk ABIs + host lib → Kotlin bindgen), `kotlin/VleThermo` Gradle module (5 smoke tests), docs `docs/en/android/` + parked `docs/en/dotnet/`. First Android Studio run pending; app (Android + Compose-Desktop Windows) is a future separate repo |
+| **Total** | **~322–454h** | |
 
 Each active milestone's total now includes: milestone notebook (~2–4h) + notebook-catalogue update (~0.3h). Deploying to the hosted hub is a separate operator-side step in a private operator repository, not counted here.

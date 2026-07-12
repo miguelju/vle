@@ -1,5 +1,5 @@
 # UniFFI bindings configuration for vle-ffi (read by ffi/uniffi-bindgen at
-# generation time — see scripts/build-ios.sh).
+# generation time — see scripts/build-ios.sh and scripts/build-android.sh).
 #
 # `ffi_module_name` is the name of the low-level C module the generated
 # Swift `import`s. It must match the `module …` declaration in the
@@ -8,3 +8,16 @@
 # swift/VleThermo/Package.swift. One name, three places: VleFFI.
 [bindings.swift]
 ffi_module_name = "VleFFI"
+
+# Kotlin bindings (Android + desktop JVM). `package_name` is the Kotlin
+# package of the generated wrapper — it decides the directory the file
+# lands in under kotlin/VleThermo/src/main/kotlin/ and the `import` apps
+# use. `cdylib_name` is the base name JNA maps per-OS at runtime:
+# libvle_ffi.so (Android/Linux) / libvle_ffi.dylib (macOS) /
+# vle_ffi.dll (Windows). We deliberately do NOT set `android = true`:
+# the default plain-JVM flavor runs on Android *and* on desktop JVM
+# (Compose for Desktop / Gradle unit tests), which is exactly the
+# one-binding-two-platforms design of ANDROID_FFI_PLAN.md.
+[bindings.kotlin]
+package_name = "dev.migueljackson.vle.ffi"
+cdylib_name = "vle_ffi"

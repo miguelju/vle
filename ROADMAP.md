@@ -10,7 +10,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Analyze legacy VB6 codebase (~15,000 lines)
 - [x] Analyze legacy Pascal codebase (~2,500 lines)
 - [x] Create Pascal vs VB6 comparison document
-- [x] Create modernization plan with 22 implementation phases *(originally 17; Phase 11 — Performance Foundation — added 2026-07-01; Phase 19 — Downstream Derivative & Database Release — added 2026-07-05; Phase 20 — Steam Tables (IAPWS-IF97) — added 2026-07-07; Phase 21 — NRTL Activity Model + Ammonia — added 2026-07-08; Phase 22 — iOS/macOS FFI via UniFFI — added 2026-07-11)*
+- [x] Create modernization plan with 23 implementation phases *(originally 17; Phase 11 — Performance Foundation — added 2026-07-01; Phase 19 — Downstream Derivative & Database Release — added 2026-07-05; Phase 20 — Steam Tables (IAPWS-IF97) — added 2026-07-07; Phase 21 — NRTL Activity Model + Ammonia — added 2026-07-08; Phase 22 — iOS/macOS FFI via UniFFI — added 2026-07-11; Phase 23 — Android/Kotlin FFI via UniFFI — added 2026-07-12)*
 - [x] Map algorithms to 30 academic references (ACS format) *(originally 22; (23)–(29) added 2026-07-01 with PERFORMANCE_PROPOSAL.md; (30) added 2026-07-05 with DERIVATIVE_RELEASE_PLAN.md)*
 - [x] Propose 8 algorithm performance improvements (A–H) *(extended to §A–§M + Performance Engineering tracks 2026-07-01 — see [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md))*
 - [x] Initialize git repository
@@ -483,6 +483,50 @@ adoption since NRTL landed first).
       `module.modulemap` gotcha, troubleshooting) + README/`.gitignore` sync
 - [ ] The actual iOS/macOS app (separate repo, out of scope here) — consumes
       `swift/VleThermo` as a local package
+
+---
+
+## Milestone 16: Android/Kotlin FFI — `vle-ffi` → Kotlin via UniFFI — **code complete (first Android Studio run pending)**
+
+*Phase 23 of MODERNIZATION_PLAN.md*
+
+*Executed by Claude Code using Claude Fable 5*
+
+Second consumer language for the M15 wrapper crate: the engine becomes a
+Kotlin library for a native **Android app** (Jetpack Compose) and a
+**Windows desktop app** (Compose Multiplatform — same Compose UI on the
+desktop JVM). Same hard constraints as M15: **all builds local, no CI, no
+committed or published binaries** (even the Gradle wrapper stays out — it
+contains a jar). No release: nothing on crates.io/PyPI changed. No
+milestone notebook (Kotlin isn't executable from Jupyter) — the learning
+doc + smoke tests fill that role. Design record + framework decision log
+(Kotlin/Compose chosen over MAUI/Avalonia; WSA is dead; C#/.NET
+version-blocked): [ANDROID_FFI_PLAN.md](ANDROID_FFI_PLAN.md).
+
+- [x] `ffi/` gains `"cdylib"` crate-type (JNA loads a shared library:
+      `.so`/`.dylib`/`.dll`); zero new FFI surface — the whole M15 API
+      (component DB, steam, `VleSystem`) comes along for free
+- [x] `ffi/uniffi-bindgen/` second bin `uniffi-bindgen` (uniffi's general
+      CLI, `generate --language kotlin`, library mode, version-locked) +
+      `ffi/uniffi.toml` `[bindings.kotlin]`
+      (`package_name = "dev.migueljackson.vle.ffi"`, plain-JVM flavor so
+      one binding serves Android *and* desktop JVM)
+- [x] `scripts/build-android.sh` — idempotent: cargo-ndk `.so`s
+      (arm64-v8a + x86_64 default, `ABIS=` override) + host lib → Kotlin
+      bindgen → drop into the Gradle module → host-JVM tests when a
+      Gradle exists
+- [x] `kotlin/VleThermo/` Android library module (AGP 8 / Kotlin 2 /
+      minSdk 24; JNA `@aar` + desktop-jar for tests; `jna.library.path`
+      wired to `target/release/`) + 5 committed smoke tests (version,
+      water lookup, IF97 1-atm boiling, Ch. IV heptane/butane flash,
+      error mapping)
+- [x] Docs: learning guide `docs/en/android/README.md`, parked C#/.NET
+      route `docs/en/dotnet/README.md` (version-blocked as of 2026-07-12),
+      README/CLAUDE/deploy/`.gitignore` sync
+- [ ] Verify in Android Studio on the dev machine (open `kotlin/`, run the
+      smoke tests, emulator run from the app repo)
+- [ ] The actual Compose app — Android + Windows desktop (separate repo,
+      out of scope here) — consumes `kotlin/VleThermo` by path
 
 ---
 
