@@ -51,6 +51,13 @@ kotlin/gradle/
 kotlin/gradlew
 kotlin/gradlew.bat
 
+# JavaScript / wasm FFI build products (M17) — regenerate with
+# scripts/build-wasm.sh. wasm/pkg/ is the generated npm package (.wasm +
+# JS glue + .d.ts); node_modules/ covers any JS project that consumes it
+# from inside the tree.
+wasm/pkg/
+node_modules/
+
 # IDE
 .vscode/
 .idea/

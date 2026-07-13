@@ -1,0 +1,62 @@
+# vle-wasm — the wasm-bindgen wrapper crate that exposes the vle engine to
+# JavaScript/TypeScript (browsers, Node.js, and the webview shells: Tauri,
+# Electron, Capacitor). See WEB_UI_PLAN.md and docs/en/web/README.md.
+#
+# This crate is a *thin adapter*, the third sibling of ffi/ (Swift + Kotlin
+# via UniFFI): it owns no thermodynamics. It converts between the engine's
+# idiomatic Rust API and the plain objects / typed arrays that cross the
+# JS↔wasm boundary cleanly. It is `publish = false` — it never goes to
+# crates.io (nor npm); its build artifact (wasm/pkg/) is generated locally
+# by scripts/build-wasm.sh and consumed by path from a JS project.
+
+[package]
+name = "vle-wasm"
+description = "wasm-bindgen (JavaScript/TypeScript) wrapper for the vle-thermo engine — local builds only, never published"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lib]
+name = "vle_wasm"
+# `cdylib` is what wasm-pack compiles into the .wasm module; `lib` (an rlib)
+# is what `cargo test -p vle-wasm` links the host-side unit tests against.
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+# The engine WITHOUT the `python` feature: pyo3/numpy/rayon must never enter
+# the wasm dependency graph (no Python in a browser; wasm is single-threaded
+# here — see WEB_UI_PLAN.md hard constraint 5). `component-db` embeds the
+# bundled component catalogue in the .wasm; `steam` the IAPWS-IF97 tables.
+vle-thermo = { path = "../engine", features = ["component-db", "steam"] }
+# wasm-bindgen is the standard Rust↔JS binding generator: the
+# `#[wasm_bindgen]` attributes make the compiler emit wasm exports plus
+# metadata from which the CLI generates the matching JS glue + TypeScript
+# declarations (wasm-pack drives that CLI — see scripts/build-wasm.sh).
+wasm-bindgen = "0.2"
+# js-sys exposes JS built-ins (Error, Reflect, …) to Rust — used to build
+# and inspect JS values on the wasm side of the boundary.
+js-sys = "0.3"
+# serde + serde-wasm-bindgen turn our result records into plain JS objects
+# (and accept plain object literals as inputs) without hand-written
+# conversion code — the JS analog of what UniFFI records do for Swift.
+serde = { version = "1", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+thiserror = "1"
+# Routes Rust panic messages to the browser/Node console. Without it a
+# panic is an opaque `unreachable` trap; with it you get the message and
+# location. Set once in lib.rs's `#[wasm_bindgen(start)]` hook.
+console_error_panic_hook = "0.1"
+
+[dev-dependencies]
+# wasm-bindgen-test runs `wasm/tests/smoke.rs` inside a real JS runtime
+# (Node, via `wasm-pack test --node`) — the analog of the M16 JNA smoke
+# tests: they exercise the actual JS↔wasm boundary, not just the Rust side.
+wasm-bindgen-test = "0.3"
+# serde_json builds untyped JSON values in tests (host-side tests of the
+# serde input shapes, and JS-object construction in the smoke tests).
+serde_json = "1"

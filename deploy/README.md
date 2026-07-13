@@ -14,14 +14,23 @@ each one exists for a different kind of user.
 | Rust developers embedding the engine | **crates.io** | `cargo add vle-thermo` &nbsp; `cargo add vle-units` |
 | Swift developers building iOS/macOS apps | **GitHub (source) + local build** — nothing published, by design | clone the repo, `scripts/build-ios.sh`, then add `swift/VleThermo` as a local package in Xcode — see [docs/en/ios/README.md](../docs/en/ios/README.md) |
 | Kotlin developers building Android / Compose Desktop apps | **GitHub (source) + local build** — nothing published, by design | clone the repo, `scripts/build-android.sh`, then include `kotlin/VleThermo` from Android Studio — see [docs/en/android/README.md](../docs/en/android/README.md) |
+| JavaScript/TypeScript developers building web, desktop (Tauri/Electron), or mobile (Tauri/Capacitor) apps | **GitHub (source) + local build** — nothing published, by design | clone the repo, `scripts/build-wasm.sh`, then `npm install <path-to-vle>/wasm/pkg` — see [docs/en/web/README.md](../docs/en/web/README.md) |
 
 The channels share **one source of truth**: the same Rust source is
 published to crates.io, compiled into the PyPI wheels, and compiled locally
-into the Swift package's XCFramework and the Kotlin module's `.so`s; the
-notebooks exercise that published library. There are no parallel
-implementations to keep in sync. (The Swift and Kotlin rows are
-deliberately *not* registries: the artifacts are machine-built binaries, so
-the repo distributes the recipe, not the artifact.)
+into the Swift package's XCFramework, the Kotlin module's `.so`s, and the
+wasm package's `.wasm` module; the notebooks exercise that published
+library. There are no parallel implementations to keep in sync. (The
+Swift, Kotlin, and JavaScript rows are deliberately *not* registries: the
+artifacts are machine-built binaries, so the repo distributes the recipe,
+not the artifact.)
+
+> **What about C#/.NET?** That route was evaluated and is deliberately
+> **not** offered: the community C# bindings generator lags the UniFFI
+> version this workspace pins, so the toolchain doesn't line up (as of
+> 2026-07-12). The full analysis — and the complete would-be recipe, should
+> the versions ever converge — lives in
+> [docs/en/dotnet/README.md](../docs/en/dotnet/README.md).
 
 ### crates.io — Rust source distribution
 
@@ -95,6 +104,33 @@ catalogue, and the `components.db` setup, see [`NOTEBOOKS.md`](NOTEBOOKS.md).
 > The `vle-thermo[plot]` extra pulls in `matplotlib`, which the
 > notebooks use for P-x-y plots. Skip the `[plot]` if you only care
 > about the numerical cells.
+
+### WebAssembly — the browser and JS runtimes
+
+The engine also compiles to **WebAssembly**: the same Rust source, built
+locally into a small npm package (`scripts/build-wasm.sh` →
+`wasm/pkg/`, ~150 KB gzipped including the flash suite, steam tables, and
+the bundled component database). The thermodynamics then runs
+**client-side in the visitor's browser** — and because every desktop and
+mobile webview is also a browser, one React (or plain JS) codebase covers
+four delivery shapes:
+
+- **React web** — import the package, `await init()`, call the engine
+  directly. The site stays static files: no compute server, no API, no
+  hosting cost beyond the files themselves.
+- **Tauri 2** — the same bundle as a **Windows** (or macOS/Linux) *and*
+  **Android/iOS** app; ~10 MB installers on the system webview. With the
+  engine as wasm inside the frontend, the shell carries no backend code.
+- **Electron** — the same bundle as a desktop-only app; bundles Chromium
+  (bigger, maximally battle-tested). A `napi-rs` native module is the
+  documented upgrade path if a desktop workload ever needs full native
+  speed with rayon threads.
+- **Capacitor** — the same bundle wrapped for Android/iOS when only
+  mobile is needed.
+
+Which shell to use is a packaging decision made in the app repo, not
+here. Build, API examples (units: K, kPa absolute), the Web Worker
+pattern, and shell notes: [docs/en/web/README.md](../docs/en/web/README.md).
 
 ## Layout
 

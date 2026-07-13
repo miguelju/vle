@@ -13,7 +13,7 @@ Repository, documentation structure, and legacy analysis complete.
 - [x] Analyze legacy VB6 codebase (~15,000 lines)
 - [x] Analyze legacy Pascal codebase (~2,500 lines)
 - [x] Create Pascal vs VB6 comparison document
-- [x] Create modernization plan with 23 implementation phases *(originally 17; Phase 11 — Performance Foundation — added 2026-07-01; Phase 19 — Downstream Derivative & Database Release — added 2026-07-05; Phase 20 — Steam Tables (IAPWS-IF97) — added 2026-07-07; Phase 21 — NRTL Activity Model + Ammonia — added 2026-07-08; Phase 22 — iOS/macOS FFI via UniFFI — added 2026-07-11; Phase 23 — Android/Kotlin FFI via UniFFI — added 2026-07-12)*
+- [x] Create modernization plan with 24 implementation phases *(originally 17; Phase 11 — Performance Foundation — added 2026-07-01; Phase 19 — Downstream Derivative & Database Release — added 2026-07-05; Phase 20 — Steam Tables (IAPWS-IF97) — added 2026-07-07; Phase 21 — NRTL Activity Model + Ammonia — added 2026-07-08; Phase 22 — iOS/macOS FFI via UniFFI — added 2026-07-11; Phase 23 — Android/Kotlin FFI via UniFFI — added 2026-07-12; Phase 24 — Web/JavaScript FFI via wasm-bindgen — added 2026-07-12)*
 - [x] Map algorithms to 30 academic references (ACS format) *(originally 22; (23)–(29) added 2026-07-01 with PERFORMANCE_PROPOSAL.md; (30) added 2026-07-05 with DERIVATIVE_RELEASE_PLAN.md)*
 - [x] Propose 8 algorithm performance improvements (A–H) *(extended to §A–§M + Performance Engineering tracks 2026-07-01 — see PERFORMANCE_PROPOSAL.md)*
 - [x] Initialize git repository
@@ -527,6 +527,59 @@ log and the parked C#/.NET route). No release; no milestone notebook
 
 ---
 
+## Milestone 17: Web/JavaScript FFI — `vle-wasm` → the browser via wasm-bindgen
+*Phase 24 of MODERNIZATION_PLAN.md*
+*Executed by Claude Code using Claude Fable 5*
+
+Local-only builds again (no CI, no committed binaries, nothing on npm —
+see [WEB_UI_PLAN.md](WEB_UI_PLAN.md), incl. the framework decision log,
+the verified feasibility spike, and the single-threaded/rayon
+decomposition). No release; no milestone notebook (JS isn't executable
+from Jupyter).
+
+### 17.1 The wasm wrapper crate (~2–3h) — **done**
+- [x] `wasm/` (`vle-wasm`, `publish = false`, cdylib+rlib) — sibling of
+      `ffi/` (UniFFI has no JS backend at our pin; wasm-bindgen is the
+      standard); engine with `component-db` + `steam`, never `python`;
+      workspace member
+- [x] M15/M16's API in JS form: `version`, DB lookups + custom components
+      (plain camelCase objects via serde-wasm-bindgen), steam tables,
+      `VleSystem` (`flashTp`, `bubbleP/T`, `dewP/T`, `kValues`);
+      compositions as `Float64Array`; model names as forgiving strings
+      (`"RKS1972"`, `"van-laar"`) or tagged objects; errors thrown as JS
+      `Error`s with the family's message prefixes; JsValue confined to
+      thin shims over a host-testable `SystemCore`
+- [x] `scripts/build-wasm.sh`: preflight → Node smoke tests →
+      `wasm-pack build --target web --release` → `wasm/pkg/` (~360 KB
+      wasm / ~150 KB gzipped)
+
+### 17.2 Verification (~1h) — **done**
+- [x] 19 host-side unit tests (`cargo test -p vle-wasm`): parsing,
+      validation, Ch. IV flash vs direct engine call, bubble/dew
+      consistency
+- [x] 5 smoke tests through the real JS↔wasm boundary
+      (`wasm-pack test --node wasm`): version, water lookup, IF97 1-atm
+      boiling row, Ch. IV Table 4.10 flash (β in the thesis band), error
+      mapping (`invalid input:` / `component not found` prefixes)
+- [x] Package-level sanity: `wasm/pkg` imported in Node as a consumer
+      would (init → flash → bubbleP → thrown-error check)
+
+### 17.3 Documentation (~2h) — **done**
+- [x] `WEB_UI_PLAN.md` design record adopted (decision log: React+wasm
+      over Flutter/React Native; Kotlin/Compose kept as native escape
+      hatch; shells = packaging, deferred to the app repo)
+- [x] `docs/en/web/README.md` learning guide (wasm-bindgen theory, React
+      quickstart with units, Web Worker pattern, plotly.js 3-D surfaces,
+      Tauri/Electron/Capacitor/PWA notes, troubleshooting)
+- [x] README (JS channel + tree + status), CLAUDE.md (build chain),
+      deploy/README (channel row + WebAssembly section), `.gitignore`
+      (`wasm/pkg/`, `node_modules/`), ROADMAP/TODO/MODERNIZATION_PLAN
+      sync as M17/Phase 24
+- [ ] Future (separate repo): React app — website + Tauri/Electron/
+      Capacitor shells — consuming `wasm/pkg` by path
+
+---
+
 ## Summary
 
 | Milestone | Est. Total | Status |
@@ -548,6 +601,7 @@ log and the parked C#/.NET route). No release; no milestone notebook
 | 14. NRTL Activity Model + Ammonia | ~14–20h | **Shipped as v0.11.0** — NRTL model (general multicomponent, analytic Hᴱ via `num-dual`), `alpha` matrix threaded, PyO3 + Python wrapper, ammonia in the 25-compound DB, milestone notebook 13. Rigorous NH₃–H₂O param regression deferred (qualitative demo shipped) |
 | 15. iOS/macOS FFI (`vle-ffi` via UniFFI) | ~13–21h | **Done (unreleased)** — `ffi/` wrapper crate + bindgen bin, `scripts/build-ios.sh` (3 Apple targets → XCFramework), `swift/VleThermo` package (10 XCTests green), learning doc `docs/en/ios/`. Local-build artifact only; app itself is a future separate repo |
 | 16. Android/Kotlin FFI (`vle-ffi` via UniFFI) | ~6–10h | **Code complete** — `cdylib` + general bindgen bin + `[bindings.kotlin]`, `scripts/build-android.sh` (cargo-ndk ABIs + host lib → Kotlin bindgen), `kotlin/VleThermo` Gradle module (5 smoke tests), docs `docs/en/android/` + parked `docs/en/dotnet/`. First Android Studio run pending; app (Android + Compose-Desktop Windows) is a future separate repo |
-| **Total** | **~322–454h** | |
+| 17. Web/JavaScript FFI (`vle-wasm` via wasm-bindgen) | ~5–8h | **Done** — `wasm/` wrapper crate (plain-object records, Float64Array comps, JS-Error mapping), `scripts/build-wasm.sh` → `wasm/pkg` npm package (~150 KB gzipped), 19 host + 5 boundary tests green, guide `docs/en/web/`. React app + shells (Tauri/Electron/Capacitor) are a future separate repo |
+| **Total** | **~327–462h** | |
 
 Each active milestone's total now includes: milestone notebook (~2–4h) + notebook-catalogue update (~0.3h). Deploying to the hosted hub is a separate operator-side step in a private operator repository, not counted here.

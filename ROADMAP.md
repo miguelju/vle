@@ -10,7 +10,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Analyze legacy VB6 codebase (~15,000 lines)
 - [x] Analyze legacy Pascal codebase (~2,500 lines)
 - [x] Create Pascal vs VB6 comparison document
-- [x] Create modernization plan with 23 implementation phases *(originally 17; Phase 11 — Performance Foundation — added 2026-07-01; Phase 19 — Downstream Derivative & Database Release — added 2026-07-05; Phase 20 — Steam Tables (IAPWS-IF97) — added 2026-07-07; Phase 21 — NRTL Activity Model + Ammonia — added 2026-07-08; Phase 22 — iOS/macOS FFI via UniFFI — added 2026-07-11; Phase 23 — Android/Kotlin FFI via UniFFI — added 2026-07-12)*
+- [x] Create modernization plan with 24 implementation phases *(originally 17; Phase 11 — Performance Foundation — added 2026-07-01; Phase 19 — Downstream Derivative & Database Release — added 2026-07-05; Phase 20 — Steam Tables (IAPWS-IF97) — added 2026-07-07; Phase 21 — NRTL Activity Model + Ammonia — added 2026-07-08; Phase 22 — iOS/macOS FFI via UniFFI — added 2026-07-11; Phase 23 — Android/Kotlin FFI via UniFFI — added 2026-07-12; Phase 24 — Web/JavaScript FFI via wasm-bindgen — added 2026-07-12)*
 - [x] Map algorithms to 30 academic references (ACS format) *(originally 22; (23)–(29) added 2026-07-01 with PERFORMANCE_PROPOSAL.md; (30) added 2026-07-05 with DERIVATIVE_RELEASE_PLAN.md)*
 - [x] Propose 8 algorithm performance improvements (A–H) *(extended to §A–§M + Performance Engineering tracks 2026-07-01 — see [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md))*
 - [x] Initialize git repository
@@ -527,6 +527,54 @@ version-blocked): [ANDROID_FFI_PLAN.md](ANDROID_FFI_PLAN.md).
       smoke tests, emulator run from the app repo)
 - [ ] The actual Compose app — Android + Windows desktop (separate repo,
       out of scope here) — consumes `kotlin/VleThermo` by path
+
+---
+
+## Milestone 17: Web/JavaScript FFI — `vle-wasm` → the browser via wasm-bindgen — **complete**
+
+*Phase 24 of MODERNIZATION_PLAN.md*
+
+*Executed by Claude Code using Claude Fable 5*
+
+Third consumer language: the engine compiles to **WebAssembly** and
+becomes an npm package for JavaScript/TypeScript apps — a **pure-React
+website** (thermodynamics runs client-side, no compute server) and the
+same bundle wrapped as **Windows/Android apps** via the webview shells
+(Tauri 2, Electron, Capacitor; shell choice deferred to the app repo).
+Same hard constraints as M15/M16: **all builds local, no CI, no committed
+or published binaries** (nothing on npm). No release: nothing on
+crates.io/PyPI changed. No milestone notebook (JS isn't executable from
+Jupyter) — the learning doc + smoke tests fill that role. Design record +
+framework decision log (React+wasm chosen over Flutter/React Native; the
+verified feasibility spike; the single-threaded/rayon decomposition):
+[WEB_UI_PLAN.md](WEB_UI_PLAN.md).
+
+- [x] `wasm/` wrapper crate `vle-wasm` (`publish = false`, cdylib+rlib) —
+      a **sibling** of `ffi/`, not an extension (UniFFI has no JS backend
+      at our 0.32 pin; wasm-bindgen is the standard): engine with
+      `component-db` + `steam`, never `python`
+- [x] The M15/M16 API surface in JS form: `version()`, component DB
+      (`dbAvailable`/`dbComponent` + custom components from object
+      literals), steam tables (`steamTp/Tx/Px/Ph/Ps`, `steamSatT/P`,
+      `steamPsat/Tsat`, `steamLatentHeat`), `VleSystem`
+      (`flashTp`, `bubbleP/T`, `dewP/T`, `kValues`) — records as plain
+      camelCase JS objects (serde-wasm-bindgen), compositions as
+      `Float64Array`, model names as forgiving strings or tagged objects,
+      Rust errors thrown as JS `Error`s with the family's message prefixes
+- [x] `scripts/build-wasm.sh` — idempotent: Node smoke tests
+      (`wasm-pack test --node`) → `wasm-pack build --target web --release`
+      → `wasm/pkg/` (~360 KB wasm, ~150 KB gzipped, full engine + DB)
+- [x] Verification ladder all green: 19 host-side unit tests
+      (`cargo test -p vle-wasm`), 5 smoke tests through the real JS↔wasm
+      boundary in Node (version, water lookup, IF97 1-atm boiling,
+      Ch. IV Table 4.10 heptane/butane flash β within the thesis band,
+      error mapping), plus a package-level sanity run of `wasm/pkg`
+- [x] Docs: learning guide `docs/en/web/README.md` (theory, React
+      quickstart, Web Worker pattern, plotly.js 3-D surfaces, shells,
+      troubleshooting), README/CLAUDE/deploy/`.gitignore` sync,
+      WEB_UI_PLAN.md adopted
+- [ ] The actual React app — website + Tauri/Electron/Capacitor wrapping
+      (separate repo, out of scope here) — consumes `wasm/pkg` by path
 
 ---
 

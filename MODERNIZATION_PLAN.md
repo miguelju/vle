@@ -1045,6 +1045,80 @@ smoke via the future app repo.
 
 ---
 
+### Phase 24: Web/JavaScript FFI — `vle-wasm` → the browser via wasm-bindgen *(Milestone 17)* — **complete**
+
+*Added 2026-07-12. Full design record: [WEB_UI_PLAN.md](WEB_UI_PLAN.md).
+Executed by Claude Code using Claude Fable 5.*
+
+Third consumer language — the engine compiles to **WebAssembly** and
+ships as a locally-built npm package, so one React/TypeScript codebase
+covers a **website** (thermodynamics client-side, static-file hosting), a
+**Windows desktop app**, and an **Android app** via the webview shells
+(Tauri 2 / Electron / Capacitor — a packaging decision deferred to the
+app repo). Framework decision log lives in the plan doc: React+wasm
+chosen over Flutter (second bindgen toolchain, preview-grade 3-D) and
+React Native (weak Windows leg, no DOM ⇒ no plotly.js); Kotlin/Compose
+(Phase 23) stays as the native escape hatch. A feasibility spike
+(2026-07-12) preceded adoption: the engine compiled to
+`wasm32-unknown-unknown` **unchanged** (everything wasm-hostile is behind
+the `python` feature), reproduced Table 4.10 and IF97 values in Node, at
+5.7 µs per flash.
+
+**Hard constraints (inherited from Phases 22–23, honored):** all builds
+local (`scripts/build-wasm.sh`); no GitHub Actions, `release.yml`
+untouched; every build product gitignored (`wasm/pkg/`); **nothing
+published to npm** — a JS project consumes `wasm/pkg` by path; engine
+built **without** the `python` feature; the app itself is a future
+separate repo. **Single-threaded wasm** by design: the Python batch
+API's two tricks map separately — GIL release ⇒ the Web Worker pattern
+(documented, ships now), rayon ⇒ `wasm-bindgen-rayon` + COOP/COEP
+cross-origin isolation (deferred; WEB_UI_PLAN.md hard constraint 5 holds
+the full decomposition and revisit trigger).
+
+**Architecture:** `wasm/` (`vle-wasm`, `publish = false`,
+`crate-type = ["cdylib", "lib"]`) is a **sibling** of `ffi/`, not an
+extension — UniFFI has no JavaScript backend at the pinned 0.32, and
+wasm-bindgen is the ecosystem standard. The exported surface mirrors
+Phase 22's exactly (component DB read-only + fully custom components,
+steam tables, `VleSystem` with `flashTp`/`bubbleP/T`/`dewP/T`/`kValues`).
+Boundary conventions: records cross as **plain camelCase JS objects**
+(serde + serde-wasm-bindgen), compositions as **`Float64Array`** (one
+copy, no per-element chatter), model selections as forgiving strings
+(`"RKS1972"`, `"van-laar"`) or explicit tagged objects
+(`{kind: "activity", model: "NRTL"}`), and Rust errors are **thrown as JS
+`Error`s** whose message prefixes match the Swift/Kotlin/Python split
+(`invalid input:` / `component not found` / `flash calculation failed:` /
+`steam tables error:`). `JsValue` is confined to thin exported shims over
+a plain-Rust `SystemCore`, so the logic is host-testable without a JS
+runtime; `console_error_panic_hook` makes the (bug-only) panic path
+readable in the console.
+
+**Build pipeline** (`scripts/build-wasm.sh`, idempotent): preflight
+(wasm-pack + the `wasm32-unknown-unknown` target) → boundary smoke tests
+in Node (`wasm-pack test --node wasm`, skippable) →
+`wasm-pack build wasm --target web --release` (cargo → wasm-bindgen CLI →
+`wasm-opt`) → `wasm/pkg/` with the `.wasm` module (~360 KB, ~150 KB
+gzipped, engine + steam + 25-compound DB included), ES-module JS glue,
+and full TypeScript declarations. `--target web` emits a universal ES
+module usable from bundlers (Vite/webpack) and plain
+`<script type="module">` alike — one artifact for the website and every
+shell.
+
+**Verification ladder (all local, all green 2026-07-12):**
+`cargo test -p vle-wasm` (19 host tests: parsing/validation/flash
+bit-parity with a direct engine call) → 5 smoke tests through the real
+JS↔wasm boundary in Node (version, water lookup, IF97 1-atm boiling row,
+Ch. IV Table 4.10 heptane/butane flash with β in the thesis band, error
+mapping) → package-level sanity (import `wasm/pkg` as a consumer:
+`init()` → flash → bubbleP → thrown-error check) → browser smoke via the
+future app repo.
+
+**Key source files:** `wasm/Cargo.toml`,
+`wasm/src/{lib,error,component,steam,system}.rs`, `wasm/tests/smoke.rs`,
+`scripts/build-wasm.sh`, `docs/en/web/README.md`, `WEB_UI_PLAN.md`
+
+---
+
 ## Parameter Reference Document (to be created at `docs/parameters/parameter_reference.md`)
 
 Will document all required parameters organized by category:

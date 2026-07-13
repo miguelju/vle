@@ -143,6 +143,7 @@ engine/     — Rust crate (core computation), PyO3 bindings via maturin
 units/      — Rust crate `vle-units` (dimensional analysis, gauge pressure)
 steam/      — Rust crate `vle-steam` (IAPWS-IF97 steam tables; M13)
 ffi/        — Rust crate `vle-ffi` (UniFFI wrapper, Swift + Kotlin; publish = false; M15/M16)
+wasm/       — Rust crate `vle-wasm` (wasm-bindgen wrapper, JavaScript/TypeScript; publish = false; M17)
 swift/      — Local Swift package `VleThermo` (binaryTarget + XCTests; M15)
 kotlin/     — Local Android/Kotlin library module `VleThermo` (Gradle + smoke tests; M16)
 python/     — Python wrapper package (high-level API, plotting, component DB, steam)
@@ -168,6 +169,18 @@ wrapper), engine without `python`. Guide: `docs/en/android/README.md`.
 Design record: `ANDROID_FFI_PLAN.md`. The C#/.NET route is documented but
 version-blocked (uniffi 0.32 vs uniffi-bindgen-cs 0.31, as of 2026-07-12):
 `docs/en/dotnet/README.md`.
+
+**Web/JavaScript build chain (local-only, M17):** Rust (wasm/, a
+wasm-bindgen sibling of ffi/ — UniFFI has no JS backend at our pin) ->
+`scripts/build-wasm.sh` (Node smoke tests via `wasm-pack test --node`,
+then `wasm-pack build --target web --release`) -> `wasm/pkg/` npm package
+(.wasm + JS glue + .d.ts, all gitignored) -> React website and/or the
+webview shells (Tauri 2 = Windows + Android, Electron = desktop,
+Capacitor = mobile; the app lives in a separate repo). Same rules: never
+in CI, nothing published (no npm), no committed binaries, engine without
+`python`, single-threaded wasm (no rayon — Web Worker pattern instead;
+see WEB_UI_PLAN.md hard constraint 5). Guide: `docs/en/web/README.md`.
+Design record: `WEB_UI_PLAN.md`.
 
 ## Python Environment (conda `vle` env — mandatory)
 
