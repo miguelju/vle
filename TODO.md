@@ -282,7 +282,7 @@ Claude Code using Claude Fable 5.*
 
 Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone is the capstone: one new walkthrough notebook covering all Chapter IV results.
 
-- [x] **Re-run all prior milestone notebooks** (~1–2h) — fresh kernel via nbclient; all 15 pass (notebook `09`'s relative-`data/` path only resolves from `notebooks/` CWD)
+- [x] **Re-run all prior milestone notebooks** (~1–2h) — fresh kernel via nbclient; all 15 that existed at M11 pass (notebook `09`'s relative-`data/` path only resolves from `notebooks/` CWD)
 - [x] **Create `notebooks/10_chapter4_validation_walkthrough.ipynb`** (~4–6h) — per CLAUDE.md *Notebook Conventions*: narrated §4.1–§4.7 through `vle.System`, % error vs. published values, 2 exercises; executes top-to-bottom
 - [x] **Update the notebook catalogue** (~0.3h) — `deploy/NOTEBOOKS.md` marked complete; rebuilt `notebooks/index.ipynb`
 
@@ -384,6 +384,7 @@ computer-program verification tables (asserted to 9 sig figs).
 ### Milestone 13.6 — Notebook, README, docs & v0.10.0 release (~4–6h) — **Shipped (v0.10.0)**
 *Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
+- [x] **Follow-on notebook** — `notebooks/14_pvt_surface.ipynb` (build script `scripts/build_notebook_14_pvt.py`): water P–v–T surface showcasing the IF97 regions, plus the README steam hero image (`scripts/render_pvt_hero.py` → `docs/assets/pvt_surface_hero.png`). Shipped in 972c28b but never recorded here until the v0.12.0 doc sweep
 - [x] **Milestone notebook** — `notebooks/12_steam_tables.ipynb` (build script `scripts/build_notebook_m13.py`): saturation-table page, T–s dome plot, isentropic turbine expansion (worked example), flash-steam recovery + reboiler-duty exercises with collapsed solutions; executes top-to-bottom (24 cells)
 - [x] **`steam/README.md`** (crates.io page, compiling example) + criterion benches (`steam/benches/steam_bench.rs`)
 - [x] **CLAUDE.md release-rule entry (#12) + architecture tree; full doc sync (README, package READMEs, NOTEBOOKS); version bumped to v0.10.0; `vle-steam` wired into `publish-crate.sh` + `release.yml`**
@@ -657,7 +658,7 @@ lessons: [OPTIMIZATION_AUDIT_HISTORY.md](OPTIMIZATION_AUDIT_HISTORY.md).
 | 8. Mixture Models + Performance Foundation | ~41–57h | **Done** (8.1 in v0.7.0; 8.2–8.4 in v0.8.0) |
 | 9. Flash & Regression | ~44–62h | **Done** (all algorithms + bindings + tests + Ch. IV validation + notebooks 04–09; shipped in v0.8.0) |
 | 10. Python Bindings, Wrapper & Batch API | ~25–36h | **Done** (System wrapper + batch API + component DB + plots + tests + intro notebook; external thermo/CoolProp bench deferred; shipped in v0.8.0) |
-| 11. Chapter IV Walkthrough | ~5–8h | **Done** (walkthrough notebook 10 + all 15 notebooks re-verified + catalogue complete; shipped in v0.8.0) |
+| 11. Chapter IV Walkthrough | ~5–8h | **Done** (walkthrough notebook 10 + all 15 then-existing notebooks re-verified + catalogue complete; shipped in v0.8.0) |
 | 12. Downstream Derivative & Database Release | ~25–38h | **Done** — M12.1 (v0.8.2: 24-compound DB + Cp), M12.2 (Rust-side `component-db` DB), M12.3 (T/P derivatives of fugacity + K), M12.4 (real Cp + partial molar H + γ-φ enthalpy), M12.5 (notebook 11 + benches); shipped as **v0.9.0**, plus **v0.9.1** patch (WS departure-enthalpy fix) |
 | 13. Steam Tables — `vle-steam` (IAPWS-IF97) | ~27–39h | **Shipped as v0.10.0** — 13.1–13.6 done (crate, all 5 regions + saturation + backward eqs, verified vs R7-97 tables; PyO3 `vle.steam` + batch numpy; notebook 12; README + benches). Signed tag pushed + published |
 | 14. NRTL Activity Model + Ammonia | ~14–20h | **Shipped as v0.11.0** — NRTL model (general multicomponent, analytic Hᴱ via `num-dual`), `alpha` matrix threaded, PyO3 + Python wrapper, ammonia in the 25-compound DB, milestone notebook 13. Rigorous NH₃–H₂O param regression deferred (qualitative demo shipped) |

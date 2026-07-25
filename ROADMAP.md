@@ -296,9 +296,9 @@ Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERF
 
 > Notebooks 01–08 ship incrementally through Milestones 4–10 (each milestone produces the notebook for the feature it built). This milestone is the capstone: it adds the Chapter IV walkthrough and re-verifies every notebook runs top-to-bottom in a fresh kernel.
 
-- [x] Re-run every existing milestone notebook top-to-bottom in a fresh kernel — all 15 pass (the lone `09` "failure" under batch execution is a relative-`data/` CWD artifact; it runs cleanly from `notebooks/`)
+- [x] Re-run every existing milestone notebook top-to-bottom in a fresh kernel — all 15 that existed at M11 pass (the lone `09` "failure" under batch execution is a relative-`data/` CWD artifact; it runs cleanly from `notebooks/`)
 - [x] Create `notebooks/10_chapter4_validation_walkthrough.ipynb` — per CLAUDE.md *Notebook Conventions*; reproduces all seven Chapter IV cases (Tables 4.1–4.12) through the high-level `vle.System`, quotes the paper tables, reports % error vs. published values (critical <0.25%, van Laar bubble-P <0.5%, Raoult bubble-T 0.08%, isothermal flash ~1%; §4.4 Wilson dew a solver demo since the thesis's exact Wilson constants aren't bundled; §4.7 kij lands in the sub-critical neighborhood of 0.1357), ≥2 exercises. Executes top-to-bottom.
-- [x] Update the notebook catalogue (`deploy/NOTEBOOKS.md`) — marked the 15-notebook collection complete; rebuilt `notebooks/index.ipynb`
+- [x] Update the notebook catalogue (`deploy/NOTEBOOKS.md`) — marked the then-15-notebook collection complete (19 today, after notebooks 11–14); rebuilt `notebooks/index.ipynb`
 
 ## Milestone 12: Downstream Derivative & Database Release (vle-thermo 0.9.x) — **done**
 **Goal**: Close the five upstream gaps identified by `stages-thermo` (the planned staged-separation library — the first downstream consumer of the published crate/wheel): expanded component database with ideal-gas Cp coefficients, a Rust-side component database, analytic/dual T and P derivatives of fugacity and K-values, real-mixture heat capacity + partial molar enthalpy, and a packaged γ-φ phase enthalpy. **All five closed** — M12.1 shipped in v0.8.2; M12.2–12.5 shipped in v0.9.0 (both tagged 2026-07-06). **v0.9.1** (2026-07-06) is a follow-up patch fixing the Wong-Sandler departure-enthalpy `db/dT` bug the M12.3 Gibbs–Helmholtz invariant surfaced (DERIVATIVE_RELEASE_PLAN.md §7).
@@ -405,6 +405,7 @@ computer-program verification tables, asserted to full published precision.
 *Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
 - [x] Milestone notebook `notebooks/12_steam_tables.ipynb` (T–s dome, turbine expansion worked example, flash-steam + reboiler-duty exercises) per Notebook Conventions
+- [x] Follow-on notebook `notebooks/14_pvt_surface.ipynb` — water P–v–T surface showcasing the IF97 regions (build script `scripts/build_notebook_14_pvt.py`; README steam hero via `scripts/render_pvt_hero.py`, `docs/assets/pvt_surface_hero.png`)
 - [x] `steam/README.md` (crates.io page); criterion benches (`steam/benches/steam_bench.rs`, one point per region + PH flash)
 - [x] CLAUDE.md release-rule entry (#12) + architecture tree; full doc sync (README, package READMEs, NOTEBOOKS); version bumped workspace-wide to **v0.10.0**; `vle-steam` wired into `publish-crate.sh` + `release.yml`
 - [x] **Operator step:** signed `v0.10.0` tag pushed + published (vle-units → vle-steam → vle-thermo); GitHub Release is Latest (2026-07-08)

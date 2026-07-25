@@ -48,7 +48,7 @@ isothermal flash sweep runs in ~60 ms). The bundled component database (25
 compounds with ideal-gas Cp°/R coefficients), IAPWS-IF97 steam tables, CLI and
 units layer round it out. 450 Python tests and 291 Rust tests back it, and the
 numbers are checked against the published Chapter IV tables of the thesis this
-engine derives from — 20 executable notebooks reproduce them.
+engine derives from — 19 executable notebooks reproduce them.
 
 **What `0.x` means here.** It describes the **API**, not the numerics. The
 Python surface has been stable across the last several releases and this one

@@ -81,7 +81,7 @@ of the research paper's Chapter IV validation cases.
 | `13_nrtl_ammonia.ipynb`                             | 14        | NRTL activity model + ammonia: NH₃–H₂O activity coefficients, exothermic excess enthalpy, bubble-P curve; van Laar-vs-NRTL methanol–water comparison (Table 4.6 refit); α-sensitivity, Aij-regression & α-identifiability exercises (v0.11.0) |
 | `14_pvt_surface.ipynb`                              | —         | The water P–v–T surface in 3-D (36k+ IAPWS-IF97 points via the batch `vle.steam` API): liquid wall, ruled two-phase dome, superheat sheet; isobaric-heating-path & ideal-gas-envelope exercises. Showcase of Milestone 13's steam tables; static version: `docs/assets/pvt_surface_hero.png` |
 
-The collection is **complete** — all 18 notebooks above ship with the
+The collection is **complete** — all 19 notebooks above ship with the
 repository and execute top-to-bottom in a fresh kernel.
 
 ## Data
