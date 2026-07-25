@@ -48,6 +48,35 @@ git diff --cached origin/main -- ':!deploy/local' ':!deploy/.env' \
 
 If the grep hits anything, stop and move the offending content under `deploy/local/` or replace it with an `${ENV_VAR}` / `example.com` placeholder before pushing.
 
+**Pre-commit doc-sync gate (`hooks/pre-commit`)**: mechanically enforces the
+*Completion Claims* rule below by comparing the plan documents against what is
+actually on disk, and **blocks the commit** on a mismatch. Five checks, ~30 ms,
+no cargo and no network:
+
+1. Milestones correspond 1:1 between `ROADMAP.md` and `TODO.md`.
+2. Every `*Phase N of MODERNIZATION_PLAN.md*` pointer resolves to a real phase header.
+3. No reference to a milestone number that has no section in either file.
+4. **Every notebook on disk is named in `ROADMAP.md` or `TODO.md`** — this is the
+   check that would have caught `notebooks/14_pvt_surface.ipynb`, which shipped
+   and went unrecorded in both files for two weeks.
+5. Every "*N* notebooks" claim matches the real count, across `README.md`,
+   `python/README.md`, `deploy/NOTEBOOKS.md`, `ROADMAP.md` and `TODO.md`.
+   Past-tense, milestone-scoped phrasing ("the then-15-notebook collection")
+   is exempt — that is a record of history, not a claim about today.
+
+It runs at **commit** time, not push, deliberately: commits here are made by a
+human at the keyboard (YubiKey touch), so a Claude-side hook never sees them,
+and a push-time gate fires only after a bad claim is already signed into
+history. The semantic checks a script cannot do — "does this prose still
+describe what the workflow does?" — remain with the agent hook on `git push`
+in `.claude/settings.json`, which is the second net, not the first.
+
+If a check produces a false positive, **fix the check**, don't bypass it. Both
+false-positive classes it currently guards against (version strings like
+`v0.3.0 notebook`, historical adjectives like `then-15-notebook`) were found by
+running the gate against deliberately broken trees — do the same before
+changing it.
+
 **Pre-push formatting gate (`hooks/pre-push`)**: the repo ships a versioned git
 pre-push hook that runs `cargo fmt --check` and **blocks the push on any diff** —
 mirroring the first step of the CI `lint (fmt + clippy)` job, where a fmt failure
