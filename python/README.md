@@ -36,15 +36,32 @@ import vle
 
 ## Status
 
-`0.11.0` — pre-1.0, but the numerical core is live. Flash algorithms
-(isothermal, bubble/dew *T* and *P*, adiabatic *PH*), 22+ cubic
-equations of state, the six activity models (NRTL, Wilson, van Laar,
-Margules, Scatchard-Hildebrand, Ideal), the mixture critical point,
-and kij/Aij parameter regression all run through the Rust engine, exposed
-through a unit-aware Python facade (`vle.System`) and a vectorized numpy
-**batch API**. The bundled component database (25 compounds, with
-ideal-gas Cp°/R coefficients), CLI, and units layer round it out.
-`0.11.0` adds the **NRTL** activity model (`activity="nrtl"`, general
+**The model surface is complete and validated.** Flash algorithms (isothermal,
+bubble/dew *T* and *P*, adiabatic *PH*, phase-envelope continuation through the
+critical point), 22 cubic equations of state, 6 activity models (NRTL, Wilson,
+van Laar, Margules, Scatchard-Hildebrand, Ideal), 11 mixing rules, tangent-plane
+stability analysis, the mixture critical point, and kij/Aij parameter regression
+all run through the Rust engine — with exact analytic and dual-number
+derivatives throughout — exposed via a unit-aware Python facade (`vle.System`)
+and a vectorized numpy **batch API** that releases the GIL (a 200 000-point
+isothermal flash sweep runs in ~60 ms). The bundled component database (25
+compounds with ideal-gas Cp°/R coefficients), IAPWS-IF97 steam tables, CLI and
+units layer round it out. 450 Python tests and 291 Rust tests back it, and the
+numbers are checked against the published Chapter IV tables of the thesis this
+engine derives from — 20 executable notebooks reproduce them.
+
+**What `0.x` means here.** It describes the **API**, not the numerics. The
+Python surface has been stable across the last several releases and this one
+adds no new methods, but the underlying Rust crate still reserves the right to
+change shape before 1.0. The numerical core is settled.
+`0.12.0` is a **performance release** — the isothermal flash is 24–28 % faster
+and the tangent-plane stability test 44–51 % faster (measured across 2–8
+components), with no change to the Python API: the composition-independent
+half of every K-value evaluation is now computed once per state point rather
+than on every iteration. One behavioural change worth knowing: a numerically
+invalid argument (a non-finite or negative mole fraction, a non-positive
+K-value, a non-positive tolerance) now raises `ValueError` instead of
+surfacing as a mysterious non-convergence. `0.11.0` adds the **NRTL** activity model (`activity="nrtl"`, general
 multicomponent, with analytic ∂lnγ/∂T and excess enthalpy via dual-number
 AD) and **ammonia** to the database — the liquid model for aqueous-associating
 mixtures such as ammonia–water. `0.10.0` adds **`vle.steam`** — IAPWS-IF97
@@ -57,8 +74,8 @@ satisfies the Gibbs–Helmholtz identity to machine precision).
 K-values (`System.d_ln_phi_d_t`, `k_values_with_derivs`, dual-number AD),
 **real-mixture heat capacity** (`System.phase_cp`) and **partial molar
 enthalpy** (`System.partial_molar_enthalpy`) — the properties a downstream
-staged-separation library needs. Treat `0.x` as pre-release; semver promises
-begin at 1.0.
+staged-separation library needs. As set out under **Status**, the `0.` is about
+API stability rather than numerical maturity: semver guarantees begin at 1.0.
 
 See the [roadmap](https://github.com/miguelju/vle/blob/main/ROADMAP.md) for
 what's shipped vs. planned.

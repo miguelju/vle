@@ -38,9 +38,20 @@ typically 5–15 minutes (the Mac mini wheel build is the long pole).
 
 ## Cutting a release
 
-1. **Bump the version in both places — they must match.**
+1. **Bump the version in all four places — they must match.**
    - `Cargo.toml` (workspace root) → `[workspace.package] version = "X.Y.Z"`
    - `python/pyproject.toml` → `[project] version = "X.Y.Z"`
+   - `engine/Cargo.toml` → the **path-dependency version pins**
+     `vle-units = { path = "../units", version = "X.Y.Z" }` and
+     `vle-steam = { path = "../steam", version = "X.Y.Z", optional = true }`
+
+   The two pins are easy to miss and they are **load-bearing**: `release.yml`
+   publishes `vle-units` and `vle-steam` at the bumped workspace version, and
+   `cargo publish -p vle-thermo` resolves those siblings *from crates.io*, not
+   from the path. A stale `^0.11.0` pin cannot match a freshly published
+   `0.12.0` sibling, so the publish fails or resolves the wrong version. Verify
+   with `grep -rn '<old version>' Cargo.toml engine/Cargo.toml python/pyproject.toml`
+   — it must return nothing.
 
 2. **Update the changelog-ish docs** per `CLAUDE.md` release rules:
    - `ROADMAP.md`, `TODO.md` — check off completed milestones

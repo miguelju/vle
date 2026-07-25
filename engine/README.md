@@ -17,15 +17,31 @@ A modern Rust port of two legacy thermodynamic codebases (VB6 ~15,000 lines + Pa
 
 ## Status
 
-`0.11.0` — pre-1.0, but the numerical core is live. The Cardano solver,
-Newton-Raphson / Broyden drivers, Rachford-Rice, the flash algorithms
-(isothermal, bubble/dew *T* and *P*, adiabatic *PH*), the mixture critical
-point, and kij/Aij regression all run. `0.11.0` adds the **NRTL** activity
-model (`ActivityModel::Nrtl`, general multicomponent, with analytic ∂lnγ/∂T
-and excess enthalpy via dual-number AD) and **ammonia** to the bundled
-database.
+**The model surface is complete and validated.** 22 cubic equations of state,
+6 activity models, 11 mixing rules, the Cardano solver, Rachford-Rice via
+Halley inside the Leibovici–Neoschil window, the full flash suite (isothermal,
+bubble/dew *T* and *P*, adiabatic *PH*, phase-envelope continuation through the
+critical point), tangent-plane stability analysis, the mixture critical point by
+Heidemann's method, and kij/Aij regression — all with **exact derivatives**
+(hand-derived analytic for the classical paths, `num-dual` dual-number AD for
+the GE-based mixing rules; finite differences survive only as test oracles).
+291 Rust tests back it, and the results are checked against the published
+Chapter IV tables of the thesis this engine derives from, not merely against
+themselves.
 
-*Unreleased (on `main`)*: the flash layer gained **allocation-free `*_into`
+**What `0.x` means here.** It is a statement about the **API**, not the
+numerics. This release itself adds a `FlashError` variant, which is a breaking
+change for a downstream exhaustive `match` — that is the kind of latitude the
+`0.` still buys. The numerical core is settled; the surface is not yet frozen.
+
+Known gaps, stated rather than implied: `k_values_with_derivs` returns
+`Unsupported` for a virial vapor and for a Chao-Seader liquid, and the
+isothermal flash's terminal Newton polish on ln K (the analytic-Jacobian finish
+described in the modernization plan §J) is **not** implemented — it converges by
+GDEM-accelerated successive substitution, which reaches the Chapter IV cases in
+7–14 iterations.
+
+`0.12.0` is a **performance release**: the flash layer gained **allocation-free `*_into`
 kernels** — `mixture::ln_phi_mix_into`, `mixture::ln_phi_mix_min_gibbs_into`
 (both cubic roots from one shared mixture state), and
 `flash::ln_k_values_into` (equilibrium ratios in **log** form, which is what
@@ -35,7 +51,8 @@ implementation of the thermodynamics. Also new: `saturation::ln_poynting_factor`
 `flash::init::wilson_ln_k`, and a `FlashError::InvalidInput` variant for inputs
 that are correctly shaped but numerically unusable (non-finite or negative
 `zᵢ`, non-positive `Kᵢ`, non-positive tolerance). Measured effect on the
-isothermal flash: −12…−15 %; on tangent-plane stability: −36…−46 %. Details in
+isothermal flash: −24…−28 %; on tangent-plane stability: −44…−51 % (cumulative
+across both parts of the audit response). Details in
 [`OPTIMIZATION_PLAN_PART1.md`](https://github.com/miguelju/vle/blob/main/OPTIMIZATION_PLAN_PART1.md).
 
 The mixture core followed: **`mixture::TpCache`** holds the composition-independent
@@ -61,8 +78,9 @@ pressure derivatives** of fugacity and K-values (`mixture::d_ln_phi_d_t` /
 `energy::phase_cp`** and **`partial_molar_enthalpy`**, and an optional
 bundled component database (the `component-db` feature — see below), with
 one deliberate breaking change: the T/P-generic core signatures
-(`mixture::mixture_params` and friends now take `t: D, p: D`). Semver promises
-do **not** apply until 1.0; treat `0.x` as a pre-release.
+(`mixture::mixture_params` and friends now take `t: D, p: D`). As set out under
+**Status**, the `0.` is about API stability: semver guarantees begin at 1.0, so
+pin a minor version if a breaking `match` or signature change would cost you.
 
 See the [roadmap](https://github.com/miguelju/vle/blob/main/ROADMAP.md) for
 what's shipped vs. planned, and the
@@ -73,7 +91,7 @@ for the phase-by-phase technical detail.
 
 ```toml
 [dependencies]
-vle-thermo = "0.11"
+vle-thermo = "0.12"
 ```
 
 Or with `cargo add`:

@@ -578,7 +578,7 @@ verified feasibility spike; the single-threaded/rayon decomposition):
 
 ---
 
-## Performance Track: External Audit Response — **Part 1 done**
+## Performance Track: External Audit Response — **Parts 1 & 2 done**
 **Goal**: Act on the 2026-07 external performance audit
 ([`optimizations_audit.md`](optimizations_audit.md)) with measured evidence rather
 than by assertion.
@@ -586,7 +586,8 @@ than by assertion.
 
 *Parts 1 and 2 executed by Claude Code using Claude Opus 5 (1M context).*
 
-Plan of record: [`OPTIMIZATION_PLAN_PART1.md`](OPTIMIZATION_PLAN_PART1.md).
+Plan of record: [`OPTIMIZATION_PLAN_PART1.md`](OPTIMIZATION_PLAN_PART1.md) (flash layer)
+and [`OPTIMIZATION_PLAN_PART2.md`](OPTIMIZATION_PLAN_PART2.md) (mixture core).
 Provenance and lessons: [`OPTIMIZATION_AUDIT_HISTORY.md`](OPTIMIZATION_AUDIT_HISTORY.md).
 
 - [x] Extend the criterion suite with multicomponent flash coverage — `flash_multi`

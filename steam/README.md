@@ -46,7 +46,7 @@ canon via `M_water = 18.015268 kg/kmol`.
 
 ```toml
 [dependencies]
-vle-steam = "0.11"
+vle-steam = "0.12"
 ```
 
 ## Example
@@ -83,10 +83,13 @@ props = steam.properties(T_array, P_array)       # batch numpy, GIL released
 
 ## Status
 
-Implements the R7-97(2012) basic equations, the region-4 saturation line, and
-the region-1 backward equations, all verified against the official tables.
-Transport properties (viscosity, thermal conductivity, surface tension) and
-IAPWS-95 as a high-accuracy oracle are planned but not yet included.
+**Complete and verified for the properties it covers.** All five IAPWS-IF97
+regions, the region-4 saturation line, and the region-1 backward equations,
+checked against the official R7-97(2012) verification tables to 9 significant
+figures — the standard's own acceptance criterion, not a self-consistency check.
+
+Not included, by scope rather than by omission: transport properties (viscosity,
+thermal conductivity, surface tension) and IAPWS-95 as a high-accuracy oracle.
 
 ## References
 
