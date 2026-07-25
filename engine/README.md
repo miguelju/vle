@@ -23,7 +23,33 @@ Newton-Raphson / Broyden drivers, Rachford-Rice, the flash algorithms
 point, and kij/Aij regression all run. `0.11.0` adds the **NRTL** activity
 model (`ActivityModel::Nrtl`, general multicomponent, with analytic ∂lnγ/∂T
 and excess enthalpy via dual-number AD) and **ammonia** to the bundled
-database. `0.10.0` adds **IAPWS-IF97 steam
+database.
+
+*Unreleased (on `main`)*: the flash layer gained **allocation-free `*_into`
+kernels** — `mixture::ln_phi_mix_into`, `mixture::ln_phi_mix_min_gibbs_into`
+(both cubic roots from one shared mixture state), and
+`flash::ln_k_values_into` (equilibrium ratios in **log** form, which is what
+the models produce natively). The value-returning `ln_phi_mix` / `k_values`
+are unchanged and are now defined *in terms of* those, so there is exactly one
+implementation of the thermodynamics. Also new: `saturation::ln_poynting_factor`,
+`flash::init::wilson_ln_k`, and a `FlashError::InvalidInput` variant for inputs
+that are correctly shaped but numerically unusable (non-finite or negative
+`zᵢ`, non-positive `Kᵢ`, non-positive tolerance). Measured effect on the
+isothermal flash: −12…−15 %; on tangent-plane stability: −36…−46 %. Details in
+[`OPTIMIZATION_PLAN_PART1.md`](https://github.com/miguelju/vle/blob/main/OPTIMIZATION_PLAN_PART1.md).
+
+The mixture core followed: **`mixture::TpCache`** holds the composition-independent
+half of an evaluation (every component's α, Aᵢ, Bᵢ and their roots) so a caller
+sweeping composition at fixed `(T, P)` — any flash — builds it once and calls
+`ln_phi_mix_cached_into` / `ln_phi_mix_min_gibbs_cached_into` per composition.
+**`activity::ActivityTpCache`** does the same for Wilson's Λᵢⱼ and NRTL's
+τᵢⱼ/Gᵢⱼ (NRTL's `ln_gamma_all` drops from O(N³) `exp` calls to O(N²)), and the
+virial path gains flat row-major `b_mix_matrix_flat` +
+`ln_phi_mix_virial_flat_into`. Cumulative measured effect: isothermal flash
+−24…−28 %, tangent-plane stability −44…−51 %. Details in
+[`OPTIMIZATION_PLAN_PART2.md`](https://github.com/miguelju/vle/blob/main/OPTIMIZATION_PLAN_PART2.md).
+
+`0.10.0` adds **IAPWS-IF97 steam
 tables** via the new sibling crate [`vle-steam`](https://crates.io/crates/vle-steam),
 re-exported here as `vle_thermo::steam` behind the optional `steam` feature
 (on by default in the Python wheel). `0.9.1` fixed a ~1% Wong-Sandler

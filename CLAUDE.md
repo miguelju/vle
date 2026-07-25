@@ -12,6 +12,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 4. **MODERNIZATION_PLAN.md** — Update if architecture or phases changed
 4b. **PERFORMANCE_PROPOSAL.md** — Update if a performance track (A–E) decision changed
 4c. **DERIVATIVE_RELEASE_PLAN.md** — Update if a Milestone 12 scope, design, or release-sequencing decision changed (the downstream/`stages-thermo` upstream-gap plan)
+4d. **OPTIMIZATION_PLAN_PART1.md** — Update if a Part 1 (flash-layer) performance decision changed, or when a new benchmark number supersedes one recorded there. It is the plan of record for the engine's response to `optimizations_audit.md` Part 1, and it records **rejected** optimizations with their measured regressions — never delete one of those, they are what stops a future reader re-proposing a change that was already tried
+4e. **OPTIMIZATION_PLAN_PART2.md** — Update if a Part 2 (mixture-core / global) performance decision changed. Same rule as Part 1: it records **rejected** recommendations with the reasoning and the measurement, and those entries are load-bearing — they are what stops a future reader re-proposing a change that was already tried and found worse
+4f. **OPTIMIZATION_AUDIT_HISTORY.md** — Update if the provenance story gains a step (a new external audit, a new reviewing model) or if a later measurement changes a verdict recorded there. This is the learning-repo record of how the audit was produced and what it got right and wrong
 5. **CLAUDE.md** — Update if new conventions, paths, or tools were introduced
 6. **PASCAL_VB6_COMPARISON.md** — Update if new legacy code analysis was done
 7. **docs/en/research-paper/** — Update if translations were completed or links changed
@@ -24,6 +27,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Package-page docs are immutable per published version.** The PyPI and crates.io pages render the README **bundled with each release** — editing `python/README.md` / `engine/README.md` does **not** refresh the live page. The page only updates when a **new version is published** (bump `[workspace.package] version` in the root `Cargo.toml` + `version` in `python/pyproject.toml`, then tag `v<x.y.z>` → `release.yml`). So a doc-only fix to either README still requires a patch release to become visible; batch such fixes into the next release rather than tagging a release solely for a typo, unless the staleness is materially misleading (e.g. "under active development" for shipped features). The three package READMEs (`python/README.md`, `engine/README.md`, `steam/README.md`), the root `README.md`, the `Cargo.toml` `description`s, and `python/pyproject.toml` `description` must tell a mutually consistent version/status story.
 
 Do NOT push until all documentation accurately reflects the current state of the code. When in doubt, read each file and verify.
+
+**"Accurately reflects the current state of the code" is not a formality.** Every
+`[x]`, "done", "shipped" or feature-list entry you write or leave standing is a
+claim you are asserting to be true of the code as it exists now. Before pushing,
+verify each one you touched against the implementation per
+*Completion Claims Must Be Verified Against the Code* below — **code is the
+fact**. A doc that overstates what shipped is worse than a doc that is missing:
+it stops the next reader (human or model) from looking.
 
 **Pre-push private-data gate** (run from repo root before every push):
 
@@ -72,6 +83,65 @@ The project's work is described at three levels of detail that MUST stay in sync
 - Grep for `Phase \d+` across all `*.md` files to catch stray references.
 
 After any such change, re-read all three files and verify the invariants above before committing.
+
+## Completion Claims Must Be Verified Against the Code — **code is the fact**
+
+**A plan document is a claim. The code is the fact. Never mark anything complete
+without opening the code and confirming it exists and does what the claim says.**
+
+This applies to every completion marker in the repo: a `[x]` checkbox in
+`ROADMAP.md` / `TODO.md`, a "**done**" / "**shipped**" label, a progress note in
+`MODERNIZATION_PLAN.md`, a status line in any `*_PLAN.md`, a `README` feature
+list, and any statement to the user that something is finished.
+
+**Before writing any completion marker, you MUST:**
+
+1. **Locate the implementation.** Name the file and the function/type that
+   implements it. If you cannot point at it, it is not done.
+2. **Confirm it does what the claim says**, not merely that a similarly-named
+   symbol exists. A function called `flash_isothermal` existing is not evidence
+   that the Newton finish inside it exists.
+3. **Confirm it is reachable.** `grep` for callers. Code with no production
+   caller is not a shipped capability — it is an unexercised utility, and the
+   claim must say so.
+4. **Confirm a test exercises it**, and that the test actually asserts the
+   behaviour rather than only that the call returns `Ok`.
+5. **Run the verification** — `cargo test`, and for anything Python-facing the
+   `vle`-env `pytest` against a freshly built wheel. A claim of "works" that has
+   not been executed in this session is not a claim, it is a guess.
+
+**Partial completion is stated, never rounded up.** If four of five sub-items
+shipped, the marker says which one did not and why. Write
+"`x` — *(the analytic-Jacobian Newton polish is a follow-on refinement)*"
+rather than a bare `[x]`, and make sure the milestone's **summary** sentence
+carries the same caveat as the checkbox. A summary that says "every algorithm is
+implemented" silently overrides an accurate checkbox three lines below it.
+
+**When you find an existing claim that the code does not support, fix the
+document in the same change** — do not leave it and do not quietly work around
+it. Say plainly in the response that the claim was wrong and what the code
+actually does.
+
+**Why this rule exists.** `MODERNIZATION_PLAN.md` asserted for two milestones
+that Milestone 9 was complete with "GDEM-accelerated successive substitution →
+**Newton on ln Kᵢ with analytic Jacobian** (§J)". The Newton finish was never
+implemented — `flash/isothermal.rs`'s own module docs said so, and `ROADMAP.md`'s
+checkbox said so, but the plan's summary claimed otherwise and that is the line
+a reader trusts. It took an outside audit with no stake in the plan
+(`optimizations_audit.md` Part 1 §6) to surface it. A milestone marked complete
+in a plan document is a claim about the past made by someone who wanted it to be
+true; the code is the only thing that cannot be mistaken about itself. See
+[`OPTIMIZATION_PLAN_PART1.md`](OPTIMIZATION_PLAN_PART1.md) §5 and
+[`OPTIMIZATION_AUDIT_HISTORY.md`](OPTIMIZATION_AUDIT_HISTORY.md) §3 for the full
+post-mortem.
+
+**Related rule — performance claims need a measurement, not an argument.** Never
+write that something is "faster" or "optimized" without a benchmark number and
+the baseline it is measured against, produced in the same session. Two
+recommendations in that audit were textbook-correct and made this engine
+measurably *slower*; only `cargo bench` could tell which. Record rejected
+optimizations with their measured regression at the call site, so the next
+reader does not re-propose them.
 
 ## Milestone Tracking Rules
 

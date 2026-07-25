@@ -337,12 +337,168 @@ impl WilsonCache {
     }
 }
 
+/// Temperature-dependent matrices of an activity model, held across many
+/// compositions at one temperature (audit Part 2 §5).
+///
+/// Wilson's `Λᵢⱼ` and NRTL's `τᵢⱼ`, `Gᵢⱼ` depend only on `(T, aij, α, vl)` —
+/// never on composition — but a flash iterating `x` at fixed `T` rebuilt them
+/// on every γ evaluation. For NRTL that was the worse deal by far: the
+/// per-component path recomputed the O(N²) column sums for each `i`, so a
+/// single `ln_gamma_all` cost **O(N³) `exp` calls**. Caching collapses it to
+/// O(N²) once, then O(N²) arithmetic per composition.
+///
+/// Models with no temperature-dependent matrix (Van Laar, Margules,
+/// Scatchard-Hildebrand, ideal) use [`ActivityTpCache::None`] and fall back to
+/// the direct evaluation — there is nothing to hoist.
+///
+/// All matrices are stored **flat, row-major** (`m[i*n + j]`): one allocation,
+/// contiguous rows, no pointer chasing.
+#[derive(Debug, Clone)]
+pub enum ActivityTpCache {
+    /// Wilson Λᵢⱼ.
+    Wilson {
+        /// Component count.
+        n: usize,
+        /// Λᵢⱼ, row-major. **Dimensionless.**
+        lambda: Vec<f64>,
+    },
+    /// NRTL τᵢⱼ, Gᵢⱼ and their product.
+    Nrtl {
+        /// Component count.
+        n: usize,
+        /// τᵢⱼ = aᵢⱼ/(R·T). **Dimensionless.**
+        tau: Vec<f64>,
+        /// Gᵢⱼ = exp(−αᵢⱼ·τᵢⱼ). **Dimensionless.**
+        g: Vec<f64>,
+        /// τᵢⱼ·Gᵢⱼ, the product both column sums need. **Dimensionless.**
+        tau_g: Vec<f64>,
+    },
+    /// The model has no temperature-dependent matrix worth caching.
+    None,
+}
+
+impl ActivityTpCache {
+    /// Build the cache for `model` at temperature `t` (**K**).
+    ///
+    /// `aij` in **kJ/kmol**, `alpha` dimensionless (NRTL only), `vl` in
+    /// **cm³/mol** (Wilson only). Arguments as in [`ln_gamma`].
+    pub fn new(
+        model: ActivityModel,
+        aij: &[Vec<f64>],
+        alpha: &[Vec<f64>],
+        vl: &[f64],
+        t: f64,
+    ) -> Self {
+        match model {
+            ActivityModel::Wilson => {
+                let n = vl.len();
+                let mut lambda = vec![0.0; n * n];
+                for i in 0..n {
+                    for j in 0..n {
+                        lambda[i * n + j] = wilson_lambda(i, j, aij, vl, t);
+                    }
+                }
+                Self::Wilson { n, lambda }
+            }
+            ActivityModel::Nrtl => {
+                let n = aij.len();
+                let mut tau = vec![0.0; n * n];
+                let mut g = vec![0.0; n * n];
+                let mut tau_g = vec![0.0; n * n];
+                for i in 0..n {
+                    for j in 0..n {
+                        let idx = i * n + j;
+                        let t_ij = aij[i][j] / (R_GAS * t);
+                        let g_ij = (-alpha[i][j] * t_ij).exp();
+                        tau[idx] = t_ij;
+                        g[idx] = g_ij;
+                        tau_g[idx] = t_ij * g_ij;
+                    }
+                }
+                Self::Nrtl { n, tau, g, tau_g }
+            }
+            _ => Self::None,
+        }
+    }
+
+    /// ln γᵢ for every component at composition `x`, reusing the cached
+    /// matrices. Falls back to the direct per-component evaluation for models
+    /// this cache does not cover.
+    ///
+    /// Writes into `out` (length n). Arguments and units as in [`ln_gamma`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn ln_gamma_all(
+        &self,
+        model: ActivityModel,
+        x: &[f64],
+        aij: &[Vec<f64>],
+        alpha: &[Vec<f64>],
+        vl: &[f64],
+        delta: &[f64],
+        temperature: f64,
+        out: &mut [f64],
+    ) {
+        match self {
+            Self::Wilson { n, lambda } => {
+                let n = *n;
+                // Sₖ = Σⱼ xⱼ·Λₖⱼ — one contiguous row per k.
+                let mut s: smallvec::SmallVec<[f64; 8]> = smallvec::smallvec![0.0; n];
+                for (k, sk) in s.iter_mut().enumerate() {
+                    let row = &lambda[k * n..(k + 1) * n];
+                    *sk = row.iter().zip(x).map(|(&l, &xj)| xj * l).sum();
+                }
+                // ln γᵢ = 1 − ln(Sᵢ) − Σₖ xₖ·Λₖᵢ/Sₖ.
+                for (i, o) in out.iter_mut().enumerate() {
+                    let mut nested = 0.0;
+                    for k in 0..n {
+                        nested += x[k] * lambda[k * n + i] / s[k];
+                    }
+                    *o = 1.0 - s[i].ln() - nested;
+                }
+            }
+            Self::Nrtl { n, tau, g, tau_g } => {
+                let n = *n;
+                // Column sums Sⱼ = Σₖ xₖGₖⱼ and Cⱼ = Σₖ xₖτₖⱼGₖⱼ — computed
+                // **once** for the whole vector, not once per component.
+                let mut s: smallvec::SmallVec<[f64; 8]> = smallvec::smallvec![0.0; n];
+                let mut c: smallvec::SmallVec<[f64; 8]> = smallvec::smallvec![0.0; n];
+                for k in 0..n {
+                    let xk = x[k];
+                    let (grow, tgrow) = (&g[k * n..(k + 1) * n], &tau_g[k * n..(k + 1) * n]);
+                    for j in 0..n {
+                        s[j] += xk * grow[j];
+                        c[j] += xk * tgrow[j];
+                    }
+                }
+                // ln γᵢ = Cᵢ/Sᵢ + Σⱼ (xⱼGᵢⱼ/Sⱼ)·(τᵢⱼ − Cⱼ/Sⱼ).
+                for (i, o) in out.iter_mut().enumerate() {
+                    let mut acc = c[i] / s[i];
+                    let (grow, trow) = (&g[i * n..(i + 1) * n], &tau[i * n..(i + 1) * n]);
+                    for j in 0..n {
+                        acc += x[j] * grow[j] / s[j] * (trow[j] - c[j] / s[j]);
+                    }
+                    *o = acc;
+                }
+            }
+            Self::None => {
+                for (i, o) in out.iter_mut().enumerate() {
+                    *o = ln_gamma(model, i, x, aij, alpha, vl, delta, temperature);
+                }
+            }
+        }
+    }
+}
+
 /// ln(γᵢ) for **all** components at once.
 ///
-/// Semantically identical to calling [`ln_gamma`] for each `i`, but the
-/// Wilson branch routes through a [`WilsonCache`] so the Λ matrix is
-/// built once (O(N²) `exp` calls) instead of once per component (O(N³)).
-/// The GE-based mixing rules (M8.3) call this on their hot path.
+/// Semantically identical to calling [`ln_gamma`] for each `i`, but routes
+/// through an [`ActivityTpCache`] so each temperature-dependent matrix is
+/// built once — O(N²) `exp` calls for Wilson and NRTL rather than O(N³). The
+/// GE-based mixing rules (M8.3) call this on their hot path.
+///
+/// A caller sweeping composition at fixed temperature (any flash) should build
+/// one [`ActivityTpCache`] and call [`ActivityTpCache::ln_gamma_all`] directly
+/// — this function rebuilds the matrices every call.
 ///
 /// Writes into `out` (length = number of components). Arguments and
 /// units as in [`ln_gamma`].
@@ -357,16 +513,16 @@ pub fn ln_gamma_all(
     temperature: f64,
     out: &mut [f64],
 ) {
-    match model {
-        ActivityModel::Wilson => {
-            WilsonCache::new(aij, vl, temperature).ln_gamma_all(x, out);
-        }
-        _ => {
-            for (i, o) in out.iter_mut().enumerate() {
-                *o = ln_gamma(model, i, x, aij, alpha, vl, delta, temperature);
-            }
-        }
-    }
+    ActivityTpCache::new(model, aij, alpha, vl, temperature).ln_gamma_all(
+        model,
+        x,
+        aij,
+        alpha,
+        vl,
+        delta,
+        temperature,
+        out,
+    );
 }
 
 // ===========================================================================
@@ -664,6 +820,52 @@ pub fn excess_entropy(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The temperature cache must reproduce the per-component evaluation
+    /// exactly for every model it covers — it only hoists T-dependent matrices
+    /// out of the composition loop.
+    #[test]
+    fn activity_tp_cache_matches_direct_evaluation() {
+        let n = 4;
+        let x = [0.4, 0.25, 0.2, 0.15];
+        let aij: Vec<Vec<f64>> = (0..n)
+            .map(|i| {
+                (0..n)
+                    .map(|j| {
+                        if i == j {
+                            0.0
+                        } else {
+                            250.0 * (j as f64 - i as f64)
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+        let alpha: Vec<Vec<f64>> = (0..n)
+            .map(|i| (0..n).map(|j| if i == j { 0.0 } else { 0.3 }).collect())
+            .collect();
+        let vl = [37.9, 74.9, 116.1, 147.5];
+        let t = 350.0;
+
+        for model in [
+            ActivityModel::Wilson,
+            ActivityModel::Nrtl,
+            ActivityModel::VanLaar,
+            ActivityModel::IdealSolution,
+        ] {
+            let cache = ActivityTpCache::new(model, &aij, &alpha, &vl, t);
+            let mut got = vec![0.0; n];
+            cache.ln_gamma_all(model, &x, &aij, &alpha, &vl, &[], t, &mut got);
+            for i in 0..n {
+                let want = ln_gamma(model, i, &x, &aij, &alpha, &vl, &[], t);
+                assert!(
+                    (got[i] - want).abs() <= 1e-12 * want.abs().max(1.0),
+                    "{model:?} comp {i}: cached={} direct={want}",
+                    got[i]
+                );
+            }
+        }
+    }
 
     #[test]
     fn discriminant_values_match_legacy() {

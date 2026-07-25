@@ -580,6 +580,68 @@ from Jupyter).
 
 ---
 
+## Performance Track: External Audit Response
+*No new MODERNIZATION_PLAN phase — refines Phase 15 (§F/§I/§J) and the mixture core in place*
+*Executed by Claude Code using Claude Opus 5 (1M context)*
+
+Plan of record: [OPTIMIZATION_PLAN_PART1.md](OPTIMIZATION_PLAN_PART1.md) (flash layer) and
+[OPTIMIZATION_PLAN_PART2.md](OPTIMIZATION_PLAN_PART2.md) (mixture core). Provenance and
+lessons: [OPTIMIZATION_AUDIT_HISTORY.md](OPTIMIZATION_AUDIT_HISTORY.md).
+
+### Benchmark foundation (~3–4h)
+- [x] `flash_multi` criterion group — inner RR solve, one K-value evaluation, the whole
+      driver and the TPD stability test measured **separately** at n = 2, 4, 6, 8
+- [x] `mixture` criterion group — `mixture_params` vs `z_mix` vs `ln_phi_mix`, plus the
+      composition-Jacobian, activity and virial paths
+- [x] Baseline captured; audit's headline confirmed — Rachford-Rice is 1–15 % of the flash,
+      K-value thermodynamics ~70 %, and `mixture_params` is 40–57 % of `ln_phi_mix`
+
+### Part 1 — flash layer (~7–10h)
+- [x] §1/§2 — `FlashWorkspace` (private), `ln_phi_mix_into`, `ln_k_values_into`,
+      `ln_poynting_factor`, `wilson_ln_k`; the flash iterates on `ln K` end-to-end
+- [x] §3 — RR safeguards: boundary-only validation, absent/degenerate component filtering
+      in the pole bracket, scale-aware Halley acceptance, scale-safe pole nudge,
+      bracket-width stop criterion, Brent bracket-halving
+- [x] §5 — GDEM trust region (μ < 0.95, gain ≤ 4, |ln K| ≤ 80, trial buffer, retrospective
+      residual-decrease rollback)
+- [x] §7/§8 — one shared mixture state for both cubic roots, `TrialWorkspace`, explicit
+      `zᵢ ≤ 0` rejection
+- [x] **Benchmarked and reverted**: precomputing `cᵢ`/`zᵢcᵢ` (+30…+200 %) and the
+      f(0)/f(1) bracket probe (+25…+200 %). Reasoning preserved in-code at both sites
+- [x] Rejected — §4 (SIMD/unrolling): wrong `n` regime for this engine
+- [x] Corrected `MODERNIZATION_PLAN.md`'s false claim that the §J Newton finish shipped
+
+### Part 2 — mixture core (~8–12h)
+- [x] §1 — `mixture::TpCache` (public) + `flash::SystemTpCache` (crate-internal):
+      pure-component EOS parameters, γ-φ `Psat`/`φˢᵃᵗ`/Poynting constants and the virial
+      `Bᵢⱼ` built once per (T, P) instead of twice per outer iteration
+- [x] §5 — `activity::ActivityTpCache` (flat Wilson Λ, NRTL τ/G/τG); NRTL drops from an
+      O(n³)-`exp` per-component path to O(n²)
+- [x] §9 — flat, single-pass virial `Bᵢⱼ`
+- [x] §4 — √Aᵢ/√Bᵢ hoisted, built only for the rules that use them
+- [x] **The finding the audit missed** — `quad_a` took its cross-parameter closure as
+      `&dyn Fn`, i.e. n² *indirect* calls per mixture evaluation; monomorphizing the loop
+      is what paid, not the square-root hoist
+- [x] Rejected with reasons — §2 (`Component` SoA), §3 for `kij`, §8 (Broyden has **no
+      production callers**), §11, §12 as written, §13's `unsafe`
+
+### Verification (~1–2h)
+- [x] 291 Rust tests (12 new across both parts) + 450 Python tests green;
+      Chapter IV Tables 4.10 / 4.11–4.12 intact
+- [x] `cargo fmt --check` clean, `cargo +1.97.0 clippy --workspace --all-targets` 0 warnings
+- [x] Python wheel rebuilt (`maturin develop --release`); `flash_pt` mass balance 5.6e-17,
+      `flash_pt_batch` 200 000 points at 0.29 µs/pt, NRTL γ-φ flash verified end to end
+
+### Deferred (each its own change)
+- [ ] Audit P2 §6 — const-generic dual for composition derivatives (Wong-Sandler is 5.1×
+      the analytic path; largest remaining algorithmic win, highest accuracy risk)
+- [ ] Audit P2 §7 (`MixtureScratch`) and §10 (Rayon SoA batch output — profile first)
+- [ ] Audit P1 §6 — the §J Newton finish, as its own milestone with its own validation
+- [ ] Audit P1 §7 — multi-seed stability (a correctness change, not a perf one)
+- [ ] Audit P1 §9 — analytic envelope Jacobian (benchmark the envelope first)
+
+---
+
 ## Summary
 
 | Milestone | Est. Total | Status |
@@ -602,6 +664,7 @@ from Jupyter).
 | 15. iOS/macOS FFI (`vle-ffi` via UniFFI) | ~13–21h | **Done (unreleased)** — `ffi/` wrapper crate + bindgen bin, `scripts/build-ios.sh` (3 Apple targets → XCFramework), `swift/VleThermo` package (10 XCTests green), learning doc `docs/en/ios/`. Local-build artifact only; app itself is a future separate repo |
 | 16. Android/Kotlin FFI (`vle-ffi` via UniFFI) | ~6–10h | **Code complete** — `cdylib` + general bindgen bin + `[bindings.kotlin]`, `scripts/build-android.sh` (cargo-ndk ABIs + host lib → Kotlin bindgen), `kotlin/VleThermo` Gradle module (5 smoke tests), docs `docs/en/android/` + parked `docs/en/dotnet/`. First Android Studio run pending; app (Android + Compose-Desktop Windows) is a future separate repo |
 | 17. Web/JavaScript FFI (`vle-wasm` via wasm-bindgen) | ~5–8h | **Done** — `wasm/` wrapper crate (plain-object records, Float64Array comps, JS-Error mapping), `scripts/build-wasm.sh` → `wasm/pkg` npm package (~150 KB gzipped), 19 host + 5 boundary tests green, guide `docs/en/web/`. React app + shells (Tauri/Electron/Capacitor) are a future separate repo |
-| **Total** | **~327–462h** | |
+| Performance Track: External Audit Response | ~18–26h | **Parts 1 & 2 done** — `flash_multi` + `mixture` bench groups and a measured baseline; Part 1 (flash layer): `FlashWorkspace`, `*_into` kernels, log-form K end-to-end, RR safeguards, trust-region GDEM, shared-mixture-state min-Gibbs. Part 2 (mixture core): `mixture::TpCache` + `flash::SystemTpCache`, `ActivityTpCache`, flat single-pass virial, `quad_a` devirtualized. Cumulative: flash **−24…−28 %**, stability **−44…−51 %**, NRTL γ **−68 %**, virial **−21 %**. Four audit recommendations benchmarked and **rejected as regressions or dead code**. Deferred: audit P2 §6/§7/§10 + P1 §J Newton finish, §7 multi-seed stability, §9 envelope Jacobian — see `OPTIMIZATION_PLAN_PART1.md` / `OPTIMIZATION_PLAN_PART2.md` |
+| **Total** | **~345–488h** | |
 
 Each active milestone's total now includes: milestone notebook (~2–4h) + notebook-catalogue update (~0.3h). Deploying to the hosted hub is a separate operator-side step in a private operator repository, not counted here.

@@ -212,16 +212,31 @@ fn i_tilde(z: f64, u: f64, w: f64) -> f64 {
 /// scalar type `D` (M12.3): with `D = f64` these are plain values; with a dual
 /// seeded on T or P they carry the exact ∂/∂T or ∂/∂P the mixture derivative
 /// paths propagate. They depend on (T, P) but never on composition.
+#[derive(Debug, Clone)]
 struct PureParams<D> {
     big_a: Buf<D>,
     big_b: Buf<D>,
     /// PT/PT-USB dimensionless cᵢ·P/(R·T) (recovered as Uᵢ − Bᵢ from the
     /// pure state); unused (empty) for other EOS.
     big_c: Buf<D>,
+    /// √Aᵢ, precomputed (audit Part 2 §4).
+    ///
+    /// The classical and IIVDW cross terms need `√(AᵢAⱼ)`, which the mixing
+    /// loop used to evaluate as `(ai[i]*ai[j]).sqrt()` — **n² square roots**
+    /// for a quantity that only ever needs `n` of them. Hoisting turns
+    /// `√(AᵢAⱼ)` into `√Aᵢ·√Aⱼ`, two multiplies. (The two differ in the last
+    /// ulp; every downstream test compares against tolerances derived from
+    /// the physics, not bit patterns.) The Schmidt-Wenzel C rule reuses the
+    /// same values.
+    sqrt_a: Buf<D>,
+    /// √Bᵢ, precomputed — the PT-USB C rule's √B weighting. Empty unless the
+    /// EOS needs it.
+    sqrt_b: Buf<D>,
 }
 
 fn pure_params<D: DualNum<f64> + Copy>(
     eos: CubicEos,
+    rule: MixingRule,
     t: D,
     p: D,
     comps: &[Component],
@@ -230,13 +245,29 @@ fn pure_params<D: DualNum<f64> + Copy>(
     let mut big_a = Buf::with_capacity(n);
     let mut big_b = Buf::with_capacity(n);
     let mut big_c = Buf::new();
+    let mut sqrt_a = Buf::new();
+    let mut sqrt_b = Buf::new();
     let pt_family = matches!(eos, CubicEos::PatelTeja | CubicEos::PatelTejaUSB);
+    // Only the rules that actually form √(AᵢAⱼ) cross terms pay for √Aᵢ; the
+    // GE-based rules (Wong-Sandler, Huron-Vidal, MHV) never touch it. Likewise
+    // √Bᵢ exists only for the PT-USB C-parameter weighting.
+    let needs_sqrt_a = matches!(
+        rule,
+        MixingRule::Classical | MixingRule::IVDW | MixingRule::IIVDW
+    ) || eos == CubicEos::SchmidtWenzel;
+    let needs_sqrt_b = eos == CubicEos::PatelTejaUSB;
     for comp in comps {
         // Generic (A, B, U, W) so T/P duals flow through α and the P/(RT)
         // factors (eos.rs). Composition never enters here.
         let (a, b, u, _w) = crate::eos::eos_dimensionless_generic(eos, t, p, comp);
         big_a.push(a);
         big_b.push(b);
+        if needs_sqrt_a {
+            sqrt_a.push(a.sqrt());
+        }
+        if needs_sqrt_b {
+            sqrt_b.push(b.sqrt());
+        }
         if pt_family {
             // PT denominator: U = B + C, W = −B·C ⇒ Cᵢ = Uᵢ − Bᵢ.
             big_c.push(u - b);
@@ -246,6 +277,8 @@ fn pure_params<D: DualNum<f64> + Copy>(
         big_a,
         big_b,
         big_c,
+        sqrt_a,
+        sqrt_b,
     }
 }
 
@@ -335,8 +368,60 @@ pub fn mixture_params<D: DualNum<f64> + Copy>(
     x: &[D],
 ) -> Result<MixtureParams<D>, MixError> {
     validate(spec, x.len())?;
+    let pure = pure_params(spec.eos, spec.rule, t, p, spec.components);
+    mixture_params_with(spec, t, x, &pure)
+}
+
+/// [`mixture_params`] against an **already-built** pure-component state.
+///
+/// This is the split audit Part 2 §1 asks for, done without duplicating a line
+/// of the mixing rules. `pure_params` — every component's α(Tr), Aᵢ, Bᵢ, Cᵢ and
+/// their square roots — depends on `(T, P, eos)` and **never on composition**,
+/// yet a PT flash rebuilt it on every fugacity evaluation: twice per K-value
+/// call, ~10 K-value calls per solve, so ~20 times for a quantity that changes
+/// once. Making it a parameter lets [`TpCache`] hoist it out of the loop while
+/// the composition-dependent mixing algebra below stays written exactly once,
+/// generic over the scalar type, for both the value and dual-number paths.
+///
+/// The caller is responsible for `pure` having been built from the same
+/// `(spec.eos, T, P, components)`; [`TpCache`] enforces that.
+/// Classical quadratic mixing `A = ΣᵢΣⱼ xᵢxⱼAᵢⱼ` with its exact partial
+/// `Āᵢ = 2·Σⱼ xⱼAᵢⱼ` (valid for composition-independent Aᵢⱼ).
+///
+/// Generic over the closure type rather than taking `&dyn Fn`. That matters:
+/// the cross-parameter closure is invoked **n² times** here, and behind a
+/// trait object every one of those is an indirect call LLVM can neither inline
+/// nor vectorize through. Monomorphizing it turned out to be worth
+/// substantially more than hoisting the square roots out of the same loop
+/// (audit Part 2 §4 proposed the hoist; measurement said the indirect call was
+/// the actual obstacle — with `&dyn Fn` in place, removing n² `sqrt` calls
+/// barely moved the benchmark).
+#[inline]
+fn quad_a<D: DualNum<f64> + Copy, F: Fn(usize, usize) -> D>(
+    n: usize,
+    x: &[D],
+    a_ij: F,
+) -> (D, Buf<D>) {
+    let mut a = D::from(0.0);
+    let mut a_bar: Buf<D> = smallvec::smallvec![D::from(0.0); n];
+    for i in 0..n {
+        let mut row = D::from(0.0);
+        for j in 0..n {
+            row += x[j] * a_ij(i, j);
+        }
+        a += x[i] * row;
+        a_bar[i] = row * 2.0;
+    }
+    (a, a_bar)
+}
+
+fn mixture_params_with<D: DualNum<f64> + Copy>(
+    spec: &MixtureSpec,
+    t: D,
+    x: &[D],
+    pure: &PureParams<D>,
+) -> Result<MixtureParams<D>, MixError> {
     let n = x.len();
-    let pure = pure_params(spec.eos, t, p, spec.components);
     let (ai, bi) = (&pure.big_a, &pure.big_b);
 
     // B is linear (B̄ᵢ = Bᵢ) for every rule except Wong-Sandler, which
@@ -347,22 +432,6 @@ pub fn mixture_params<D: DualNum<f64> + Copy>(
             b += x[j] * bi[j];
         }
         b
-    };
-
-    // Classical quadratic A with the given cross-parameter closure.
-    // Āᵢ = 2·Σⱼ xⱼ·Aᵢⱼ is exact for composition-independent Aᵢⱼ.
-    let quad_a = |x: &[D], a_ij: &dyn Fn(usize, usize) -> D| -> (D, Buf<D>) {
-        let mut a = D::from(0.0);
-        let mut a_bar: Buf<D> = smallvec::smallvec![D::from(0.0); n];
-        for i in 0..n {
-            let mut row = D::from(0.0);
-            for j in 0..n {
-                row += x[j] * a_ij(i, j);
-            }
-            a += x[i] * row;
-            a_bar[i] = row * 2.0;
-        }
-        (a, a_bar)
     };
 
     // GE helper: ln γᵢ vector + Gᴱ/RT for the coupled activity model.
@@ -385,8 +454,9 @@ pub fn mixture_params<D: DualNum<f64> + Copy>(
         // them as separate cases with identical formulas — see the
         // extraction of clsQbicsMulticomp.cls:455-476 vs :552-568).
         MixingRule::Classical | MixingRule::IVDW => {
-            let a_ij = |i: usize, j: usize| (ai[i] * ai[j]).sqrt() * (1.0 - kij_at(spec.kij, i, j));
-            let (a, a_bar) = quad_a(x, &a_ij);
+            let sq = &pure.sqrt_a;
+            let a_ij = |i: usize, j: usize| sq[i] * sq[j] * (1.0 - kij_at(spec.kij, i, j));
+            let (a, a_bar) = quad_a(n, x, a_ij);
             let b = lin_b(x);
             let b_bar: Buf<D> = (0..n).map(|i| bi[i]).collect();
             (a, b, a_bar, b_bar)
@@ -400,7 +470,8 @@ pub fn mixture_params<D: DualNum<f64> + Copy>(
         //   Σₖxₖ∂A/∂xₖ = 2A − Σₖⱼ xₖ²xⱼ√(AₖAⱼ)(kₖⱼ+kⱼₖ)
         //   ⇒ Āᵢ = ∂A/∂xᵢ + Σₖⱼ xₖ²xⱼ√(AₖAⱼ)(kₖⱼ+kⱼₖ)
         MixingRule::IIVDW => {
-            let sqrt_aa = |i: usize, j: usize| -> D { (ai[i] * ai[j]).sqrt() };
+            let sq = &pure.sqrt_a;
+            let sqrt_aa = |i: usize, j: usize| -> D { sq[i] * sq[j] };
             let mut a = D::from(0.0);
             let mut a_bar: Buf<D> = smallvec::smallvec![D::from(0.0); n];
             // sum3 = Σₖⱼ xₖ²xⱼ√(AₖAⱼ)(kₖⱼ + kⱼₖ)
@@ -572,7 +643,7 @@ pub fn mixture_params<D: DualNum<f64> + Copy>(
         let w_bar: Buf<D> = b_bar.iter().map(|&bb| big_b * bb * (2.0 * fc.k2)).collect();
         (u, w, u_bar, w_bar)
     } else {
-        three_param_uw(spec, x, &pure, big_b, &b_bar)?
+        three_param_uw(spec, x, pure, big_b, &b_bar)?
     };
 
     Ok(MixtureParams {
@@ -613,7 +684,7 @@ fn three_param_uw<D: DualNum<f64> + Copy>(
             let mut f_num = D::from(0.0);
             let mut e_den = D::from(0.0);
             for j in 0..n {
-                let sa = pure.big_a[j].sqrt();
+                let sa = pure.sqrt_a[j];
                 f_num += x[j] * (sa * spec.components[j].omega);
                 e_den += x[j] * sa;
             }
@@ -623,7 +694,7 @@ fn three_param_uw<D: DualNum<f64> + Copy>(
             let mut u_bar = Buf::with_capacity(n);
             let mut w_bar = Buf::with_capacity(n);
             for i in 0..n {
-                let dc = (-c + spec.components[i].omega) * pure.big_a[i].sqrt() / e_den;
+                let dc = (-c + spec.components[i].omega) * pure.sqrt_a[i] / e_den;
                 // Ū: nU = (1+3C)·nB → Ūᵢ = (1+3C)B̄ᵢ + 3B·∂(nC)/∂nᵢ|proj
                 // with ∂(nC)... collapsing to dc (Σxₖ∂C/∂xₖ = 0):
                 u_bar.push((c * 3.0 + 1.0) * b_bar[i] + big_b * dc * 3.0);
@@ -648,13 +719,13 @@ fn three_param_uw<D: DualNum<f64> + Copy>(
                 let mut num = D::from(0.0);
                 let mut e_den = D::from(0.0);
                 for j in 0..n {
-                    let sb = pure.big_b[j].sqrt();
+                    let sb = pure.sqrt_b[j];
                     num += x[j] * (sb * ci[j]);
                     e_den += x[j] * sb;
                 }
                 let c = num / e_den;
                 let bars: Buf<D> = (0..n)
-                    .map(|i| c + (-c + ci[i]) * pure.big_b[i].sqrt() / e_den)
+                    .map(|i| c + (-c + ci[i]) * pure.sqrt_b[i] / e_den)
                     .collect();
                 (c, bars)
             };
@@ -728,22 +799,29 @@ fn z_mix_generic<D: DualNum<f64> + Copy>(
     Ok(z)
 }
 
-/// ln φ̂ᵢ for every component, generic over the scalar type.
+/// ln φ̂ᵢ for every component from an **already-built** mixture state.
+///
+/// Split out of [`ln_phi_all_generic`] (Part 1 §8 of the performance audit) so
+/// a caller that needs *both* cubic roots at one composition — the min-Gibbs
+/// root selection the stability test drives — builds the composition-dependent
+/// [`MixtureParams`] **once** and evaluates each candidate root against it.
+/// Everything in `pars` (the pure Aᵢ/Bᵢ/Uᵢ/Wᵢ, the mixing rule's n² attractive
+/// sum, the cubic's coefficients) is root-independent; only `z` differs between
+/// the liquid and vapor branches.
+///
+/// Writes one value per component into `out`, which the caller sizes to
+/// `pars.a_bar.len()`. Returns nothing and allocates nothing.
 ///
 /// The closed form for the generalized cubic (module docs):
 /// ```text
 ///   ln φ̂ᵢ = −ln(Z−B) + B̄ᵢ/(Z−B) − (Āᵢ−A)·Ĩ − A·Z/q(Z)
 ///            + A·[J₁(Ūᵢ−U) + J₀(W̄ᵢ−2W)]
 /// ```
-fn ln_phi_all_generic<D: DualNum<f64> + Copy>(
-    spec: &MixtureSpec,
-    t: D,
-    p: D,
-    x: &[D],
-    phase: PhaseId,
-) -> Result<Buf<D>, MixError> {
-    let pars = mixture_params(spec, t, p, x)?;
-    let z = z_mix_generic(&pars, phase)?;
+fn ln_phi_from_params_generic<D: DualNum<f64> + Copy>(
+    pars: &MixtureParams<D>,
+    z: D,
+    out: &mut [D],
+) {
     let (a, b, u, w) = (pars.big_a, pars.big_b, pars.u, pars.w);
     let q = (z + u) * z + w;
     let itilde = i_tilde_generic(z, u, w);
@@ -758,15 +836,27 @@ fn ln_phi_all_generic<D: DualNum<f64> + Copy>(
         ((z * 2.0 + u) / q - itilde * 2.0) / disc
     };
     let j1 = (q * 2.0).recip() - u * 0.5 * j0;
-    let n = x.len();
-    let mut out = Buf::with_capacity(n);
     let ln_zb = (z - b).ln();
     let az_q = a * z / q;
-    for i in 0..n {
-        let val = -ln_zb + pars.b_bar[i] / (z - b) - (pars.a_bar[i] - a) * itilde - az_q
+    for i in 0..out.len() {
+        out[i] = -ln_zb + pars.b_bar[i] / (z - b) - (pars.a_bar[i] - a) * itilde - az_q
             + a * (j1 * (pars.u_bar[i] - u) + j0 * (pars.w_bar[i] - w * 2.0));
-        out.push(val);
     }
+}
+
+/// ln φ̂ᵢ for every component, generic over the scalar type: build the mixture
+/// state at `x`, pick the requested cubic root, evaluate.
+fn ln_phi_all_generic<D: DualNum<f64> + Copy>(
+    spec: &MixtureSpec,
+    t: D,
+    p: D,
+    x: &[D],
+    phase: PhaseId,
+) -> Result<Buf<D>, MixError> {
+    let pars = mixture_params(spec, t, p, x)?;
+    let z = z_mix_generic(&pars, phase)?;
+    let mut out: Buf<D> = smallvec::smallvec![D::from(0.0); x.len()];
+    ln_phi_from_params_generic(&pars, z, &mut out);
     Ok(out)
 }
 
@@ -802,7 +892,281 @@ pub fn ln_phi_mix(
     x: &[f64],
     phase: PhaseId,
 ) -> Result<Vec<f64>, MixError> {
-    Ok(ln_phi_all_generic(spec, t, p, x, phase)?.into_vec())
+    let mut out = vec![0.0; x.len()];
+    ln_phi_mix_into(spec, t, p, x, phase, &mut out)?;
+    Ok(out)
+}
+
+// ===========================================================================
+// Per-(T, P) cache — audit Part 2 §1.
+// ===========================================================================
+
+/// The composition-**independent** half of a mixture evaluation, held across
+/// many compositions at one `(T, P)`.
+///
+/// A PT flash sweeps composition at fixed temperature and pressure: every
+/// outer iteration re-splits the feed and re-evaluates both phases, but each
+/// component's α(Tr), Aᵢ, Bᵢ, Cᵢ and √Aᵢ depend only on `(T, P, eos)`. Rebuilt
+/// per evaluation that is roughly twenty redundant passes over the α dispatch
+/// and its transcendentals for one solve. Build a `TpCache` once and hand it to
+/// [`ln_phi_mix_cached_into`] instead.
+///
+/// The cache is keyed on `(eos, T, P, n)` and [`Self::matches`] checks that key,
+/// so a stale cache is a detectable error rather than a silently wrong number.
+///
+/// ```ignore
+/// let cache = TpCache::new(&spec, 350.0, 2000.0)?;
+/// for x in compositions {
+///     ln_phi_mix_cached_into(&spec, &cache, &x, PhaseId::Liquid, &mut out)?;
+/// }
+/// ```
+#[derive(Debug, Clone)]
+pub struct TpCache {
+    eos: CubicEos,
+    t: f64,
+    p: f64,
+    pure: PureParams<f64>,
+}
+
+impl TpCache {
+    /// Build the cache for `spec` at `t` (**K**) and `p` (**kPa absolute**).
+    ///
+    /// # Errors
+    /// [`MixError`] if the spec's shapes or rule/EOS pairing are invalid — the
+    /// same validation [`mixture_params`] performs, done once here so the
+    /// cached evaluations below can skip it.
+    pub fn new(spec: &MixtureSpec, t: f64, p: f64) -> Result<Self, MixError> {
+        validate(spec, spec.components.len())?;
+        Ok(Self {
+            eos: spec.eos,
+            t,
+            p,
+            pure: pure_params(spec.eos, spec.rule, t, p, spec.components),
+        })
+    }
+
+    /// Temperature the cache was built at, in **K**.
+    #[inline]
+    pub fn temperature(&self) -> f64 {
+        self.t
+    }
+
+    /// Pressure the cache was built at, in **kPa absolute**.
+    #[inline]
+    pub fn pressure(&self) -> f64 {
+        self.p
+    }
+
+    /// Number of components the cache was built for.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.pure.big_a.len()
+    }
+
+    /// True when built for zero components.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Whether this cache is valid for `(spec, t, p)` — same EOS, same state,
+    /// same component count.
+    #[inline]
+    pub fn matches(&self, spec: &MixtureSpec, t: f64, p: f64) -> bool {
+        self.eos == spec.eos && self.t == t && self.p == p && self.len() == spec.components.len()
+    }
+
+    /// Error for a cache that does not match the requested state.
+    fn mismatch(&self, spec: &MixtureSpec, t: f64, p: f64) -> MixError {
+        MixError::Dimension(format!(
+            "TpCache built for {:?} at T={} P={} with {} components, \
+             but used for {:?} at T={t} P={p} with {} components",
+            self.eos,
+            self.t,
+            self.p,
+            self.len(),
+            spec.eos,
+            spec.components.len()
+        ))
+    }
+}
+
+/// [`ln_phi_mix_into`] reusing a prebuilt [`TpCache`].
+///
+/// Identical result; skips the per-component α / dimensionless-parameter pass
+/// and the spec validation, both of which the cache already did.
+///
+/// # Errors
+/// [`MixError::Dimension`] if `out.len() != x.len()` or the cache does not
+/// match `(spec, t, p)`; otherwise as [`ln_phi_mix`].
+pub fn ln_phi_mix_cached_into(
+    spec: &MixtureSpec,
+    cache: &TpCache,
+    x: &[f64],
+    phase: PhaseId,
+    out: &mut [f64],
+) -> Result<(), MixError> {
+    if out.len() != x.len() {
+        return Err(MixError::Dimension(format!(
+            "out.len()={} but composition.len()={}",
+            out.len(),
+            x.len()
+        )));
+    }
+    if !cache.matches(spec, cache.t, cache.p) || x.len() != cache.len() {
+        return Err(cache.mismatch(spec, cache.t, cache.p));
+    }
+    let pars = mixture_params_with(spec, cache.t, x, &cache.pure)?;
+    let z = z_mix_generic::<f64>(&pars, phase)?;
+    ln_phi_from_params_generic(&pars, z, out);
+    Ok(())
+}
+
+/// [`ln_phi_mix_min_gibbs_into`] reusing a prebuilt [`TpCache`].
+///
+/// Combines both Part 1 §8 (one mixture state, both cubic roots) and Part 2 §1
+/// (one pure-component pass per state point) — the two together are what make
+/// the tangent-plane stability test's inner loop cheap.
+///
+/// # Errors
+/// As [`ln_phi_mix_min_gibbs_into`], plus [`MixError::Dimension`] for a cache
+/// that does not match `spec`.
+pub fn ln_phi_mix_min_gibbs_cached_into(
+    spec: &MixtureSpec,
+    cache: &TpCache,
+    x: &[f64],
+    out: &mut [f64],
+) -> Result<(), MixError> {
+    let n = x.len();
+    if out.len() != n {
+        return Err(MixError::Dimension(format!(
+            "out.len()={} but composition.len()={n}",
+            out.len()
+        )));
+    }
+    if !cache.matches(spec, cache.t, cache.p) || n != cache.len() {
+        return Err(cache.mismatch(spec, cache.t, cache.p));
+    }
+    let pars = mixture_params_with(spec, cache.t, x, &cache.pure)?;
+    min_gibbs_from_params(&pars, x, out)
+}
+
+/// Shared tail of the two min-Gibbs entry points: evaluate both cubic roots
+/// against one mixture state and keep the lower-Gibbs one.
+fn min_gibbs_from_params(
+    pars: &MixtureParams<f64>,
+    x: &[f64],
+    out: &mut [f64],
+) -> Result<(), MixError> {
+    let n = x.len();
+    let mut trial: Buf<f64> = smallvec::smallvec![0.0; n];
+    let mut best_g = f64::INFINITY;
+    let mut found = false;
+    let mut last_err: Option<MixError> = None;
+    for phase in [PhaseId::Liquid, PhaseId::Vapor] {
+        match z_mix_generic::<f64>(pars, phase) {
+            Ok(z) => {
+                ln_phi_from_params_generic(pars, z, &mut trial);
+                let g: f64 = (0..n)
+                    .filter(|&i| x[i] > 0.0)
+                    .map(|i| x[i] * (x[i].ln() + trial[i]))
+                    .sum();
+                // Strictly-less keeps the liquid root on an exact tie, matching
+                // the order the two branches are tried in.
+                if !found || g < best_g {
+                    best_g = g;
+                    out.copy_from_slice(&trial);
+                    found = true;
+                }
+            }
+            Err(e) => last_err = Some(e),
+        }
+    }
+    if found {
+        Ok(())
+    } else {
+        Err(last_err.unwrap_or(MixError::NoRootForPhase {
+            phase: PhaseId::Liquid,
+            big_b: pars.big_b,
+        }))
+    }
+}
+
+/// [`ln_phi_mix`] written into a caller-owned slice — **no heap allocation**.
+///
+/// Same math, same result, but the caller supplies the destination instead of
+/// receiving a fresh `Vec`. The flash's outer loop calls this once per phase
+/// per iteration, so returning an owned vector there costs one allocator round
+/// trip per call for a buffer whose size never changes (Part 1 §1 of the
+/// performance audit).
+///
+/// Rust-idiom note for readers new to the pattern: an `_into` variant taking
+/// `out: &mut [f64]` is the standard way to let a caller control allocation.
+/// [`ln_phi_mix`] is written *on top of* this function rather than beside it,
+/// so there is exactly one implementation of the thermodynamics.
+///
+/// # Arguments
+/// As [`ln_phi_mix`], plus `out` — a slice of length N receiving ln φ̂ᵢ,
+/// **dimensionless**.
+///
+/// # Errors
+/// [`MixError::Dimension`] if `out.len() != x.len()`; otherwise as
+/// [`ln_phi_mix`].
+pub fn ln_phi_mix_into(
+    spec: &MixtureSpec,
+    t: f64,
+    p: f64,
+    x: &[f64],
+    phase: PhaseId,
+    out: &mut [f64],
+) -> Result<(), MixError> {
+    if out.len() != x.len() {
+        return Err(MixError::Dimension(format!(
+            "out.len()={} but composition.len()={}",
+            out.len(),
+            x.len()
+        )));
+    }
+    let pars = mixture_params::<f64>(spec, t, p, x)?;
+    let z = z_mix_generic::<f64>(&pars, phase)?;
+    ln_phi_from_params_generic(&pars, z, out);
+    Ok(())
+}
+
+/// ln φ̂ᵢ at composition `x` using whichever cubic root gives the lower reduced
+/// Gibbs energy `g = Σ xᵢ(ln xᵢ + ln φ̂ᵢ)` — written into a caller-owned slice.
+///
+/// This is the fugacity a tangent-plane stability test needs: at a candidate
+/// single-phase composition, the physically realized phase is the lower-Gibbs
+/// root. Both roots come from **one** [`MixtureParams`] build (Part 1 §8 of the
+/// performance audit) — the previous route evaluated the whole mixture path
+/// twice, recomputing the pure parameters, the mixing rule's n² sum and the
+/// cubic coefficients for a state that differs only in which root is selected.
+///
+/// # Arguments
+/// `t` in **K**, `p` in **kPa absolute**, `x` mole fractions (length N);
+/// `out` a length-N slice receiving ln φ̂ᵢ, **dimensionless**.
+///
+/// # Errors
+/// [`MixError::Dimension`] on a length mismatch; the underlying root error if
+/// *neither* root is physical at this composition.
+pub fn ln_phi_mix_min_gibbs_into(
+    spec: &MixtureSpec,
+    t: f64,
+    p: f64,
+    x: &[f64],
+    out: &mut [f64],
+) -> Result<(), MixError> {
+    let n = x.len();
+    if out.len() != n {
+        return Err(MixError::Dimension(format!(
+            "out.len()={} but composition.len()={n}",
+            out.len()
+        )));
+    }
+    // Composition-dependent state: built once, shared by both root branches.
+    let pars = mixture_params::<f64>(spec, t, p, x)?;
+    min_gibbs_from_params(&pars, x, out)
 }
 
 /// Exact composition Jacobian ∂ln φ̂ᵢ/∂nⱼ (per **mole number**, evaluated
@@ -888,10 +1252,9 @@ fn d_ln_phi_d_n_classical(
     let (k1, k2) = (fc.k1, fc.k2);
     let (a, b) = (pars.big_a, pars.big_b);
     let (u, w) = (pars.u, pars.w);
-    let pure = pure_params(spec.eos, t, p, spec.components);
-    let a_ij = |i: usize, j: usize| {
-        (1.0 - kij_at(spec.kij, i, j)) * (pure.big_a[i] * pure.big_a[j]).sqrt()
-    };
+    let pure = pure_params(spec.eos, spec.rule, t, p, spec.components);
+    let a_ij =
+        |i: usize, j: usize| (1.0 - kij_at(spec.kij, i, j)) * pure.sqrt_a[i] * pure.sqrt_a[j];
 
     // Shared scalars.
     let q = z * z + u * z + w;
@@ -1212,6 +1575,92 @@ mod tests {
     // Legacy constants.
     // -----------------------------------------------------------------
 
+    /// A `TpCache` must reproduce the uncached path exactly — it only hoists
+    /// composition-independent work, it does not change any arithmetic.
+    #[test]
+    fn tp_cache_matches_uncached_path() {
+        let comps = [
+            Component {
+                name: "n-butane".into(),
+                tc: 425.12,
+                pc: 3796.0,
+                omega: 0.200,
+                ..Component::default()
+            },
+            Component {
+                name: "n-heptane".into(),
+                tc: 540.2,
+                pc: 2740.0,
+                omega: 0.350,
+                ..Component::default()
+            },
+        ];
+        let kij = vec![vec![0.0, 0.02], vec![0.02, 0.0]];
+        let spec = MixtureSpec {
+            eos: CubicEos::RKS1972,
+            rule: MixingRule::Classical,
+            components: &comps,
+            kij: &kij,
+            ge: None,
+        };
+        let (t, p) = (400.0, 1500.0);
+        let cache = TpCache::new(&spec, t, p).unwrap();
+        assert!(cache.matches(&spec, t, p));
+        assert_eq!(cache.len(), 2);
+        assert_eq!(cache.temperature(), t);
+        assert_eq!(cache.pressure(), p);
+
+        for x in [[0.5, 0.5], [0.85, 0.15], [0.2, 0.8]] {
+            for phase in [PhaseId::Liquid, PhaseId::Vapor] {
+                let want = ln_phi_mix(&spec, t, p, &x, phase).unwrap();
+                let mut got = vec![0.0; 2];
+                ln_phi_mix_cached_into(&spec, &cache, &x, phase, &mut got).unwrap();
+                for i in 0..2 {
+                    assert_eq!(got[i], want[i], "x={x:?} {phase:?} comp {i}");
+                }
+            }
+            // The min-Gibbs selection must agree too.
+            let want = {
+                let mut v = vec![0.0; 2];
+                ln_phi_mix_min_gibbs_into(&spec, t, p, &x, &mut v).unwrap();
+                v
+            };
+            let mut got = vec![0.0; 2];
+            ln_phi_mix_min_gibbs_cached_into(&spec, &cache, &x, &mut got).unwrap();
+            assert_eq!(got, want, "min-Gibbs at x={x:?}");
+        }
+    }
+
+    /// A cache built for a different EOS must be rejected, not silently used.
+    #[test]
+    fn tp_cache_rejects_mismatched_spec() {
+        let comps = [Component {
+            name: "n-butane".into(),
+            tc: 425.12,
+            pc: 3796.0,
+            omega: 0.200,
+            ..Component::default()
+        }];
+        let rks = MixtureSpec {
+            eos: CubicEos::RKS1972,
+            rule: MixingRule::Classical,
+            components: &comps,
+            kij: &[],
+            ge: None,
+        };
+        let pr = MixtureSpec {
+            eos: CubicEos::PR1976,
+            ..rks
+        };
+        let cache = TpCache::new(&rks, 400.0, 1500.0).unwrap();
+        assert!(!cache.matches(&pr, 400.0, 1500.0));
+        let mut out = vec![0.0; 1];
+        assert!(matches!(
+            ln_phi_mix_cached_into(&pr, &cache, &[1.0], PhaseId::Liquid, &mut out),
+            Err(MixError::Dimension(_))
+        ));
+    }
+
     #[test]
     fn hv_c_star_matches_exact_and_vb6_table() {
         // We compute c* = −Ĩ(z=1; k1, k2) exactly from the family
@@ -1311,7 +1760,7 @@ mod tests {
 
         // Independent textbook implementation (Smith-Van Ness-Abbott /
         // Peng-Robinson 1976 paper form).
-        let pure = pure_params(CubicEos::PR1976, t, p, &fx.comps);
+        let pure = pure_params(CubicEos::PR1976, MixingRule::Classical, t, p, &fx.comps);
         let a_ij =
             |i: usize, j: usize| (1.0 - fx.kij[i][j]) * (pure.big_a[i] * pure.big_a[j]).sqrt();
         let mut a = 0.0;
@@ -1634,7 +2083,7 @@ mod tests {
         let (t, p) = (350.0, 200.0);
         let pars = mixture_params::<f64>(&spec, t, p, &x).unwrap();
         // Rebuild D from its definition and check A = B·D.
-        let pure = pure_params(CubicEos::PR1976, t, p, &comps);
+        let pure = pure_params(CubicEos::PR1976, MixingRule::Classical, t, p, &comps);
         let mut lng = [0.0; 2];
         crate::activity::ln_gamma_all(ActivityModel::VanLaar, &x, &aij, &[], &vl, &[], t, &mut lng);
         let g_rt: f64 = (0..2).map(|i| x[i] * lng[i]).sum();

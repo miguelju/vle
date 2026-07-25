@@ -33,9 +33,39 @@
 //! - (7) Michelsen (1982) Part I — stability analysis
 //! - (29) Wilson — the K-value seed
 
+use smallvec::SmallVec;
+
 use super::FlashError;
 use super::init::wilson_k_values;
-use super::system::{SystemSpec, min_gibbs_ln_phi};
+use super::system::{SystemSpec, SystemTpCache, min_gibbs_ln_phi_cached_into};
+
+/// Stack-resident per-component buffer, matching the mixture core's inline
+/// width so the engine has one such policy rather than several.
+type WorkVec = SmallVec<[f64; 8]>;
+
+/// Scratch buffers reused across every iteration of one trial phase.
+///
+/// The trial loop previously allocated the normalized composition, the
+/// fugacity vector, and the updated mole numbers on each pass — three
+/// allocations per iteration per seed (Part 1 §7 of the performance audit).
+struct TrialWorkspace {
+    /// Unnormalized trial mole numbers Wᵢ.
+    w: WorkVec,
+    /// Normalized trial composition wᵢ = Wᵢ/ΣW.
+    wn: WorkVec,
+    /// ln φ̂ᵢ at the trial composition, on the min-Gibbs root.
+    ln_phi: WorkVec,
+}
+
+impl TrialWorkspace {
+    fn new(n: usize) -> Self {
+        Self {
+            w: smallvec::smallvec![0.0; n],
+            wn: smallvec::smallvec![0.0; n],
+            ln_phi: smallvec::smallvec![0.0; n],
+        }
+    }
+}
 
 /// Outcome of a stability analysis.
 #[derive(Debug, Clone, PartialEq)]
@@ -54,45 +84,52 @@ const TRIVIAL_TOL: f64 = 1e-4;
 const NEG_TPD_TOL: f64 = 1e-8;
 
 /// Run one trial-phase successive substitution from an initial `w0`
-/// (unnormalized mole numbers). Returns `(tm, w_normalized, converged)`.
+/// (unnormalized mole numbers), reusing `ws`. Returns `(tm, converged)`; the
+/// converged normalized composition is left in `ws.wn`.
 fn run_trial(
     spec: &SystemSpec,
-    t: f64,
-    p: f64,
+    cache: &SystemTpCache,
     d: &[f64],
     w0: &[f64],
     max_iter: usize,
-) -> Result<(f64, Vec<f64>, bool), FlashError> {
+    ws: &mut TrialWorkspace,
+) -> Result<(f64, bool), FlashError> {
     let n = spec.n();
-    let mut w = w0.to_vec();
+    ws.w.copy_from_slice(w0);
     let mut converged = false;
     for _ in 0..max_iter {
-        let sum_w: f64 = w.iter().sum();
-        let wn: Vec<f64> = w.iter().map(|wi| wi / sum_w).collect();
-        let ln_phi = min_gibbs_ln_phi(spec, t, p, &wn)?;
-        // Fixed-point update Wᵢ = exp(dᵢ − ln φᵢ(w)).
-        let mut w_new = vec![0.0; n];
+        normalize_into(&ws.w, &mut ws.wn);
+        min_gibbs_ln_phi_cached_into(spec, cache, &ws.wn, &mut ws.ln_phi)?;
+        // Fixed-point update Wᵢ = exp(dᵢ − ln φᵢ(w)), in place.
         let mut max_step = 0.0_f64;
-        for i in 0..n {
-            w_new[i] = (d[i] - ln_phi[i]).exp();
-            max_step = max_step.max((w_new[i] - w[i]).abs());
+        for ((wi, &di), &lnphi) in ws.w.iter_mut().zip(d.iter()).zip(ws.ln_phi.iter()) {
+            let w_new = (di - lnphi).exp();
+            max_step = max_step.max((w_new - *wi).abs());
+            *wi = w_new;
         }
-        w = w_new;
         if max_step < TPD_TOL {
             converged = true;
             break;
         }
     }
-    let sum_w: f64 = w.iter().sum();
-    let wn: Vec<f64> = w.iter().map(|wi| wi / sum_w).collect();
-    let ln_phi = min_gibbs_ln_phi(spec, t, p, &wn)?;
+    normalize_into(&ws.w, &mut ws.wn);
+    min_gibbs_ln_phi_cached_into(spec, cache, &ws.wn, &mut ws.ln_phi)?;
     // tm = 1 + Σ Wᵢ(ln Wᵢ + ln φᵢ(w) − dᵢ − 1).
     let tm: f64 = 1.0
         + (0..n)
-            .filter(|&i| w[i] > 0.0)
-            .map(|i| w[i] * (w[i].ln() + ln_phi[i] - d[i] - 1.0))
+            .filter(|&i| ws.w[i] > 0.0)
+            .map(|i| ws.w[i] * (ws.w[i].ln() + ws.ln_phi[i] - d[i] - 1.0))
             .sum::<f64>();
-    Ok((tm, wn, converged))
+    Ok((tm, converged))
+}
+
+/// Normalize mole numbers to mole fractions, into a caller-owned buffer.
+#[inline]
+fn normalize_into(w: &[f64], out: &mut [f64]) {
+    let inv = w.iter().sum::<f64>().recip();
+    for (dst, &wi) in out.iter_mut().zip(w) {
+        *dst = wi * inv;
+    }
 }
 
 /// Tangent-plane-distance stability analysis of the feed `z` at `(t, p)`.
@@ -124,18 +161,42 @@ pub fn stability_analysis(
             z.len()
         )));
     }
+    // A component genuinely absent from the feed has dᵢ = ln 0 = −∞, which
+    // poisons every downstream sum. Reject it explicitly rather than returning
+    // a NaN-derived verdict.
+    if let Some(i) = z.iter().position(|&zi| zi <= 0.0 || !zi.is_finite()) {
+        return Err(FlashError::InvalidInput(format!(
+            "stability analysis needs every zᵢ > 0; z[{i}]={}",
+            z[i]
+        )));
+    }
+
+    // One (T, P) cache for both trials and every one of their iterations
+    // (audit Part 2 §1) — the trial loop is the engine's most
+    // fugacity-intensive inner loop.
+    let cache = SystemTpCache::new(spec, t, p)?;
+    let mut ws = TrialWorkspace::new(n);
     // Feed reference dᵢ = ln zᵢ + ln φᵢ(z).
-    let ln_phi_z = min_gibbs_ln_phi(spec, t, p, z)?;
-    let d: Vec<f64> = (0..n).map(|i| z[i].ln() + ln_phi_z[i]).collect();
+    let mut d: WorkVec = smallvec::smallvec![0.0; n];
+    min_gibbs_ln_phi_cached_into(spec, &cache, z, &mut d)?;
+    for i in 0..n {
+        d[i] += z[i].ln();
+    }
 
     let kw = wilson_k_values(spec.components, t, p);
     // Vapor-like trial: Wᵢ = zᵢ·Kw ; liquid-like: Wᵢ = zᵢ/Kw.
-    let vapor_seed: Vec<f64> = (0..n).map(|i| z[i] * kw[i]).collect();
-    let liquid_seed: Vec<f64> = (0..n).map(|i| z[i] / kw[i]).collect();
-
+    let mut seed: WorkVec = smallvec::smallvec![0.0; n];
     let mut best: Option<(f64, Vec<f64>)> = None;
-    for seed in [vapor_seed, liquid_seed] {
-        let (tm, wn, converged) = run_trial(spec, t, p, &d, &seed, max_iter)?;
+    for vapor_like in [true, false] {
+        for i in 0..n {
+            seed[i] = if vapor_like {
+                z[i] * kw[i]
+            } else {
+                z[i] / kw[i]
+            };
+        }
+        let (tm, converged) = run_trial(spec, &cache, &d, &seed, max_iter, &mut ws)?;
+        let wn = &ws.wn;
         // Trivial solution: the trial collapsed back to the feed.
         let trivial = (0..n).all(|i| (wn[i] - z[i]).abs() < TRIVIAL_TOL);
         if converged && !trivial && tm < -NEG_TPD_TOL {

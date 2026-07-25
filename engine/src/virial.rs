@@ -164,25 +164,80 @@ pub fn s_departure_r_virial(comp: &Component, t: f64, p: f64) -> f64 {
 /// deferred to a later milestone.
 pub fn b_mix_matrix(components: &[Component], t: f64) -> Vec<Vec<f64>> {
     let n = components.len();
-    let mut mat = vec![vec![0.0_f64; n]; n];
+    let flat = b_mix_matrix_flat(components, t);
+    (0..n).map(|i| flat[i * n..(i + 1) * n].to_vec()).collect()
+}
+
+/// One cross second-virial coefficient `Bᵢⱼ` in **cm³/mol**, at `t` in **K**.
+///
+/// Factored out so the nested-`Vec` and flat matrix builders share one copy of
+/// the combining rules.
+fn b_cross(components: &[Component], i: usize, j: usize, t: f64) -> f64 {
+    if i == j {
+        return pitzer_b(&components[i], t);
+    }
+    // Mixing rules for cross-term cubic properties.
+    let tc_ij = (components[i].tc * components[j].tc).sqrt();
+    let pc_ij = 0.5 * (components[i].pc + components[j].pc);
+    let omega_ij = 0.5 * (components[i].omega + components[j].omega);
+    let tr = t / tc_ij;
+    let b_reduced = pitzer_b0(tr) + omega_ij * pitzer_b1(tr);
+    1000.0 * R_GAS * tc_ij / pc_ij * b_reduced
+}
+
+/// [`b_mix_matrix`] in **flat row-major** storage (`mat[i*n + j]`) — audit
+/// Part 2 §9.
+///
+/// One allocation and contiguous rows, versus `Vec<Vec<f64>>`'s one allocation
+/// *per row* plus a pointer chase on every element access. Bᵢⱼ depends only on
+/// temperature, so a flash at fixed T builds this once and feeds it to
+/// [`ln_phi_mix_virial_flat_into`] on every iteration.
+///
+/// `t` in **K**; entries in **cm³/mol**.
+pub fn b_mix_matrix_flat(components: &[Component], t: f64) -> Vec<f64> {
+    let n = components.len();
+    let mut mat = vec![0.0_f64; n * n];
     for i in 0..n {
         for j in i..n {
-            let bij = if i == j {
-                pitzer_b(&components[i], t)
-            } else {
-                // Mixing rules for cross-term cubic properties.
-                let tc_ij = (components[i].tc * components[j].tc).sqrt();
-                let pc_ij = 0.5 * (components[i].pc + components[j].pc);
-                let omega_ij = 0.5 * (components[i].omega + components[j].omega);
-                let tr = t / tc_ij;
-                let b_reduced = pitzer_b0(tr) + omega_ij * pitzer_b1(tr);
-                1000.0 * R_GAS * tc_ij / pc_ij * b_reduced
-            };
-            mat[i][j] = bij;
-            mat[j][i] = bij;
+            let bij = b_cross(components, i, j, t);
+            mat[i * n + j] = bij;
+            mat[j * n + i] = bij;
         }
     }
     mat
+}
+
+/// ln φ̂ᵢ from a flat Bᵢⱼ matrix, written into a caller-owned slice — audit
+/// Part 2 §9.
+///
+/// `ln φ̂ᵢ = P/(R·T)·(2·Σⱼ xⱼBᵢⱼ − B_mix)`. The row dot products `Σⱼ xⱼBᵢⱼ` are
+/// computed **once** and then reused for `B_mix = Σᵢ xᵢ·(Bx)ᵢ`, so the matrix
+/// is traversed once instead of twice (the previous route summed `B_mix` over
+/// the full n² matrix and then walked it again per component).
+///
+/// `mat` must be `n×n` row-major from [`b_mix_matrix_flat`] at the same `t`;
+/// `t` in **K**, `p` in **kPa absolute**. `row_dot` and `out` are length-n
+/// scratch/output slices.
+pub fn ln_phi_mix_virial_flat_into(
+    mat: &[f64],
+    x: &[f64],
+    t: f64,
+    p: f64,
+    row_dot: &mut [f64],
+    out: &mut [f64],
+) {
+    let n = x.len();
+    let mut bmix = 0.0_f64;
+    for i in 0..n {
+        let row = &mat[i * n..(i + 1) * n];
+        let dot: f64 = row.iter().zip(x).map(|(&b, &xj)| b * xj).sum();
+        row_dot[i] = dot;
+        bmix += x[i] * dot;
+    }
+    let factor = p / (1000.0 * R_GAS * t);
+    for i in 0..n {
+        out[i] = factor * (2.0 * row_dot[i] - bmix);
+    }
 }
 
 /// Mixture second virial coefficient `B_mix(T, x)` in **cm³/mol**.
@@ -226,8 +281,11 @@ pub fn ln_phi_mix_virial(
             mole_fractions.len()
         )));
     }
-    let mat = b_mix_matrix(components, t);
-    Ok(ln_phi_mix_virial_with_matrix(&mat, mole_fractions, t, p))
+    let mat = b_mix_matrix_flat(components, t);
+    let mut row_dot = vec![0.0; n];
+    let mut out = vec![0.0; n];
+    ln_phi_mix_virial_flat_into(&mat, mole_fractions, t, p, &mut row_dot, &mut out);
+    Ok(out)
 }
 
 /// [`ln_phi_mix_virial`] with a caller-provided Bᵢⱼ matrix.
@@ -278,6 +336,50 @@ mod tests {
             pc: 4599.0, // kPa
             omega: 0.0115,
             ..Component::default()
+        }
+    }
+
+    /// The flat row-major Bᵢⱼ must be the same matrix as the nested-`Vec`
+    /// build, and the single-pass fugacity kernel must agree with the
+    /// two-pass one it replaced.
+    #[test]
+    fn flat_virial_matches_nested() {
+        let ethane = Component {
+            name: "ethane".into(),
+            tc: 305.32,
+            pc: 4872.0,
+            omega: 0.099,
+            ..Component::default()
+        };
+        let propane = Component {
+            name: "propane".into(),
+            tc: 369.83,
+            pc: 4248.0,
+            omega: 0.152,
+            ..Component::default()
+        };
+        let comps = [dummy_methane(), ethane, propane];
+        let n = comps.len();
+        let (t, p) = (300.0, 200.0);
+        let nested = b_mix_matrix(&comps, t);
+        let flat = b_mix_matrix_flat(&comps, t);
+        for i in 0..n {
+            for j in 0..n {
+                assert_eq!(flat[i * n + j], nested[i][j], "B[{i}][{j}]");
+            }
+        }
+        let x = [0.5, 0.3, 0.2];
+        let want = ln_phi_mix_virial_with_matrix(&nested, &x, t, p);
+        let mut row_dot = vec![0.0; n];
+        let mut got = vec![0.0; n];
+        ln_phi_mix_virial_flat_into(&flat, &x, t, p, &mut row_dot, &mut got);
+        for i in 0..n {
+            assert!(
+                (got[i] - want[i]).abs() <= 1e-13 * want[i].abs().max(1.0),
+                "comp {i}: flat={} nested={}",
+                got[i],
+                want[i]
+            );
         }
     }
 

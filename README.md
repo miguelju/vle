@@ -264,6 +264,9 @@ vle/
 ├── ROADMAP.md               # Milestones and progress tracking
 ├── TODO.md                  # Tasks with time estimates
 ├── MODERNIZATION_PLAN.md    # 24-phase implementation plan
+├── OPTIMIZATION_PLAN_PART1.md      # Flash-layer performance plan + measured results
+├── OPTIMIZATION_PLAN_PART2.md      # Mixture-core performance plan + measured results
+├── OPTIMIZATION_AUDIT_HISTORY.md   # How the external audit was produced, and reviewed
 ├── PASCAL_VB6_COMPARISON.md # Legacy codebase comparison
 └── CLAUDE.md                # Claude Code development guidance and conventions
 ```
@@ -277,6 +280,9 @@ This project is developed incrementally using [Claude Code](https://claude.ai/co
 | [`ROADMAP.md`](ROADMAP.md) | Milestones — high-level goals and deliverables |
 | [`TODO.md`](TODO.md) | Tasks — actionable items with time estimates per milestone |
 | [`MODERNIZATION_PLAN.md`](MODERNIZATION_PLAN.md) | Phases — detailed technical implementation plan (24 phases) |
+| [`OPTIMIZATION_PLAN_PART1.md`](OPTIMIZATION_PLAN_PART1.md) | Flash-layer performance work — measured baseline, per-recommendation verdicts, results (incl. two optimizations rejected *because* they benchmarked slower) |
+| [`OPTIMIZATION_PLAN_PART2.md`](OPTIMIZATION_PLAN_PART2.md) | Mixture-core performance work — the per-(T,P) cache, activity/virial matrix caching, and the `&dyn Fn`-in-the-n²-loop finding the audit missed |
+| [`OPTIMIZATION_AUDIT_HISTORY.md`](OPTIMIZATION_AUDIT_HISTORY.md) | Provenance of the external audit (Gemini prompt → Codex audit → Claude second-audit) and what AI-reviewing-AI got right and wrong |
 
 ### Resuming work from a new machine
 
@@ -349,6 +355,9 @@ pytest python/tests/                  # Run the Python test suite
 - [Dimensional Analysis](docs/en/units/dimensional-analysis.md) — Units add-on design: SI dimensions, gauge pressure, extensible unit registry
 - [Modernization Plan](MODERNIZATION_PLAN.md) — Full technical plan with academic references, algorithm mapping, and performance improvements
 - [Performance Proposal](PERFORMANCE_PROPOSAL.md) — The speed/convergence plan (2026-07): modern flash algorithms, exact-derivative core, batch numpy API
+- [Optimization Plan — Part 1](OPTIMIZATION_PLAN_PART1.md) — The flash layer's response to the external audit: what the benchmarks actually said, which recommendations were executed, and which two were reverted for making it slower
+- [Optimization Plan — Part 2](OPTIMIZATION_PLAN_PART2.md) — The mixture core: caching composition-independent work per (T, P), and why the audit's square-root hoist barely mattered next to a trait object sitting n²-deep in the same loop
+- [Optimization Audit History](OPTIMIZATION_AUDIT_HISTORY.md) — A learning-repo write-up of using one AI to audit another's plan: the chain of custody, and why a reviewer that can't run `cargo bench` can't calibrate its own advice
 - [Pascal vs VB6 Comparison](PASCAL_VB6_COMPARISON.md) — Detailed comparison of the two legacy codebases
 - [Research Paper (English)](docs/en/research-paper/README.md) — Navigatable English translation
 - [Research Paper (Spanish)](docs/es/research-paper/README.md) — Original Spanish text (PDFs)

@@ -12,8 +12,11 @@
 use crate::activity::{ActivityModel, ln_gamma_all};
 use crate::eos::{LiquidModel, PhaseId, VaporModel, ln_phi_pure};
 use crate::mixing::MixingRule;
-use crate::mixture::{GeSpec, MixtureSpec, ln_phi_mix};
-use crate::saturation::{SatPressureModel, poynting_factor, psat};
+use crate::mixture::{
+    GeSpec, MixtureSpec, ln_phi_mix_cached_into, ln_phi_mix_into, ln_phi_mix_min_gibbs_cached_into,
+    ln_phi_mix_min_gibbs_into,
+};
+use crate::saturation::{SatPressureModel, ln_poynting_factor, psat};
 use crate::types::Component;
 use crate::virial::{ln_phi_mix_virial, ln_phi_pure_virial};
 
@@ -96,28 +99,170 @@ impl<'a> SystemSpec<'a> {
     }
 }
 
-/// ln φ̂ᵢ of every component in the **vapor** phase of composition `y`.
-fn vapor_ln_phi(spec: &SystemSpec, t: f64, p: f64, y: &[f64]) -> Result<Vec<f64>, FlashError> {
-    match spec.vapor {
-        VaporModel::IdealGas => Ok(vec![0.0; spec.n()]),
-        VaporModel::Virial => ln_phi_mix_virial(spec.components, y, t, p)
-            .map_err(|e| FlashError::Thermo(e.to_string())),
-        VaporModel::Cubic(eos) => ln_phi_mix(&spec.mixture_spec(eos), t, p, y, PhaseId::Vapor)
-            .map_err(|e| FlashError::Thermo(e.to_string())),
+// ===========================================================================
+// Per-(T, P) cache for a whole System — audit Part 2 §1, flash level.
+// ===========================================================================
+
+/// Everything about a [`SystemSpec`] at one `(T, P)` that does **not** depend
+/// on composition.
+///
+/// The isothermal flash iterates composition at fixed `(T, P)`, so all of this
+/// was being rebuilt on every outer iteration:
+///
+/// - both phases' pure-component EOS parameters (via [`crate::mixture::TpCache`]),
+/// - on the γ-φ path, every component's `Psatᵢ(T)`, `φᵢˢᵃᵗ(T, Psatᵢ)` and
+///   Poynting factor — three correlation evaluations per component per
+///   iteration for numbers that change only with `(T, P)`,
+/// - on the γ-φ path, the activity model's temperature-dependent matrices
+///   (Wilson Λᵢⱼ, NRTL τᵢⱼ/Gᵢⱼ — audit Part 2 §5).
+///
+/// Crate-internal on purpose, exactly like `FlashWorkspace`: it is an
+/// orchestration detail of the drivers, not something a caller should name.
+/// The reusable piece with standalone value — [`crate::mixture::TpCache`] — is
+/// public.
+pub(crate) struct SystemTpCache {
+    t: f64,
+    p: f64,
+    /// Pure-component EOS state for a cubic **liquid**, if the liquid is cubic.
+    liquid: Option<crate::mixture::TpCache>,
+    /// Pure-component EOS state for a cubic **vapor**, if the vapor is cubic.
+    /// Separate from `liquid` because the two phases may use different EOS.
+    vapor: Option<crate::mixture::TpCache>,
+    /// γ-φ only: the entire composition-independent part of `ln Kᵢ`, i.e.
+    /// `ln Psatᵢ + ln φᵢˢᵃᵗ + ln POYᵢ − ln P`. What is left at iteration time is
+    /// `ln Kᵢ = ln γᵢ(x) + const_i − ln φ̂ᵢⱽ(y)`.
+    gamma_phi_const: smallvec::SmallVec<[f64; 8]>,
+    /// γ-φ only: the activity model's T-dependent matrices.
+    activity: Option<crate::activity::ActivityTpCache>,
+    /// Virial vapor only: the flat Bᵢⱼ matrix, which depends on T alone
+    /// (audit Part 2 §9).
+    virial_b: Option<Vec<f64>>,
+}
+
+impl SystemTpCache {
+    /// Build the cache for `spec` at `t` (**K**) and `p` (**kPa absolute**).
+    ///
+    /// # Errors
+    /// [`FlashError::Thermo`] if a saturation or fugacity evaluation needed for
+    /// the γ-φ constants fails, or the mixture layer rejects the spec.
+    pub(crate) fn new(spec: &SystemSpec, t: f64, p: f64) -> Result<Self, FlashError> {
+        let n = spec.n();
+        let build = |eos| {
+            crate::mixture::TpCache::new(&spec.mixture_spec(eos), t, p)
+                .map_err(|e| FlashError::Thermo(e.to_string()))
+        };
+        let liquid = match spec.liquid {
+            LiquidModel::Cubic(eos) => Some(build(eos)?),
+            _ => None,
+        };
+        let vapor = match spec.vapor {
+            VaporModel::Cubic(eos) => Some(build(eos)?),
+            _ => None,
+        };
+
+        // γ-φ constants + activity matrices, only when the liquid is γ-based.
+        let mut gamma_phi_const = smallvec::SmallVec::new();
+        let mut activity = None;
+        if let LiquidModel::Activity(_) | LiquidModel::IdealSolution = spec.liquid {
+            let have_vl = spec.vl.len() == n;
+            let ln_p = p.ln();
+            gamma_phi_const.reserve(n);
+            for i in 0..n {
+                let psat_i = psat(spec.sat_model(i), &spec.components[i], t)
+                    .map_err(|e| FlashError::Thermo(e.to_string()))?;
+                let ln_phi_sat = pure_sat_ln_phi(spec, i, t, psat_i);
+                let ln_poy = if have_vl {
+                    ln_poynting_factor(&spec.components[i], p, psat_i, t)
+                } else {
+                    0.0
+                };
+                gamma_phi_const.push(psat_i.ln() + ln_phi_sat + ln_poy - ln_p);
+            }
+            if let LiquidModel::Activity(model) = spec.liquid {
+                activity = Some(crate::activity::ActivityTpCache::new(
+                    model, spec.aij, spec.alpha, spec.vl, t,
+                ));
+            }
+        }
+
+        let virial_b = match spec.vapor {
+            VaporModel::Virial => Some(crate::virial::b_mix_matrix_flat(spec.components, t)),
+            _ => None,
+        };
+
+        Ok(Self {
+            t,
+            p,
+            liquid,
+            vapor,
+            gamma_phi_const,
+            activity,
+            virial_b,
+        })
     }
 }
 
-/// Pure-component saturated-vapor fugacity coefficient φᵢˢᵃᵗ at (T, Psat,ᵢ),
-/// the Poynting-reference correction for the γ-φ path. Returns 1 (ln = 0)
-/// for an ideal vapor.
-fn pure_sat_phi(spec: &SystemSpec, i: usize, t: f64, psat_i: f64) -> f64 {
+/// ln φ̂ᵢ of every component in the **vapor** phase of composition `y`, written
+/// into a caller-owned slice (no allocation on the cubic and ideal-gas paths).
+fn vapor_ln_phi_into(
+    spec: &SystemSpec,
+    t: f64,
+    p: f64,
+    y: &[f64],
+    out: &mut [f64],
+) -> Result<(), FlashError> {
+    match spec.vapor {
+        VaporModel::IdealGas => {
+            out.fill(0.0);
+            Ok(())
+        }
+        // The virial path still builds its own Bᵢⱼ matrix internally; flattening
+        // that is Part 2 §9 of the performance audit.
+        VaporModel::Virial => {
+            let v = ln_phi_mix_virial(spec.components, y, t, p)
+                .map_err(|e| FlashError::Thermo(e.to_string()))?;
+            out.copy_from_slice(&v);
+            Ok(())
+        }
+        VaporModel::Cubic(eos) => {
+            ln_phi_mix_into(&spec.mixture_spec(eos), t, p, y, PhaseId::Vapor, out)
+                .map_err(|e| FlashError::Thermo(e.to_string()))
+        }
+    }
+}
+
+/// [`vapor_ln_phi_into`] reusing the cubic vapor's prebuilt pure-component
+/// state. Non-cubic vapors have nothing cached and fall through unchanged.
+fn vapor_ln_phi_cached_into(
+    spec: &SystemSpec,
+    cache: &SystemTpCache,
+    y: &[f64],
+    out: &mut [f64],
+) -> Result<(), FlashError> {
+    match (spec.vapor, &cache.vapor, &cache.virial_b) {
+        (VaporModel::Cubic(eos), Some(tp), _) => {
+            ln_phi_mix_cached_into(&spec.mixture_spec(eos), tp, y, PhaseId::Vapor, out)
+                .map_err(|e| FlashError::Thermo(e.to_string()))
+        }
+        (VaporModel::Virial, _, Some(mat)) => {
+            let mut row_dot: smallvec::SmallVec<[f64; 8]> = smallvec::smallvec![0.0; y.len()];
+            crate::virial::ln_phi_mix_virial_flat_into(mat, y, cache.t, cache.p, &mut row_dot, out);
+            Ok(())
+        }
+        _ => vapor_ln_phi_into(spec, cache.t, cache.p, y, out),
+    }
+}
+
+/// **ln** of the pure-component saturated-vapor fugacity coefficient φᵢˢᵃᵗ at
+/// (T, Psat,ᵢ) — the reference state the γ-φ Poynting correction hangs off.
+/// Zero for an ideal vapor.
+fn pure_sat_ln_phi(spec: &SystemSpec, i: usize, t: f64, psat_i: f64) -> f64 {
     let comp = &spec.components[i];
-    let ln_phi = match spec.vapor {
+    match spec.vapor {
         VaporModel::IdealGas => 0.0,
         VaporModel::Virial => ln_phi_pure_virial(comp, t, psat_i),
         VaporModel::Cubic(eos) => ln_phi_pure(eos, t, psat_i, comp, PhaseId::Vapor).unwrap_or(0.0),
-    };
-    ln_phi.exp()
+    }
 }
 
 /// Equilibrium ratios `Kᵢ = yᵢ/xᵢ` for the mixture at `(t, p)` given trial
@@ -143,27 +288,198 @@ pub fn k_values(
     x: &[f64],
     y: &[f64],
 ) -> Result<Vec<f64>, FlashError> {
+    let mut k = vec![0.0; spec.n()];
+    ln_k_values_into(spec, t, p, x, y, &mut k)?;
+    // Only here — at the API boundary — do the logs become ratios.
+    for ki in k.iter_mut() {
+        *ki = ki.exp();
+    }
+    Ok(k)
+}
+
+/// [`ln_k_values_into`] reusing a prebuilt [`SystemTpCache`].
+///
+/// Identical result. What it skips per call: both phases' per-component α and
+/// dimensionless-parameter pass (audit Part 2 §1), and — on the γ-φ path — the
+/// per-component `Psat`, `φˢᵃᵗ` and Poynting evaluations plus the activity
+/// model's temperature-dependent matrix rebuild (Part 2 §5). All of it is
+/// composition-independent, and the flash calls this once per outer iteration.
+///
+/// # Errors
+/// As [`ln_k_values_into`]; additionally [`FlashError::Dimension`] if the cache
+/// was not built for the same `(t, p)`.
+pub(crate) fn ln_k_values_cached_into(
+    spec: &SystemSpec,
+    cache: &SystemTpCache,
+    x: &[f64],
+    y: &[f64],
+    out: &mut [f64],
+) -> Result<(), FlashError> {
     let n = spec.n();
-    if x.len() != n || y.len() != n {
+    if x.len() != n || y.len() != n || out.len() != n {
         return Err(FlashError::Dimension(format!(
-            "components={n}, x={}, y={}",
+            "components={n}, x={}, y={}, out={}",
             x.len(),
-            y.len()
+            y.len(),
+            out.len()
         )));
     }
-    let vap = vapor_ln_phi(spec, t, p, y)?;
+    type Scratch = smallvec::SmallVec<[f64; 8]>;
+    let (t, p) = (cache.t, cache.p);
+    vapor_ln_phi_cached_into(spec, cache, y, out)?;
+
+    match spec.liquid {
+        LiquidModel::Cubic(eos) => {
+            let mut liq: Scratch = smallvec::smallvec![0.0; n];
+            match &cache.liquid {
+                Some(tp) => ln_phi_mix_cached_into(
+                    &spec.mixture_spec(eos),
+                    tp,
+                    x,
+                    PhaseId::Liquid,
+                    &mut liq,
+                )
+                .map_err(|e| FlashError::Thermo(e.to_string()))?,
+                None => {
+                    ln_phi_mix_into(&spec.mixture_spec(eos), t, p, x, PhaseId::Liquid, &mut liq)
+                        .map_err(|e| FlashError::Thermo(e.to_string()))?
+                }
+            }
+            for i in 0..n {
+                out[i] = liq[i] - out[i];
+            }
+            Ok(())
+        }
+
+        // γ-φ: everything except ln γ and the vapor ln φ̂ is precomputed, so
+        // this collapses to `ln Kᵢ = ln γᵢ + constᵢ − ln φ̂ᵢⱽ`.
+        LiquidModel::Activity(model) => {
+            let mut ln_gamma: Scratch = smallvec::smallvec![0.0; n];
+            match &cache.activity {
+                Some(act) => act.ln_gamma_all(
+                    model,
+                    x,
+                    spec.aij,
+                    spec.alpha,
+                    spec.vl,
+                    spec.delta,
+                    t,
+                    &mut ln_gamma,
+                ),
+                None => ln_gamma_all(
+                    model,
+                    x,
+                    spec.aij,
+                    spec.alpha,
+                    spec.vl,
+                    spec.delta,
+                    t,
+                    &mut ln_gamma,
+                ),
+            }
+            gamma_phi_ln_k_cached_into(cache, &ln_gamma, out)
+        }
+        LiquidModel::IdealSolution => {
+            let ln_gamma: Scratch = smallvec::smallvec![0.0; n]; // γ = 1
+            gamma_phi_ln_k_cached_into(cache, &ln_gamma, out)
+        }
+
+        LiquidModel::ChaoSeader => {
+            for (slot, comp) in out.iter_mut().zip(spec.components) {
+                let ln_nu = crate::eos::chao_seader_ln_phi(
+                    t,
+                    p,
+                    comp,
+                    crate::eos::ChaoSeaderSpecies::Normal,
+                );
+                *slot = ln_nu - *slot;
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Modified-Raoult **ln** K from a ln γ vector and the cache's precomputed
+/// `ln Psat + ln φˢᵃᵗ + ln POY − ln P`. `slot` arrives holding the vapor
+/// `ln φ̂ᵢⱽ` and leaves holding `ln Kᵢ`.
+fn gamma_phi_ln_k_cached_into(
+    cache: &SystemTpCache,
+    ln_gamma: &[f64],
+    slot: &mut [f64],
+) -> Result<(), FlashError> {
+    if cache.gamma_phi_const.len() != slot.len() {
+        return Err(FlashError::Dimension(format!(
+            "γ-φ cache has {} entries, need {}",
+            cache.gamma_phi_const.len(),
+            slot.len()
+        )));
+    }
+    for i in 0..slot.len() {
+        slot[i] = ln_gamma[i] + cache.gamma_phi_const[i] - slot[i];
+    }
+    Ok(())
+}
+
+/// **ln** of the equilibrium ratios, written into a caller-owned slice.
+///
+/// This is the primitive [`k_values`] is built from, and the one every flash
+/// driver should call: equilibrium models produce ln φ̂, ln γ and ln Psat
+/// natively, so exponentiating each term only to divide the products — and
+/// then taking a logarithm again to form the flash's ln-K residual — is pure
+/// added cost and added numerical range (Part 1 §2 of the performance audit).
+/// The flash exponentiates exactly once per iteration, where Rachford-Rice
+/// genuinely needs `Kᵢ` rather than `ln Kᵢ`.
+///
+/// Model dispatch is identical to [`k_values`]; the assembly is additive:
+/// - **φ-φ**: `ln Kᵢ = ln φ̂ᵢᴸ(x) − ln φ̂ᵢⱽ(y)`
+/// - **γ-φ**: `ln Kᵢ = ln γᵢ + ln Psatᵢ + ln φᵢˢᵃᵗ + ln POYᵢ − ln φ̂ᵢⱽ − ln P`
+/// - **Chao-Seader**: `ln Kᵢ = ln νᵢᴸ − ln φ̂ᵢⱽ`
+///
+/// `t` in **K**, `p` in **kPa absolute**; `out` receives one **dimensionless**
+/// `ln Kᵢ` per component.
+///
+/// # Errors
+/// [`FlashError::Dimension`] on any length mismatch (including `out`);
+/// [`FlashError::Thermo`] if a fugacity or saturation evaluation fails.
+pub fn ln_k_values_into(
+    spec: &SystemSpec,
+    t: f64,
+    p: f64,
+    x: &[f64],
+    y: &[f64],
+    out: &mut [f64],
+) -> Result<(), FlashError> {
+    let n = spec.n();
+    if x.len() != n || y.len() != n || out.len() != n {
+        return Err(FlashError::Dimension(format!(
+            "components={n}, x={}, y={}, out={}",
+            x.len(),
+            y.len(),
+            out.len()
+        )));
+    }
+    // Vapor ln φ̂ lands in `out` first, then each branch subtracts it in place
+    // — one N-wide scratch buffer instead of two owned vectors per call.
+    // `Scratch` stays inline (no heap) for the mixture sizes this engine
+    // targets; larger mixtures spill transparently.
+    type Scratch = smallvec::SmallVec<[f64; 8]>;
+    vapor_ln_phi_into(spec, t, p, y, out)?;
 
     match spec.liquid {
         // --- φ-φ: EOS both phases ---
         LiquidModel::Cubic(eos) => {
-            let liq = ln_phi_mix(&spec.mixture_spec(eos), t, p, x, PhaseId::Liquid)
+            let mut liq: Scratch = smallvec::smallvec![0.0; n];
+            ln_phi_mix_into(&spec.mixture_spec(eos), t, p, x, PhaseId::Liquid, &mut liq)
                 .map_err(|e| FlashError::Thermo(e.to_string()))?;
-            Ok((0..n).map(|i| (liq[i] - vap[i]).exp()).collect())
+            for i in 0..n {
+                out[i] = liq[i] - out[i];
+            }
+            Ok(())
         }
 
         // --- γ-φ: activity-model liquid ---
         LiquidModel::Activity(model) => {
-            let mut ln_gamma = vec![0.0; n];
+            let mut ln_gamma: Scratch = smallvec::smallvec![0.0; n];
             ln_gamma_all(
                 model,
                 x,
@@ -174,11 +490,11 @@ pub fn k_values(
                 t,
                 &mut ln_gamma,
             );
-            gamma_phi_k(spec, t, p, &ln_gamma, &vap)
+            gamma_phi_ln_k_into(spec, t, p, &ln_gamma, out)
         }
         LiquidModel::IdealSolution => {
-            let ln_gamma = vec![0.0; n]; // γ = 1
-            gamma_phi_k(spec, t, p, &ln_gamma, &vap)
+            let ln_gamma: Scratch = smallvec::smallvec![0.0; n]; // γ = 1
+            gamma_phi_ln_k_into(spec, t, p, &ln_gamma, out)
         }
 
         // --- Chao-Seader liquid fugacity coefficient νᵢ ---
@@ -186,18 +502,16 @@ pub fn k_values(
             // νᵢ = fᵢᴸ/(xᵢP); with the vapor φ̂ᵢⱽ, Kᵢ = νᵢ/φ̂ᵢⱽ. Species set
             // defaults to Normal (H₂/methane special-casing is a caller
             // concern handled through the pure binding).
-            let ks: Vec<f64> = (0..n)
-                .map(|i| {
-                    let ln_nu = crate::eos::chao_seader_ln_phi(
-                        t,
-                        p,
-                        &spec.components[i],
-                        crate::eos::ChaoSeaderSpecies::Normal,
-                    );
-                    (ln_nu - vap[i]).exp()
-                })
-                .collect();
-            Ok(ks)
+            for (slot, comp) in out.iter_mut().zip(spec.components) {
+                let ln_nu = crate::eos::chao_seader_ln_phi(
+                    t,
+                    p,
+                    comp,
+                    crate::eos::ChaoSeaderSpecies::Normal,
+                );
+                *slot = ln_nu - *slot;
+            }
+            Ok(())
         }
     }
 }
@@ -220,6 +534,33 @@ pub fn min_gibbs_ln_phi(
     p: f64,
     w: &[f64],
 ) -> Result<Vec<f64>, FlashError> {
+    let mut out = vec![0.0; w.len()];
+    min_gibbs_ln_phi_into(spec, t, p, w, &mut out)?;
+    Ok(out)
+}
+
+/// [`min_gibbs_ln_phi`] written into a caller-owned slice — **no allocation**.
+///
+/// The stability test calls this once per trial-phase iteration, so the owned
+/// return of [`min_gibbs_ln_phi`] was one allocation per iteration per trial.
+/// Both cubic roots are now evaluated against a single shared mixture state
+/// (see [`ln_phi_mix_min_gibbs_into`]) instead of walking the whole mixture
+/// path twice.
+///
+/// # Errors
+/// [`FlashError::Unsupported`] for non-cubic liquid models;
+/// [`FlashError::Thermo`] if neither root is physical at this composition.
+/// [`min_gibbs_ln_phi_into`] reusing a prebuilt [`SystemTpCache`].
+///
+/// The stability test's trial-phase loop calls this every iteration at fixed
+/// `(T, P)`, so this is where Part 1 §8 (one mixture state, both roots) and
+/// Part 2 §1 (one pure-component pass per state point) compound.
+pub(crate) fn min_gibbs_ln_phi_cached_into(
+    spec: &SystemSpec,
+    cache: &SystemTpCache,
+    w: &[f64],
+    out: &mut [f64],
+) -> Result<(), FlashError> {
     let eos = match spec.liquid {
         LiquidModel::Cubic(eos) => eos,
         _ => {
@@ -228,49 +569,61 @@ pub fn min_gibbs_ln_phi(
             ));
         }
     };
-    let ms = spec.mixture_spec(eos);
-    // Try both roots; keep whichever gives the lower reduced Gibbs energy.
-    let mut best: Option<(f64, Vec<f64>)> = None;
-    for phase in [PhaseId::Liquid, PhaseId::Vapor] {
-        if let Ok(lnphi) = ln_phi_mix(&ms, t, p, w, phase) {
-            let g: f64 = (0..w.len())
-                .filter(|&i| w[i] > 0.0)
-                .map(|i| w[i] * (w[i].ln() + lnphi[i]))
-                .sum();
-            if best.as_ref().is_none_or(|(bg, _)| g < *bg) {
-                best = Some((g, lnphi));
-            }
-        }
+    match &cache.liquid {
+        Some(tp) => ln_phi_mix_min_gibbs_cached_into(&spec.mixture_spec(eos), tp, w, out)
+            .map_err(|e| FlashError::Thermo(e.to_string())),
+        None => min_gibbs_ln_phi_into(spec, cache.t, cache.p, w, out),
     }
-    best.map(|(_, lnphi)| lnphi)
-        .ok_or_else(|| FlashError::Thermo("no physical root at composition".into()))
 }
 
-/// Modified-Raoult K-values from a ln γ vector and the vapor ln φ̂.
-fn gamma_phi_k(
+pub fn min_gibbs_ln_phi_into(
+    spec: &SystemSpec,
+    t: f64,
+    p: f64,
+    w: &[f64],
+    out: &mut [f64],
+) -> Result<(), FlashError> {
+    let eos = match spec.liquid {
+        LiquidModel::Cubic(eos) => eos,
+        _ => {
+            return Err(FlashError::Unsupported(
+                "min-Gibbs ln φ is defined only for a cubic (φ-φ) system".into(),
+            ));
+        }
+    };
+    ln_phi_mix_min_gibbs_into(&spec.mixture_spec(eos), t, p, w, out)
+        .map_err(|e| FlashError::Thermo(e.to_string()))
+}
+
+/// Modified-Raoult **ln** K from a ln γ vector, assembled additively in place.
+///
+/// `slot` arrives holding the vapor `ln φ̂ᵢⱽ` and leaves holding `ln Kᵢ` —
+/// every term enters as a logarithm, so the whole modified-Raoult expression
+/// `Kᵢ = γᵢ·Psatᵢ·φᵢˢᵃᵗ·POYᵢ / (φ̂ᵢⱽ·P)` becomes a sum with no intermediate
+/// `exp` (Part 1 §2 of the performance audit).
+fn gamma_phi_ln_k_into(
     spec: &SystemSpec,
     t: f64,
     p: f64,
     ln_gamma: &[f64],
-    vap: &[f64],
-) -> Result<Vec<f64>, FlashError> {
+    slot: &mut [f64],
+) -> Result<(), FlashError> {
     let n = spec.n();
     let have_vl = spec.vl.len() == n;
-    let mut k = Vec::with_capacity(n);
+    let ln_p = p.ln();
     for i in 0..n {
         let psat_i = psat(spec.sat_model(i), &spec.components[i], t)
             .map_err(|e| FlashError::Thermo(e.to_string()))?;
-        let phi_sat = pure_sat_phi(spec, i, t, psat_i);
-        let poy = if have_vl {
-            poynting_factor(&spec.components[i], p, psat_i, t)
+        let ln_phi_sat = pure_sat_ln_phi(spec, i, t, psat_i);
+        let ln_poy = if have_vl {
+            ln_poynting_factor(&spec.components[i], p, psat_i, t)
         } else {
-            1.0
+            0.0
         };
-        // Kᵢ = γᵢ·Psat·φˢᵃᵗ·POY / (φ̂ᵢⱽ·P).
-        let numer = ln_gamma[i].exp() * psat_i * phi_sat * poy;
-        k.push(numer / (vap[i].exp() * p));
+        // ln Kᵢ = ln γᵢ + ln Psat + ln φˢᵃᵗ + ln POY − ln φ̂ᵢⱽ − ln P.
+        slot[i] = ln_gamma[i] + psat_i.ln() + ln_phi_sat + ln_poy - slot[i] - ln_p;
     }
-    Ok(k)
+    Ok(())
 }
 
 // ===========================================================================
@@ -718,6 +1071,102 @@ mod tests {
                 k[i],
                 raoult
             );
+        }
+    }
+
+    /// `k_values` is now a thin `exp` over [`ln_k_values_into`], so the two
+    /// must agree exactly — on both thermodynamic paths.
+    #[test]
+    fn ln_k_values_into_matches_k_values() {
+        let comps = [n_butane(), n_heptane()];
+        let x = [0.3, 0.7];
+        let y = [0.6, 0.4];
+
+        // φ-φ.
+        let phi_phi = classical(&comps, &[]);
+        // γ-φ with a real activity model, Poynting on, cubic vapor — the path
+        // whose K assembly moved from products of exponentials to a log sum.
+        let aij = vec![vec![0.0, 1200.0], vec![-300.0, 0.0]];
+        let vl = [100.4, 147.5];
+        let mut a = n_butane();
+        a.liquid_volume = 100.4;
+        let mut b = n_heptane();
+        b.liquid_volume = 147.5;
+        let gp_comps = [a, b];
+        let gamma_phi = SystemSpec {
+            components: &gp_comps,
+            vapor: VaporModel::Cubic(CubicEos::PR1976),
+            liquid: LiquidModel::Activity(ActivityModel::Wilson),
+            mixing_rule: MixingRule::Classical,
+            kij: &[],
+            aij: &aij,
+            alpha: &[],
+            vl: &vl,
+            delta: &[],
+            sat_models: &[],
+            ge_model: None,
+        };
+
+        for (label, spec) in [("φ-φ", phi_phi), ("γ-φ", gamma_phi)] {
+            let k = k_values(&spec, 400.0, 500.0, &x, &y).unwrap();
+            let mut ln_k = vec![0.0; 2];
+            ln_k_values_into(&spec, 400.0, 500.0, &x, &y, &mut ln_k).unwrap();
+            for i in 0..2 {
+                assert_eq!(ln_k[i].exp(), k[i], "{label}: K[{i}] disagrees");
+            }
+        }
+    }
+
+    /// `ln_k_values_into` must reject a wrongly-sized output slice rather than
+    /// writing past the caller's buffer or silently filling part of it.
+    #[test]
+    fn ln_k_values_into_checks_output_length() {
+        let comps = [n_butane(), n_heptane()];
+        let spec = classical(&comps, &[]);
+        let mut too_small = vec![0.0; 1];
+        assert!(matches!(
+            ln_k_values_into(
+                &spec,
+                400.0,
+                500.0,
+                &[0.3, 0.7],
+                &[0.6, 0.4],
+                &mut too_small
+            ),
+            Err(FlashError::Dimension(_))
+        ));
+    }
+
+    /// The min-Gibbs root selection now builds one shared mixture state and
+    /// evaluates both roots against it. That must give bit-identical answers to
+    /// walking the whole mixture path once per root.
+    #[test]
+    fn min_gibbs_matches_independent_two_root_evaluation() {
+        use crate::mixture::ln_phi_mix;
+        let comps = [n_butane(), n_heptane()];
+        let spec = classical(&comps, &[]);
+        let ms = spec.mixture_spec(CubicEos::RKS1972);
+        // A state with two distinct physical roots, so the choice is real.
+        let (t, p) = (400.0, 1500.0);
+        for w in [[0.5, 0.5], [0.9, 0.1], [0.15, 0.85]] {
+            let got = min_gibbs_ln_phi(&spec, t, p, &w).unwrap();
+            // Reference: evaluate each root independently and pick the lower g.
+            let mut best: Option<(f64, Vec<f64>)> = None;
+            for phase in [PhaseId::Liquid, PhaseId::Vapor] {
+                if let Ok(lnphi) = ln_phi_mix(&ms, t, p, &w, phase) {
+                    let g: f64 = (0..w.len())
+                        .filter(|&i| w[i] > 0.0)
+                        .map(|i| w[i] * (w[i].ln() + lnphi[i]))
+                        .sum();
+                    if best.as_ref().is_none_or(|(bg, _)| g < *bg) {
+                        best = Some((g, lnphi));
+                    }
+                }
+            }
+            let expect = best.expect("a physical root exists here").1;
+            for i in 0..w.len() {
+                assert_eq!(got[i], expect[i], "w={w:?} comp {i}");
+            }
         }
     }
 

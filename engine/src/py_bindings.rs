@@ -1321,7 +1321,10 @@ use crate::mixing::MixingRule;
 /// `ValueError`; numerical failures become `RuntimeError`.
 fn map_flash_err(e: FlashError) -> PyErr {
     match e {
+        // Bad-argument errors surface as Python `ValueError`; genuine runtime
+        // failures (non-convergence, thermodynamic breakdown) as `RuntimeError`.
         FlashError::Dimension(_)
+        | FlashError::InvalidInput(_)
         | FlashError::Unsupported(_)
         | FlashError::NoRachfordRiceRoot { .. } => PyValueError::new_err(e.to_string()),
         _ => PyRuntimeError::new_err(e.to_string()),

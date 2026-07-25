@@ -52,7 +52,8 @@ mod incipient;
 mod system;
 
 pub use system::{
-    KValueDerivs, SystemSpec, k_values, k_values_with_derivs, phase_enthalpy_entropy,
+    KValueDerivs, SystemSpec, k_values, k_values_with_derivs, ln_k_values_into,
+    phase_enthalpy_entropy,
 };
 
 /// Errors from the flash / equilibrium layer.
@@ -61,6 +62,13 @@ pub enum FlashError {
     /// Input slice lengths disagree (components vs composition vs K vs kij).
     #[error("dimension mismatch: {0}")]
     Dimension(String),
+    /// An argument is shaped correctly but numerically invalid — a non-finite
+    /// or negative mole fraction, a non-positive or non-finite Kᵢ, an empty
+    /// mixture, or a non-positive tolerance. Caught at the API boundary so a
+    /// bad input surfaces as a clear error instead of a silent NaN that only
+    /// shows up as a non-convergence hundreds of iterations later.
+    #[error("invalid input: {0}")]
+    InvalidInput(String),
     /// An iteration hit its cap without meeting the tolerance.
     #[error("{what} did not converge in {iters} iterations (residual {residual:.3e})")]
     NoConvergence {

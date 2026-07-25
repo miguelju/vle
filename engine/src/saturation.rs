@@ -324,8 +324,26 @@ pub fn boiling_temperature(
 /// Dimensionless Poynting factor. (Unit factor 1e-3 converts cm³·kPa to J;
 /// R = 8.31451 J/(mol·K).)
 pub fn poynting_factor(comp: &Component, p: f64, psat: f64, t: f64) -> f64 {
+    ln_poynting_factor(comp, p, psat, t).exp()
+}
+
+/// The **logarithm** of the Poynting factor, `V_L·(P − Psat)/(R·T)`.
+///
+/// The γ-φ K-value assembly works entirely in log space (Part 1 §2 of the
+/// performance audit): `ln Kᵢ = ln γᵢ + ln Psatᵢ + ln φᵢˢᵃᵗ + ln POYᵢ −
+/// ln φ̂ᵢⱽ − ln P`. Exposing the exponent directly means that path never
+/// computes `exp` only to immediately take `ln` of the result — and it is what
+/// [`poynting_factor`] is defined in terms of, so the two cannot drift.
+///
+/// # Arguments
+/// As [`poynting_factor`]: `comp` supplies V_L in **cm³/mol**, `p` and `psat`
+/// are in **kPa**, `t` in **K**.
+///
+/// # Returns
+/// `ln POY`, **dimensionless**.
+pub fn ln_poynting_factor(comp: &Component, p: f64, psat: f64, t: f64) -> f64 {
     const R: f64 = 8.31451; // J/(mol·K) = kJ/(kmol·K)
-    (comp.liquid_volume * (p - psat) * 1e-3 / (R * t)).exp()
+    comp.liquid_volume * (p - psat) * 1e-3 / (R * t)
 }
 
 /// Local "pseudo-Antoine" fit: three Antoine coefficients `[a1, a2, a3]` that

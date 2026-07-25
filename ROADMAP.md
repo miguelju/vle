@@ -578,4 +578,75 @@ verified feasibility spike; the single-threaded/rayon decomposition):
 
 ---
 
+## Performance Track: External Audit Response — **Part 1 done**
+**Goal**: Act on the 2026-07 external performance audit
+([`optimizations_audit.md`](optimizations_audit.md)) with measured evidence rather
+than by assertion.
+*No new MODERNIZATION_PLAN phase — this refines Phase 15 (§F/§I/§J) in place.*
+
+*Parts 1 and 2 executed by Claude Code using Claude Opus 5 (1M context).*
+
+Plan of record: [`OPTIMIZATION_PLAN_PART1.md`](OPTIMIZATION_PLAN_PART1.md).
+Provenance and lessons: [`OPTIMIZATION_AUDIT_HISTORY.md`](OPTIMIZATION_AUDIT_HISTORY.md).
+
+- [x] Extend the criterion suite with multicomponent flash coverage — `flash_multi`
+      group in `engine/benches/engine_bench.rs`, measuring the inner Rachford-Rice
+      solve, one K-value evaluation, the whole driver, and the TPD stability test
+      **separately** at n = 2, 4, 6, 8, so the audit's central claim is testable
+- [x] Baseline captured; audit's headline confirmed — Rachford-Rice is 1–15 % of the
+      flash, K-value thermodynamics ~70 %
+- [x] Part 1 §1/§2 — `FlashWorkspace` (private), `ln_phi_mix_into`,
+      `ln_k_values_into`, `ln_poynting_factor`, `wilson_ln_k`; the flash iterates on
+      `ln K` end-to-end and allocates once per solve instead of ~5× per iteration
+- [x] Part 1 §3 — RR safeguards: boundary-only input validation, absent/degenerate
+      component filtering in the pole bracket, scale-aware Halley acceptance,
+      scale-safe pole nudge, bracket-width stop criterion, Brent bracket-halving
+- [x] Part 1 §5 — GDEM trust region (μ < 0.95, gain ≤ 4, |ln K| ≤ 80, trial buffer,
+      retrospective residual-decrease rollback)
+- [x] Part 1 §7/§8 — one shared mixture state for both cubic roots
+      (`ln_phi_mix_min_gibbs_into`), `TrialWorkspace`, explicit `zᵢ ≤ 0` rejection
+- [x] **Benchmarked and reverted** — two audit recommendations that regressed this
+      engine: precomputing `cᵢ = Kᵢ − 1` / `zᵢcᵢ` (+30…+200 %) and the f(0)/f(1)
+      physical-bracket probe (+25…+200 %). Reasoning preserved in-code at both sites
+- [x] Rejected — Part 1 §4 (SIMD/unrolling): wrong `n` regime for this engine
+- [x] Result: isothermal flash **−12…−15 %**, stability **−36…−46 %**, γ-φ K-values
+      **−16 %**; 196 Rust tests + 450 Python tests green, Chapter IV validation intact
+- [x] Corrected `MODERNIZATION_PLAN.md`'s Milestone 9 claim that the §J Newton finish
+      shipped — it never did (`ROADMAP.md`'s checkbox was right all along)
+- [x] **Part 2 — Global Package Optimization** (high-value subset). Plan of record:
+      [`OPTIMIZATION_PLAN_PART2.md`](OPTIMIZATION_PLAN_PART2.md)
+  - [x] `mixture` bench group added — `mixture_params` vs `z_mix` vs `ln_phi_mix`
+        at n = 2, 4, 8, plus the composition-Jacobian, activity and virial paths.
+        Showed `mixture_params` is 40–57 % of `ln_phi_mix`, i.e. ~30–40 % of the
+        flash, and almost all of it composition-*independent*
+  - [x] Part 2 §1 — `mixture::TpCache` (public) + `flash::SystemTpCache`
+        (crate-internal): pure-component EOS parameters, γ-φ `Psat`/`φˢᵃᵗ`/Poynting
+        constants and the virial `Bᵢⱼ` built **once per (T, P)** instead of twice
+        per outer iteration. Done by making `pure_params` an *input* to the mixing
+        algebra, so the rules stay written once for both f64 and dual paths
+  - [x] Part 2 §5 — `activity::ActivityTpCache` (flat Wilson Λ, NRTL τ/G/τG); NRTL
+        drops from an O(n³)-`exp` per-component path to O(n²) — **−68 %**
+  - [x] Part 2 §9 — flat, single-pass virial `Bᵢⱼ` — **−21 %**
+  - [x] Part 2 §4 — √Aᵢ/√Bᵢ hoisted out of the n² mixing loop, built only for the
+        rules that use them
+  - [x] **The finding the audit missed**: `quad_a` took its cross-parameter closure
+        as `&dyn Fn`, i.e. n² *indirect* calls per mixture evaluation. Removing the
+        square roots from inside a vtable call barely moved the benchmark;
+        monomorphizing the loop is what paid. (Audit §12 had the right instinct
+        aimed at the wrong place.)
+  - [x] Rejected with reasons: §2 (`Component` SoA — public type across PyO3/FFI/wasm,
+        and §1 removes the motivation), §3 for `kij` (API break, LLVM already hoists
+        the row pointer), §8 (Broyden has **no production callers**, and the
+        Sherman–Morrison inverse update is the correct structure), §11 (no measured
+        contention), §12 as written (function pointers *prevent* inlining), §13's
+        `unsafe` (principle already adopted in Part 1 without it)
+  - [x] Result, cumulative with Part 1: isothermal flash **−24…−28 %**, stability
+        **−44…−51 %**; 291 Rust tests + 450 Python tests green, Chapter IV intact
+- [ ] Deferred, each as its own change: audit Part 2 §6 (const-generic dual for
+      composition derivatives — Wong-Sandler is 5.1× the analytic path, the largest
+      remaining algorithmic win), §7, §10; and from Part 1 the §J Newton finish (§6),
+      multi-seed stability (§7), the analytic envelope Jacobian (§9 — benchmark first)
+
+---
+
 **Status key**: `[✓]` complete · `[ ]` not started · `[~]` in progress

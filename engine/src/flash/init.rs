@@ -40,7 +40,24 @@ const WILSON_C: f64 = 5.373;
 /// # Returns
 /// `Kᵢ = yᵢ/xᵢ` estimate, **dimensionless**.
 pub fn wilson_k(comp: &Component, t: f64, p: f64) -> f64 {
-    (comp.pc / p) * (WILSON_C * (1.0 + comp.omega) * (1.0 - comp.tc / t)).exp()
+    wilson_ln_k(comp, t, p).exp()
+}
+
+/// **ln** of the Wilson K-value estimate — `ln(Pc/P) + C·(1+ω)·(1 − Tc/T)`.
+///
+/// The isothermal flash iterates on `ln K` throughout (Part 1 §2 of the
+/// performance audit), so it seeds from this directly rather than taking the
+/// logarithm of [`wilson_k`]'s exponential. [`wilson_k`] is defined in terms of
+/// this function, so the two cannot drift apart.
+///
+/// # Arguments
+/// As [`wilson_k`]: `comp` supplies `tc` in **K** and `pc` in **kPa** plus the
+/// acentric factor; `t` in **K**, `p` in **kPa absolute**.
+///
+/// # Returns
+/// `ln Kᵢ`, **dimensionless**.
+pub fn wilson_ln_k(comp: &Component, t: f64, p: f64) -> f64 {
+    (comp.pc / p).ln() + WILSON_C * (1.0 + comp.omega) * (1.0 - comp.tc / t)
 }
 
 /// Wilson K-value estimates for every component in a mixture.
