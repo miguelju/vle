@@ -1,4 +1,14 @@
-# macOS self-hosted runner (Mac mini M1, persistent)
+# macOS self-hosted runner (Mac mini M1, persistent) — **RETIRED**
+
+> **No workflow targets this runner as of v0.12.0.** The macOS wheel now
+> builds on GitHub-hosted `macos-14`, which is free and unlimited for public
+> repositories. This document is kept for reference and in case a future job
+> genuinely needs Apple hardware (e.g. signed/notarized artifacts, or the
+> local-only iOS build chain). To decommission `vle-mac-01`, follow the
+> runbook in the maintainer's global notes: stop and disable the
+> `actions.runner.*` service, confirm the runner shows offline via
+> `gh api repos/miguelju/vle/actions/runners`, then `DELETE` it by id.
+
 
 This is the recipe for the **macOS arm64 self-hosted GitHub Actions
 runner** that builds the macOS wheel in our CI matrix. Unlike the

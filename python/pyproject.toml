@@ -115,6 +115,12 @@ build-verbosity = 1
 # notes for the rationale (negligible Intel macOS install base; easy to
 # add later if a user reports needing it).
 archs = ["arm64"]
+# Pinned so the wheel's platform tag never depends on which macOS the runner
+# happens to run. cibuildwheel's arm64 default *is* 11.0 today, but leaving it
+# implicit means a runner-image bump could silently retag the wheel
+# `macosx_14_0_arm64` and drop macOS 11-13 users. Explicit costs nothing and
+# makes the hosted/self-hosted runner choice provably tag-neutral.
+environment = { MACOSX_DEPLOYMENT_TARGET = "11.0" }
 
 [tool.cibuildwheel.linux]
 # `auto64` is "the runner's native 64-bit arch" — x86_64 on the self-hosted

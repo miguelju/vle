@@ -1,15 +1,37 @@
 # CI/CD Overview
 
-This project uses a **hybrid three-runner-type** CI architecture: some
-jobs run on self-hosted hardware (a Proxmox LXC for Linux x86_64 and a
-Mac mini M1 for macOS arm64), and the rest run on GitHub-hosted runners
-(Linux arm64, Windows, all publish jobs). The split balances cost,
-latency, and the need to keep secrets off lab hardware.
+**Everything runs on GitHub-hosted runners except one job.** This repo is
+public, and standard GitHub-hosted runners are free and unlimited on public
+repositories — macOS and arm64 included (the billing split is
+standard-vs-larger runners, not Linux-vs-macOS). So the wheel matrix, lint and
+tests have no reason to touch lab hardware.
+
+The single exception is `bench-rust`, the informational criterion benchmark,
+which stays on a self-hosted Linux runner because benchmark deltas need a
+quiet dedicated machine — measured drift on a dedicated idle box is already
+±3–5 % between sessions, and a shared hosted VM would swamp the signal.
+
+**This changed in v0.12.0.** The linux-x86_64 and macOS-arm64 wheel builds and
+`test-rust` used to run self-hosted. That bought nothing and cost two real
+things:
+
+1. **Serialization.** The self-hosted Linux runner is ephemeral (one job per
+   container), so a tag push racing a `main` push put the release third in
+   line behind CI's bench job — ~8 minutes of dead wait on the v0.12.0
+   release.
+2. **Blast radius.** cibuildwheel needs Docker for manylinux, so that runner
+   mounted `/var/run/docker.sock` — root-equivalent on the LXC host, on a
+   public repo, with a fork-PR `if:` guard as the only thing in the way.
+
+Wheel compatibility is unchanged: the manylinux image and the macOS
+deployment target are both pinned in `python/pyproject.toml`, so the tags
+(`manylinux_2_28_*`, `macosx_11_0_arm64`) do not depend on the runner.
 
 If you are a maintainer setting up the lab side, read
-[`runners/linux-setup.md`](runners/linux-setup.md) and
-[`runners/macos-setup.md`](runners/macos-setup.md) for one-shot
-provisioning of each self-hosted runner.
+[`runners/linux-setup.md`](runners/linux-setup.md) for the bench runner.
+[`runners/macos-setup.md`](runners/macos-setup.md) is retained for reference
+only — no job targets macOS self-hosted any more, so `vle-mac-01` can be
+decommissioned.
 
 If you are a contributor opening a PR, read on.
 
@@ -31,18 +53,22 @@ directly.
 | Job                   | Runner                                | Ephemerality                                  |
 |-----------------------|---------------------------------------|------------------------------------------------|
 | `lint-rust`           | `ubuntu-latest` (GitHub-hosted)       | Fresh VM per run                                |
-| `test-rust`           | `[self-hosted, linux, x64]`           | **Ephemeral Docker container** (clean per job)  |
-| `build` linux/x86_64  | `[self-hosted, linux, x64]`           | **Ephemeral Docker container**                  |
+| `test-rust`           | `ubuntu-latest` (GitHub-hosted)       | Fresh VM per run                                |
+| `bench-rust`          | `[self-hosted, linux, vle-runner]`    | **Ephemeral Docker container** (clean per job)  |
+| `build` linux/x86_64  | `ubuntu-latest` (GitHub-hosted)       | Fresh VM per run                                |
 | `build` linux/aarch64 | `ubuntu-24.04-arm` (GitHub-hosted)    | Fresh VM per run                                |
-| `build` macOS arm64   | `[self-hosted, macos, arm64]`         | **Persistent** Mac mini M1 (periodic cleanup)   |
+| `build` macOS arm64   | `macos-14` (GitHub-hosted)            | Fresh VM per run                                |
 | `build` windows       | `windows-latest` (GitHub-hosted)      | Fresh VM per run                                |
 | `build-sdist`         | `ubuntu-latest`                       | Fresh VM per run                                |
 | All publish jobs      | `ubuntu-latest`                       | Fresh VM per run                                |
 
-Self-hosted runners are tagged `self-hosted, <os>, <arch>`. Ephemeral
-Linux runners are recreated per job by a containerized runner image
-(see `runners/linux-setup.md`); persistent macOS state means we rely on
-the fork-PR guard below for safety.
+The one self-hosted runner is tagged `self-hosted, Linux, X64, vle-runner`
+— the trailing repo-specific label is what a workflow pins to, so a second
+Linux runner added to this repo later cannot silently steal the job. It is
+recreated per job by a containerized runner image (see
+`runners/linux-setup.md`). Because no job on it needs Docker any more, its
+`/var/run/docker.sock` mount should be removed — that mount existed only for
+cibuildwheel's manylinux container, which now runs hosted.
 
 ## Fork-PR safety
 
@@ -50,13 +76,15 @@ Self-hosted runners share lab hardware. A malicious PR opened from a
 fork could otherwise execute arbitrary code on that hardware. The
 workflows protect against this two ways:
 
-1. **`if:` guard on every self-hosted job**:
+1. **`bench-rust` runs only on `push` / `workflow_dispatch`**:
    ```yaml
-   if: github.event_name != 'pull_request'
-       || github.event.pull_request.head.repo.full_name == github.repository
+   if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
    ```
-   Fork PRs short-circuit before any self-hosted job starts. The job
-   shows as "skipped" rather than running on lab hardware.
+   That *is* the fork-PR guard, not a separate one: a fork's push never
+   triggers this repo's workflows, and a `pull_request` event fails both
+   arms. Since every other job is now hosted, this is the only guard the
+   repo needs — and with the wheel builds hosted, fork contributors get full
+   build + test feedback on their PRs instead of skipped jobs.
 
 2. **Manual approval for outside collaborators** (repo Settings →
    Actions → General → "Require approval for all outside collaborators"):

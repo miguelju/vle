@@ -2,19 +2,33 @@
 # `wheels-${{ inputs.artifact-suffix }}` artifacts. Called by ci.yml
 # (artifact-only smoke build) and release.yml (the actual release matrix).
 #
-# Runners used:
-#   Linux x86_64 -> self-hosted ephemeral Docker runner (Proxmox LXC;
-#                   see docs/runners/linux-setup.md)
-#   Linux arm64  -> GitHub-hosted ubuntu-24.04-arm (free for public repos)
-#   macOS arm64  -> self-hosted persistent Mac mini M1
-#                   (docs/runners/macos-setup.md)
-#   Windows      -> GitHub-hosted windows-latest
+# Runners used — all GitHub-hosted:
+#   Linux x86_64 -> ubuntu-latest
+#   Linux arm64  -> ubuntu-24.04-arm
+#   macOS arm64  -> macos-14
+#   Windows      -> windows-latest
 #
-# Self-hosted matrix entries live in a separate `build-self-hosted` job
-# guarded by a fork-PR `if:` so PRs opened from fork repos never land on
-# lab hardware. Hosted-runner entries live in `build-hosted` and run
-# unconditionally. The job-level `if:` cannot reference matrix context,
-# which is why these are split rather than one job with per-row guards.
+# This repo is PUBLIC, and standard GitHub-hosted runners are free and
+# unlimited on public repositories — macOS and arm64 included (the billing
+# split is standard-vs-larger runners, not Linux-vs-macOS). So the wheel
+# matrix has no reason to touch lab hardware.
+#
+# Wheels built here were previously produced on self-hosted runners for
+# linux-x86_64 and macos-arm64. That was dropped because it bought nothing
+# and cost two real things:
+#   1. Serialization. The self-hosted Linux runner is EPHEMERAL (one job per
+#      container), so a tag push racing a main push put the release third in
+#      line behind CI's bench job — measured at ~8 min of dead wait on the
+#      v0.12.0 release.
+#   2. Blast radius. cibuildwheel needs Docker for manylinux, so that runner
+#      mounted /var/run/docker.sock — root-equivalent on the LXC host, on a
+#      public repo, with a fork-PR `if:` guard as the only thing in the way.
+# Platform tags are unchanged: the manylinux image and the macOS deployment
+# target are both pinned in python/pyproject.toml, so the wheels are
+# byte-for-byte equivalent in compatibility to the self-hosted ones.
+#
+# The one job that stays on lab hardware is ci.yml's criterion bench, where a
+# quiet dedicated machine is the whole point — see the note there.
 
 name: _build
 
@@ -31,86 +45,9 @@ permissions:
   contents: read
 
 jobs:
-  # ----- Self-hosted Linux x64 + macOS arm64 -----
-  # Blocked from running on PRs from forks.
-  build-self-hosted:
-    name: build (${{ matrix.os }}-${{ matrix.arch }} self-hosted)
-    if: >-
-      github.event_name != 'pull_request'
-      || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ${{ matrix.runs-on }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: linux
-            arch: x86_64
-            runs-on: [self-hosted, linux, x64]
-          - os: macos
-            arch: arm64
-            runs-on: [self-hosted, macos, arm64]
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
-        with:
-          # See ci.yml — same belt-and-suspenders. Wheel builds don't
-          # push back to the repo; GITHUB_TOKEN stays out of .git/config.
-          persist-credentials: false
-      - name: Cache cargo registry + git
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: cargo-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
-          restore-keys: |
-            cargo-${{ matrix.os }}-${{ matrix.arch }}-
-      # Linux self-hosted runs inside the myoung34/github-runner Docker
-      # container, which has python+pip baked into the image. We invoke
-      # cibuildwheel directly (`python3 -m cibuildwheel ...`) instead of
-      # via the `pypa/cibuildwheel` composite action: that action
-      # internally references `actions/setup-python@v5` *by tag* (see
-      # cibuildwheel/action.yml), which the repo-level
-      # `sha_pinning_required: true` policy refuses. Direct invocation
-      # avoids the transitive dep entirely; cibuildwheel itself still
-      # downloads target Pythons under ~/.cibuildwheel and builds
-      # against those, so only the outer Python used to *run*
-      # cibuildwheel changes.
-      - name: Build wheel via cibuildwheel (Linux self-hosted, no composite action)
-        if: matrix.os == 'linux'
-        shell: bash
-        env:
-          CIBW_BUILD_VERBOSITY: 1
-        run: |
-          python3 -m pip install --user 'cibuildwheel==2.21.3'
-          python3 -m cibuildwheel --output-dir wheelhouse python
-      # macOS self-hosted bypasses pypa/cibuildwheel's bundled
-      # actions/setup-python call. setup-python's macOS install path shells
-      # out to `sudo installer -pkg ...` to drop Python.framework into
-      # /Library/, which requires NOPASSWD sudo on the runner host. By
-      # invoking cibuildwheel directly against /usr/bin/python3 (Xcode CLT,
-      # Python 3.9+ on every supported macOS), we drop the sudo dependency
-      # entirely — the runner can have sudo locked down or even removed.
-      # cibuildwheel itself still downloads target Pythons under
-      # ~/.cibuildwheel and builds against those, identical to the action's
-      # behavior; only the *outer* Python used to run cibuildwheel changes.
-      - name: Build wheel via cibuildwheel (macOS, no composite action)
-        if: matrix.os == 'macos'
-        shell: bash
-        env:
-          CIBW_BUILD_VERBOSITY: 1
-        run: |
-          /usr/bin/python3 -m pip install --user 'cibuildwheel==2.21.3'
-          /usr/bin/python3 -m cibuildwheel --output-dir wheelhouse python
-      - name: Upload wheels artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6
-        with:
-          name: wheels-${{ matrix.os }}-${{ matrix.arch }}-${{ inputs.artifact-suffix }}
-          path: ./wheelhouse/*.whl
-          if-no-files-found: error
-          retention-days: 14
-
-  # ----- GitHub-hosted Linux arm64 + Windows -----
-  # Runs on every push/PR including fork PRs (no lab exposure).
+  # ----- The whole wheel matrix, all GitHub-hosted -----
+  # Runs on every push/PR including fork PRs — no lab exposure, so no
+  # fork-PR `if:` guard is needed and all four rows run in parallel.
   build-hosted:
     name: build (${{ matrix.os }}-${{ matrix.arch }} hosted)
     runs-on: ${{ matrix.runs-on }}
@@ -119,8 +56,14 @@ jobs:
       matrix:
         include:
           - os: linux
+            arch: x86_64
+            runs-on: ubuntu-latest
+          - os: linux
             arch: aarch64
             runs-on: ubuntu-24.04-arm
+          - os: macos
+            arch: arm64
+            runs-on: macos-14
           - os: windows
             arch: AMD64
             runs-on: windows-latest
@@ -139,12 +82,15 @@ jobs:
           key: cargo-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
           restore-keys: |
             cargo-${{ matrix.os }}-${{ matrix.arch }}-
-      # Hosted runners ship Python on PATH (Ubuntu's `python3`, Windows'
-      # `python`). We pin to actions/setup-python@v6 at a SHA so the
-      # outer cibuildwheel runner is reproducible and visible to the
-      # SHA-pinning policy, then invoke cibuildwheel directly — same
-      # reason as the self-hosted branch above (avoid cibuildwheel's
-      # internal `setup-python@v5` tag reference).
+      # We pin actions/setup-python@v6 at a SHA so the outer cibuildwheel
+      # driver is reproducible and visible to the repo's
+      # `sha_pinning_required: true` policy, then invoke cibuildwheel
+      # directly rather than through the `pypa/cibuildwheel` composite
+      # action: that action internally references `actions/setup-python@v5`
+      # *by tag* (see cibuildwheel/action.yml), which the SHA-pinning policy
+      # refuses. cibuildwheel still downloads its own target Pythons under
+      # ~/.cibuildwheel and builds against those, so only the *outer* Python
+      # that runs cibuildwheel is affected.
       - name: Install Python (for the cibuildwheel driver)
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
         with:

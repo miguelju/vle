@@ -1,11 +1,13 @@
-# CI workflow: every push to main, every PR (except fork-PRs against
-# self-hosted runners, which are gated by the if: in _build.yml), and any
+# CI workflow: every push to main, every PR (fork PRs included), and any
 # manual workflow_dispatch.
 #
 # Jobs:
-#   lint-rust  : cargo fmt + clippy on ubuntu-latest (cheap, public)
-#   test-rust  : cargo test on the self-hosted Linux runner (clean ephemeral
-#                container per run)
+#   lint-rust  : cargo fmt + clippy on ubuntu-latest
+#   test-rust  : cargo test on ubuntu-latest
+#   bench-rust : criterion on the self-hosted Linux runner — the only job in
+#                this repo still on lab hardware, because benchmark deltas
+#                need a quiet dedicated machine. Informational, never blocks,
+#                and skipped for fork PRs.
 #
 # Wheel-matrix smoke build lives in build-smoke.yml (path-filtered to
 # code-affecting commits only). Release / publishing lives in
@@ -75,13 +77,15 @@ jobs:
         # if a specific warning needs to be tolerated.
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+  # `cargo test --workspace --all-targets` is a couple of minutes of CPU with
+  # no special hardware needs, so it runs hosted: free and unlimited on a
+  # public repo, and — unlike the single ephemeral lab runner — it does not
+  # serialize behind whatever else the repo pushed at the same moment.
+  # Running hosted also drops the fork-PR guard this job used to need, so
+  # contributors get test feedback on their PRs instead of a skipped job.
   test-rust:
     name: test (cargo test)
-    runs-on: [self-hosted, linux, x64]
-    # Fork-PR guard: keep PRs from forks off the lab runner.
-    if: >-
-      github.event_name != 'pull_request'
-      || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
@@ -110,10 +114,30 @@ jobs:
   # runner is noise, not signal. criterion compares against whatever
   # baseline is in target/criterion (restored from the cache below), so
   # each main push logs its delta vs the previous main push.
+  #
+  # This is the ONLY job left on lab hardware, deliberately. Criterion deltas
+  # are meaningless on a shared hosted VM: measured drift on a dedicated idle
+  # machine is already +/-3..5% between sessions, and a noisy neighbour would
+  # swamp the signal entirely. A quiet dedicated runner is the whole reason
+  # this job produces a number worth reading.
+  #
+  # It stays safe to leave here because it is `continue-on-error: true`,
+  # never blocks, skips fork PRs, and needs no Docker — so the runner no
+  # longer needs its /var/run/docker.sock mount (that was for cibuildwheel's
+  # manylinux container, which now runs hosted).
   bench-rust:
     name: bench (criterion, informational)
-    runs-on: [self-hosted, linux, x64]
+    # Pinned to the repo-specific `vle-runner` label rather than the generic
+    # `x64`. CT 105 hosts one runner container per repo; a bare
+    # `[self-hosted, linux, x64]` would match any Linux runner that ever gets
+    # added to this repo, which is exactly the ambiguity the per-repo label
+    # exists to remove. The sibling container uses `webpage-runner`.
+    runs-on: [self-hosted, linux, vle-runner]
     continue-on-error: true
+    # Restricting to push/workflow_dispatch IS the fork-PR guard: a fork's
+    # push never triggers this repo's workflows, and a `pull_request` event
+    # fails both arms. No `head.repo.full_name` check needed — adding one
+    # would be dead logic that reads like it is load-bearing.
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
