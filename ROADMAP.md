@@ -406,7 +406,7 @@ computer-program verification tables, asserted to full published precision.
 
 - [x] Milestone notebook `notebooks/12_steam_tables.ipynb` (T–s dome, turbine expansion worked example, flash-steam + reboiler-duty exercises) per Notebook Conventions
 - [x] Follow-on notebook `notebooks/14_pvt_surface.ipynb` — water P–v–T surface showcasing the IF97 regions (build script `scripts/build_notebook_14_pvt.py`; README steam hero via `scripts/render_pvt_hero.py`, `docs/assets/pvt_surface_hero.png`)
-- [x] `steam/README.md` (crates.io page); criterion benches (`steam/benches/steam_bench.rs`, one point per region + PH flash)
+- [x] `steam/README.md` (crates.io page); criterion benches (`steam/benches/steam_bench.rs`) *(broadened 2026-07-25 from 7 single-point benches to 32 across 5 groups — `region`/`boundary`/`saturation`/`inverse`/`sweep`, multi-point per region plus range sweeps; the wider coverage immediately exposed `inverse/ph_vapor` at ~21 µs, 11× `ps_vapor`, because regions 2/3/5 have no IF97 backward `T(p,h)` and fall back to a bracketed Brent solve)*
 - [x] CLAUDE.md release-rule entry (#12) + architecture tree; full doc sync (README, package READMEs, NOTEBOOKS); version bumped workspace-wide to **v0.10.0**; `vle-steam` wired into `publish-crate.sh` + `release.yml`
 - [x] **Operator step:** signed `v0.10.0` tag pushed + published (vle-units → vle-steam → vle-thermo); GitHub Release is Latest (2026-07-08)
 

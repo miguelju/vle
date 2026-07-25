@@ -386,7 +386,7 @@ computer-program verification tables (asserted to 9 sig figs).
 
 - [x] **Follow-on notebook** — `notebooks/14_pvt_surface.ipynb` (build script `scripts/build_notebook_14_pvt.py`): water P–v–T surface showcasing the IF97 regions, plus the README steam hero image (`scripts/render_pvt_hero.py` → `docs/assets/pvt_surface_hero.png`). Shipped in 972c28b but never recorded here until the v0.12.0 doc sweep
 - [x] **Milestone notebook** — `notebooks/12_steam_tables.ipynb` (build script `scripts/build_notebook_m13.py`): saturation-table page, T–s dome plot, isentropic turbine expansion (worked example), flash-steam recovery + reboiler-duty exercises with collapsed solutions; executes top-to-bottom (24 cells)
-- [x] **`steam/README.md`** (crates.io page, compiling example) + criterion benches (`steam/benches/steam_bench.rs`)
+- [x] **`steam/README.md`** (crates.io page, compiling example) + criterion benches (`steam/benches/steam_bench.rs`) *(broadened 2026-07-25: 7 → 32 benches across `region`/`boundary`/`saturation`/`inverse`/`sweep`, multi-point per region + range sweeps, before pointing an external agent at the crate)*
 - [x] **CLAUDE.md release-rule entry (#12) + architecture tree; full doc sync (README, package READMEs, NOTEBOOKS); version bumped to v0.10.0; `vle-steam` wired into `publish-crate.sh` + `release.yml`**
 - [x] **Operator step (YubiKey-gated):** signed `v0.10.0` tag pushed + published (vle-units → vle-steam → vle-thermo); GitHub Release is Latest (2026-07-08)
 
