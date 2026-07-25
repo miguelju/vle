@@ -89,14 +89,14 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 *Executed by Claude Code using Claude Opus 4.7 (1M context)*
 
 - [x] Insert M5 in ROADMAP / TODO / MODERNIZATION_PLAN; renumber M5–M10 → M6–M11 (this milestone's first commit)
-- [x] `.github/workflows/_build.yml` — reusable cibuildwheel matrix (Linux x64 self-hosted ephemeral, Linux arm64 hosted, macOS arm64 self-hosted, Windows hosted), CPython 3.10+ abi3 wheels
+- [x] `.github/workflows/_build.yml` — reusable cibuildwheel matrix (Linux x64, Linux arm64, macOS arm64, Windows — **all GitHub-hosted**), CPython 3.10+ abi3 wheels *(originally Linux x64 + macOS arm64 on self-hosted runners; both moved to GitHub-hosted in v0.12.0 — see `OPTIMIZATION_PLAN_PART2.md` and `docs/ci.md`)*
 - [x] `.github/workflows/ci.yml` — push/PR/dispatch: cargo fmt + clippy + cargo test + wheel matrix as artifact
 - [x] `.github/workflows/release.yml` — `v*` tag: PyPI Trusted Publishing, crates.io publish (1Password-loaded token), GitHub Release *(an M5 auto-deploy job was later removed when the deployment moved to a separate private operator repository — see MODERNIZATION_PLAN.md)*
 - [x] `[tool.cibuildwheel]` block in `python/pyproject.toml` (abi3, manylinux_2_28, pytest against the wheel)
 - [x] First `#[pymodule]` in `engine/` — `vle._engine` exposes `version()` + the four enum types (`CubicEos`, `ActivityModel`, `MixingRule`, `SatPressureModel`); `python/tests/test_engine.py` exercises the boundary
 - [x] `docs/ci.md` — developer overview, ephemerality table, fork-PR guard, retry flow
 - [x] `docs/runners/linux-setup.md` — Proxmox LXC + Docker + `myoung34/github-runner` ephemeral
-- [x] `docs/runners/macos-setup.md` — Mac mini M1 persistent runner via launchd, toolchain bootstrap
+- [x] `docs/runners/macos-setup.md` — Mac mini M1 persistent runner via launchd, toolchain bootstrap *(**RETIRED** in v0.12.0: the macOS wheel builds on hosted `macos-14`; `vle-mac-01` was stopped and deregistered)*
 - [x] Private installer (`deploy/local/auto-deploy/{vle-deploy,install-rocky.sh,install-oracle.sh}`) — restricted `command=`-locked SSH wrapper for tag-pinned deploys
 - [x] Drop `git pull` from `deploy/scripts/deploy.sh` (the deploy wrapper handles tag checkout)
 - [x] Rewrite the CI-driven release section in `PUBLISHING.md`; add "Cutting a release" subsection
