@@ -328,4 +328,4 @@ Carried forward, in the order the evidence supports:
 - [`optimizations_audit.md`](optimizations_audit.md) — the external audit this responds to
 - [`OPTIMIZATION_AUDIT_HISTORY.md`](OPTIMIZATION_AUDIT_HISTORY.md) — provenance, and what the audit got right and wrong
 - [`PERFORMANCE_PROPOSAL.md`](PERFORMANCE_PROPOSAL.md) — the accepted Track A–E plan the audit was asked to critique
-- [`MODERNIZATION_PLAN.md`](MODERNIZATION_PLAN.md) §F, §I, §J — Rachford-Rice, stability, and the SS→Newton scheme
+- [`MODERNIZATION_PLAN.md`](../MODERNIZATION_PLAN.md) §F, §I, §J — Rachford-Rice, stability, and the SS→Newton scheme

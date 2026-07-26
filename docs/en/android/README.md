@@ -3,7 +3,7 @@
 How the Rust engine becomes a Kotlin library (`kotlin/VleThermo`) that an
 **Android app** (Jetpack Compose) and a **Windows desktop app** (Compose
 Multiplatform) consume. The Kotlin sibling of [the iOS guide](../ios/README.md);
-design record: [ANDROID_FFI_PLAN.md](../../../ANDROID_FFI_PLAN.md).
+design record: [ANDROID_FFI_PLAN.md](../../plans/delivery/ANDROID_FFI_PLAN.md).
 
 Everything is **built locally and never committed**: the repo ships source +
 `scripts/build-android.sh`. No CI builds these artifacts, by design.

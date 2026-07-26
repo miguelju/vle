@@ -236,7 +236,7 @@ def build() -> nbf.NotebookNode:
         "- Research paper [Chapter IV §4.1 — Critical Point Calculations](https://github.com/miguelju/vle/blob/main/docs/en/research-paper/chapter-4-validation.md) (Tables 4.1–4.2).\n"
         "- (16) Heidemann, R. A.; Khalil, A. M. *The Calculation of Critical Points.* AIChE J. **1980**, 26 (5), 769.\n"
         "- (15) Peng, D.-Y.; Robinson, D. B. — the reference critical points.\n"
-        "- Algorithm details: [`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/MODERNIZATION_PLAN.md) §G (Analytical / dual-number Helmholtz derivatives) and `engine/src/flash/critical.rs`.\n"
+        "- Algorithm details: [`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/docs/plans/MODERNIZATION_PLAN.md) §G (Analytical / dual-number Helmholtz derivatives) and `engine/src/flash/critical.rs`.\n"
     ))
 
     nb.cells = cells

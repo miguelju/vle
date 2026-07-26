@@ -136,7 +136,7 @@ def build_placeholder(p: Placeholder) -> nbf.NotebookNode:
         "- **ROADMAP.md** — the live status of this sub-milestone. "
         "[`ROADMAP.md`](https://github.com/miguelju/vle/blob/main/ROADMAP.md)\n"
         "- **MODERNIZATION_PLAN.md** — phase-level technical scope. "
-        "[`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/MODERNIZATION_PLAN.md)\n"
+        "[`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/docs/plans/MODERNIZATION_PLAN.md)\n"
         "- **v0.3.0 functional notebook** — what works today. "
         "[`02_pure_component.ipynb`](02_pure_component.ipynb)"
     ))

@@ -1,11 +1,22 @@
 # Steam Tables Plan — `vle-steam` (IAPWS-IF97 water/steam properties)
 
-**Status: PROPOSED — not yet scheduled.** This document is the design/planning
-record for adding an industrial steam-tables capability ("VLE for water only")
-to the vle project. When the work is adopted, it becomes **Milestone 13** and
-the ROADMAP.md / TODO.md / MODERNIZATION_PLAN.md synchronization rules in
-CLAUDE.md apply (new phases, pointers, and reference-list entries in the same
-commit). Nothing in this file has been implemented yet.
+**Status: SHIPPED as Milestone 13 / Phase 20 — released in v0.10.0
+(2026-07-07).** This file remains the *design record* — the formulation
+choice, the alternatives considered, and the rationale. The as-built state
+lives in [ROADMAP.md](../../../ROADMAP.md) Milestone 13 and
+[MODERNIZATION_PLAN.md](../MODERNIZATION_PLAN.md) Phase 20; the code is the
+[`steam/`](../../../steam) crate (`vle-steam` on crates.io, `vle.steam` in the
+wheel). Two later sub-milestones extended it beyond this plan: **13.7**
+(transport properties) and **13.8** (the IF97 performance audit — see
+[`steam_audit.md`](steam_audit.md)).
+
+> **Correction (2026-07-26).** This header previously read *"PROPOSED — not yet
+> scheduled … Nothing in this file has been implemented yet."* That was true when
+> the plan was written on 2026-07-07, and was never updated when the work shipped
+> the same week. It is the mirror image of the failure described in CLAUDE.md
+> *Completion Claims Must Be Verified Against the Code* — a status line that
+> stopped describing the code — caught while building
+> [the Plan & Audit History](../README.md).
 
 ---
 

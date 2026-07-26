@@ -32,7 +32,7 @@ Evaluated for the "Windows desktop + Android app" pair:
 `uniffi-bindgen-cs` (NordSecurity) tops out at **uniffi 0.31** while this
 workspace pins **`uniffi = "0.32"`**, and there are **no plans to downgrade**.
 Status, options, and the full would-be route live in
-[docs/en/dotnet/README.md](docs/en/dotnet/README.md) (dated 2026-07-12 —
+[docs/en/dotnet/README.md](../../en/dotnet/README.md) (dated 2026-07-12 —
 re-check before acting on it).
 
 ## Hard constraints (inherited from M15)
@@ -94,7 +94,7 @@ them to `VleSystem(components:)`), steam tables, and the `VleSystem` object
 
 **Windows leg (for Compose Desktop packaging):** on the Windows machine,
 `cargo build -p vle-ffi --release` produces `vle_ffi.dll`; the desktop app
-bundles it (details in [docs/en/android/README.md](docs/en/android/README.md)).
+bundles it (details in [docs/en/android/README.md](../../en/android/README.md)).
 
 ## Verification ladder (all local)
 

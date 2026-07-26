@@ -1,6 +1,6 @@
 # Project Roadmap
 
-High-level milestones for the VLE modernization project. For actionable tasks with time estimates, see [TODO.md](TODO.md). For full technical details, see [MODERNIZATION_PLAN.md](MODERNIZATION_PLAN.md).
+High-level milestones for the VLE modernization project. For actionable tasks with time estimates, see [TODO.md](TODO.md). For full technical details, see [MODERNIZATION_PLAN.md](docs/plans/MODERNIZATION_PLAN.md).
 
 ---
 
@@ -12,7 +12,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Create Pascal vs VB6 comparison document
 - [x] Create modernization plan with 27 implementation phases *(originally 17; Phase 11 — Performance Foundation — added 2026-07-01; Phase 19 — Downstream Derivative & Database Release — added 2026-07-05; Phase 20 — Steam Tables (IAPWS-IF97) — added 2026-07-07; Phase 21 — NRTL Activity Model + Ammonia — added 2026-07-08; Phase 22 — iOS/macOS FFI via UniFFI — added 2026-07-11; Phase 23 — Android/Kotlin FFI via UniFFI — added 2026-07-12; Phase 24 — Web/JavaScript FFI via wasm-bindgen — added 2026-07-12; Phase 25 — N-Scalable Mixture Core — added 2026-07-25; Phase 26 — Petroleum Characterization — added 2026-07-25; Phase 27 — Refinery Thermodynamics — added 2026-07-25)*
 - [x] Map algorithms to 30 academic references (ACS format) *(originally 22; (23)–(29) added 2026-07-01 with PERFORMANCE_PROPOSAL.md; (30) added 2026-07-05 with DERIVATIVE_RELEASE_PLAN.md)*
-- [x] Propose 8 algorithm performance improvements (A–H) *(extended to §A–§M + Performance Engineering tracks 2026-07-01 — see [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md))*
+- [x] Propose 8 algorithm performance improvements (A–H) *(extended to §A–§M + Performance Engineering tracks 2026-07-01 — see [PERFORMANCE_PROPOSAL.md](docs/plans/engine/PERFORMANCE_PROPOSAL.md))*
 - [x] Initialize git repository
 - [x] Create README, LICENSE (MIT), .gitignore
 - [x] Reorganize repo structure (legacy/, docs/en/, docs/es/)
@@ -196,7 +196,7 @@ validation cases actually use; the rest land in subsequent releases.
 
 Split into sub-milestones (8.1–8.4) mirroring Milestone 7, each independently
 shippable with its own tests and version bump. Sub-milestones 8.2–8.4 were
-restructured 2026-07-01 per [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md):
+restructured 2026-07-01 per [PERFORMANCE_PROPOSAL.md](docs/plans/engine/PERFORMANCE_PROPOSAL.md):
 benchmarks + engine mechanics land first (8.2), then the mixing rules arrive
 together with the analytic/AD derivative architecture (8.3) that Milestone 9's
 Newton loops depend on.
@@ -239,7 +239,7 @@ Newton loops depend on.
 **Goal**: All flash calculations pass Chapter IV validation, with guaranteed-convergence modern algorithms.
 *Phase 15 of MODERNIZATION_PLAN.md*
 
-Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md)); all Newton loops consume the Milestone 8.3 analytic/AD Jacobians.
+Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](docs/plans/engine/PERFORMANCE_PROPOSAL.md)); all Newton loops consume the Milestone 8.3 analytic/AD Jacobians.
 
 *Complete — every flash algorithm, its bindings/tests, the Chapter IV validation, and notebooks 04–08 shipped (Claude Code using Claude Fable 5).*
 
@@ -305,7 +305,7 @@ Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](PERF
 *Phase 19 of MODERNIZATION_PLAN.md*
 
 Full technical detail, current-state audit, and design decisions live in
-[DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md). Ships in **two
+[DERIVATIVE_RELEASE_PLAN.md](docs/plans/engine/DERIVATIVE_RELEASE_PLAN.md). Ships in **two
 releases**: v0.8.2 (M12.1 — data-only fast-track that unblocks the downstream
 McCabe–Thiele milestone) and v0.9.0 (M12.2–12.5 — Rust DB + the derivative
 core). Execution order 12.1 → 12.5; 12.4 depends on 12.3.
@@ -354,12 +354,12 @@ core). Execution order 12.1 → 12.5; 12.4 depends on 12.3.
 - [x] Full doc sync (README, package READMEs, `deploy/NOTEBOOKS.md`, parameter reference) + bump to **0.9.0** (shipped 2026-07-06)
 
 ## Milestone 13: Steam Tables — `vle-steam` (IAPWS-IF97) — **shipped (v0.10.0)**
-**Goal**: Add an industrial steam-tables capability ("VLE for water only") as a new dependency-free workspace crate `vle-steam` implementing the IAPWS Industrial Formulation 1997 (IF97, R7-97 rev. 2012) — regions 1–5, the saturation line, and backward equations — surfaced through the wheel as `vle.steam` with pint/gauge units and a batch numpy API. Ships as **v0.10.0** (new public API surface = minor bump). Full design record: [STEAM_TABLES_PLAN.md](STEAM_TABLES_PLAN.md).
+**Goal**: Add an industrial steam-tables capability ("VLE for water only") as a new dependency-free workspace crate `vle-steam` implementing the IAPWS Industrial Formulation 1997 (IF97, R7-97 rev. 2012) — regions 1–5, the saturation line, and backward equations — surfaced through the wheel as `vle.steam` with pint/gauge units and a batch numpy API. Ships as **v0.10.0** (new public API surface = minor bump). Full design record: [STEAM_TABLES_PLAN.md](docs/plans/engine/STEAM_TABLES_PLAN.md).
 *Phase 20 of MODERNIZATION_PLAN.md*
 
 Separate crate (not an `engine/` module) because IF97 is self-contained with
 zero coupling to the mixture-EOS machinery and is dependency-free (pure `f64`),
-keeping it portable to the planned iOS FFI build ([IOS_FFI_PLAN.md](IOS_FFI_PLAN.md)) —
+keeping it portable to the planned iOS FFI build ([IOS_FFI_PLAN.md](docs/plans/delivery/IOS_FFI_PLAN.md)) —
 a steam-table iPhone app is the natural first FFI consumer. Public API is
 **mass-basis** (kJ/kg, m³/kg) with a `.molar()` view; inputs are **T [K],
 P [kPa absolute]** (repo canon). Correctness ground truth: the R7-97(2012)
@@ -413,7 +413,7 @@ computer-program verification tables, asserted to full published precision.
 ### Milestone 13.7 — Transport properties (viscosity, conductivity, surface tension) — **done (unreleased)**
 *Executed by Claude Code using Claude Opus 5 (1M context)*
 
-The transport half of the deferred 13.7 in [STEAM_TABLES_PLAN.md](STEAM_TABLES_PLAN.md)
+The transport half of the deferred 13.7 in [STEAM_TABLES_PLAN.md](docs/plans/engine/STEAM_TABLES_PLAN.md)
 §"Out of scope". IAPWS-95 as a high-accuracy oracle stays deferred.
 
 - [x] `steam/src/transport.rs` — viscosity (IAPWS **R12-08**), thermal conductivity (**R15-11**, critical enhancement included), surface tension (**R1-76(2014)**), plus derived Prandtl / kinematic viscosity / thermal diffusivity on `SteamState`
@@ -458,7 +458,7 @@ Upstream enabler for the downstream `stages-thermo` library's Ponchon–Savarit
 milestone (heat-of-mixing on the ammonia–water enthalpy–composition method). Adds
 the **NRTL** activity model (general multicomponent form; analytic ∂lnγ/∂T and Hᴱ
 via `num-dual`) and **ammonia** to the bundled component database. Design record:
-[NRTL_AMMONIA_PLAN.md](NRTL_AMMONIA_PLAN.md).
+[NRTL_AMMONIA_PLAN.md](docs/plans/engine/NRTL_AMMONIA_PLAN.md).
 
 - [x] `ActivityModel::Nrtl` (project ID 37) — general multicomponent γ + column-sum
       form, generic over the scalar type; f64 + dual paths; analytic Hᴱ via a
@@ -493,7 +493,7 @@ to reproduce the artifact. No release needed: nothing published to
 crates.io/PyPI changed. No milestone notebook: the artifact is a Swift
 package, which Jupyter cannot execute — its teaching role is filled by the
 learning doc + the XCTest suite. Design record:
-[IOS_FFI_PLAN.md](IOS_FFI_PLAN.md) (drafted as "M14", renumbered on
+[IOS_FFI_PLAN.md](docs/plans/delivery/IOS_FFI_PLAN.md) (drafted as "M14", renumbered on
 adoption since NRTL landed first).
 
 - [x] `ffi/` crate (`vle-ffi`, `publish = false`, staticlib+lib) — UniFFI
@@ -538,7 +538,7 @@ contains a jar). No release: nothing on crates.io/PyPI changed. No
 milestone notebook (Kotlin isn't executable from Jupyter) — the learning
 doc + smoke tests fill that role. Design record + framework decision log
 (Kotlin/Compose chosen over MAUI/Avalonia; WSA is dead; C#/.NET
-version-blocked): [ANDROID_FFI_PLAN.md](ANDROID_FFI_PLAN.md).
+version-blocked): [ANDROID_FFI_PLAN.md](docs/plans/delivery/ANDROID_FFI_PLAN.md).
 
 - [x] `ffi/` gains `"cdylib"` crate-type (JNA loads a shared library:
       `.so`/`.dylib`/`.dll`); zero new FFI surface — the whole M15 API
@@ -584,7 +584,7 @@ crates.io/PyPI changed. No milestone notebook (JS isn't executable from
 Jupyter) — the learning doc + smoke tests fill that role. Design record +
 framework decision log (React+wasm chosen over Flutter/React Native; the
 verified feasibility spike; the single-threaded/rayon decomposition):
-[WEB_UI_PLAN.md](WEB_UI_PLAN.md).
+[WEB_UI_PLAN.md](docs/plans/delivery/WEB_UI_PLAN.md).
 
 - [x] `wasm/` wrapper crate `vle-wasm` (`publish = false`, cdylib+rlib) —
       a **sibling** of `ffi/`, not an extension (UniFFI has no JS backend
@@ -621,7 +621,7 @@ verified feasibility spike; the single-threaded/rayon decomposition):
 
 **Goal**: Make the mixture core's cost grow **linearly** with component count
 instead of quadratically, so a several-hundred-component mixture is tractable.
-Design record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §1.1.
+Design record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](docs/plans/engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §1.1.
 
 The classical quadratic mixing rule (`quad_a` in `engine/src/mixture.rs`) runs
 its full double loop unconditionally. When every k_ij is zero — which
@@ -643,7 +643,7 @@ current user of classical mixing.
 
 **Goal**: Turn a crude assay into hundreds of pseudocomponents with full EOS
 parameter sets — the input every downstream crude-column calculation needs.
-Design record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U1, U2).
+Design record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](docs/plans/engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U1, U2).
 
 - [ ] Distillation-curve interconversion — ASTM D86 ↔ TBP ↔ D2887 (SimDist) ↔ EFV
 - [ ] TBP cutting into N pseudocomponents (equal-volume / equal-temperature cuts)
@@ -658,7 +658,7 @@ Design record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](PETROLEUM_PSEUDOCOMPONENT_PLA
 
 **Goal**: The thermodynamic methods a refinery column is actually validated
 against, plus the free-water handling that stripping steam makes unavoidable.
-Design record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U4, U5).
+Design record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](docs/plans/engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U4, U5).
 
 - [ ] Free-water / three-phase handling — VLLE stability + flash, or at minimum a water-decant model
 - [ ] Grayson–Streed (extending the existing `LiquidModel::ChaoSeader`) and BK10 K-value methods
@@ -670,15 +670,15 @@ Design record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](PETROLEUM_PSEUDOCOMPONENT_PLA
 
 ## Performance Track: External Audit Response — **Parts 1 & 2 done**
 **Goal**: Act on the 2026-07 external performance audit
-([`optimizations_audit.md`](optimizations_audit.md)) with measured evidence rather
+([`optimizations_audit.md`](docs/plans/engine/optimizations_audit.md)) with measured evidence rather
 than by assertion.
 *No new MODERNIZATION_PLAN phase — this refines Phase 15 (§F/§I/§J) in place.*
 
 *Parts 1 and 2 executed by Claude Code using Claude Opus 5 (1M context).*
 
-Plan of record: [`OPTIMIZATION_PLAN_PART1.md`](OPTIMIZATION_PLAN_PART1.md) (flash layer)
-and [`OPTIMIZATION_PLAN_PART2.md`](OPTIMIZATION_PLAN_PART2.md) (mixture core).
-Provenance and lessons: [`OPTIMIZATION_AUDIT_HISTORY.md`](OPTIMIZATION_AUDIT_HISTORY.md).
+Plan of record: [`OPTIMIZATION_PLAN_PART1.md`](docs/plans/engine/OPTIMIZATION_PLAN_PART1.md) (flash layer)
+and [`OPTIMIZATION_PLAN_PART2.md`](docs/plans/engine/OPTIMIZATION_PLAN_PART2.md) (mixture core).
+Provenance and lessons: [`OPTIMIZATION_AUDIT_HISTORY.md`](docs/plans/engine/OPTIMIZATION_AUDIT_HISTORY.md).
 
 - [x] Extend the criterion suite with multicomponent flash coverage — `flash_multi`
       group in `engine/benches/engine_bench.rs`, measuring the inner Rachford-Rice
@@ -705,7 +705,7 @@ Provenance and lessons: [`OPTIMIZATION_AUDIT_HISTORY.md`](OPTIMIZATION_AUDIT_HIS
 - [x] Corrected `MODERNIZATION_PLAN.md`'s Milestone 9 claim that the §J Newton finish
       shipped — it never did (`ROADMAP.md`'s checkbox was right all along)
 - [x] **Part 2 — Global Package Optimization** (high-value subset). Plan of record:
-      [`OPTIMIZATION_PLAN_PART2.md`](OPTIMIZATION_PLAN_PART2.md)
+      [`OPTIMIZATION_PLAN_PART2.md`](docs/plans/engine/OPTIMIZATION_PLAN_PART2.md)
   - [x] `mixture` bench group added — `mixture_params` vs `z_mix` vs `ln_phi_mix`
         at n = 2, 4, 8, plus the composition-Jacobian, activity and virial paths.
         Showed `mixture_params` is 40–57 % of `ln_phi_mix`, i.e. ~30–40 % of the

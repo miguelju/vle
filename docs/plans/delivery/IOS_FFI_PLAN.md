@@ -5,7 +5,7 @@ from the "M14" this plan assumed, per §8.5, because NRTL + ammonia landed as
 M14 first. This file remains the *design record* (alternatives considered,
 rationale); the as-built state lives in ROADMAP.md M15 /
 MODERNIZATION_PLAN.md Phase 22, and the user-facing guide is
-[`docs/en/ios/README.md`](docs/en/ios/README.md). Two as-built deviations
+[`docs/en/ios/README.md`](../../en/ios/README.md). Two as-built deviations
 from §4: the bindgen's `--module-name` only names the *modulemap* (the
 generated Swift's import is set via `ffi_module_name` in `ffi/uniffi.toml`),
 and the `--xcframework` flag is not used (it emits a `framework module`

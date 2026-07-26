@@ -55,7 +55,7 @@ def build() -> nbf.NotebookNode:
         "all of those primitives in one place — `engine/src/numerics/` — "
         "with tests, PyO3 bindings, and the (12) Poling & Prausnitz / Brent "
         "/ Halley / Broyden algorithm choices spelled out in "
-        "[`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/MODERNIZATION_PLAN.md). "
+        "[`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/docs/plans/MODERNIZATION_PLAN.md). "
         "This notebook walks each primitive with a runnable example."
     ))
 
@@ -82,7 +82,7 @@ def build() -> nbf.NotebookNode:
         "\n"
         "The VB6 and Pascal sources hand-rolled their numerical methods "
         "inline with each thermodynamic routine. The "
-        "[`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/MODERNIZATION_PLAN.md) "
+        "[`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/docs/plans/MODERNIZATION_PLAN.md) "
         "*Algorithm Choices* section spells out which legacy choices we "
         "kept and which we replaced. The M6 surface implements the\n"
         "replacements:\n"
@@ -414,7 +414,7 @@ def build() -> nbf.NotebookNode:
         "## References\n"
         "\n"
         "- **Modernization plan**: "
-        "[`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/MODERNIZATION_PLAN.md) "
+        "[`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/docs/plans/MODERNIZATION_PLAN.md) "
         "*Algorithm Choices* (§A–§H) — rationale for every M6 algorithm pick.\n"
         "- **Source**: "
         "[`engine/src/numerics/`](https://github.com/miguelju/vle/tree/main/engine/src/numerics) "

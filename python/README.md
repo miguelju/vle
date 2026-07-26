@@ -187,10 +187,12 @@ cd vle/notebooks
 jupyter lab
 ```
 
-See [`deploy/NOTEBOOKS.md`](https://github.com/miguelju/vle/blob/main/deploy/NOTEBOOKS.md)
+See [`distribution/NOTEBOOKS.md`](https://github.com/miguelju/vle/blob/main/distribution/NOTEBOOKS.md)
 for the full host-agnostic guide and
-[`deploy/README.md`](https://github.com/miguelju/vle/blob/main/deploy/README.md)
-for the distribution story.
+[`distribution/README.md`](https://github.com/miguelju/vle/blob/main/distribution/README.md)
+for the notebook, Swift, Kotlin and WebAssembly channels
+([`deploy/README.md`](https://github.com/miguelju/vle/blob/main/deploy/README.md)
+covers the PyPI and crates.io publishing side).
 
 ## How the Python package wraps Rust — `maturin` + `PyO3`
 

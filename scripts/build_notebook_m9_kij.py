@@ -209,7 +209,7 @@ def build():
         "\n"
         "- Research paper [Chapter IV §4.7 — kij Calculation](https://github.com/miguelju/vle/blob/main/docs/en/research-paper/chapter-4-validation.md) (Tables 4.11–4.12).\n"
         "- (4) Da Silva & Báez (1989) — the regression objective (`TERMOVI.PAS`).\n"
-        "- Algorithm details: [`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/MODERNIZATION_PLAN.md) §B and `engine/src/flash/kij_regression.rs`.\n"
+        "- Algorithm details: [`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/docs/plans/MODERNIZATION_PLAN.md) §B and `engine/src/flash/kij_regression.rs`.\n"
     ))
 
     nb.cells = c

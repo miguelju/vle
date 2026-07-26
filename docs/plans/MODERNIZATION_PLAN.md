@@ -66,7 +66,7 @@ Similarly, when implementing an algorithm from a specific paper below, cite the 
 
 (22) Smith, J. M.; Van Ness, H. C.; Abbott, M. M. *Introduction to Chemical Engineering Thermodynamics*, 5th ed.; McGraw-Hill, 1996.
 
-*References (23)–(29) were added 2026-07-01 with the performance/algorithm modernization plan ([PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md)); they support the modern flash algorithms (§F, §I–§M below) that supersede the legacy iteration schemes.*
+*References (23)–(29) were added 2026-07-01 with the performance/algorithm modernization plan ([PERFORMANCE_PROPOSAL.md](engine/PERFORMANCE_PROPOSAL.md)); they support the modern flash algorithms (§F, §I–§M below) that supersede the legacy iteration schemes.*
 
 (23) Leibovici, C. F.; Neoschil, J. A New Look at the Rachford-Rice Equation. *Fluid Phase Equilib.* **1992**, *74*, 303–308.
 
@@ -82,7 +82,7 @@ Similarly, when implementing an algorithm from a specific paper below, cite the 
 
 (29) Wilson, G. M. A Modified Redlich-Kwong Equation of State, Application to General Physical Data Calculations. Paper 15c, 65th National AIChE Meeting, Cleveland, OH, 1969.
 
-*Reference (30) was added 2026-07-05 with the downstream derivative/database release plan ([DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md)); it is the provenance standard for the bundled component-property data (critical constants, ideal-gas Cp polynomials) added in Phase 19.*
+*Reference (30) was added 2026-07-05 with the downstream derivative/database release plan ([DERIVATIVE_RELEASE_PLAN.md](engine/DERIVATIVE_RELEASE_PLAN.md)); it is the provenance standard for the bundled component-property data (critical constants, ideal-gas Cp polynomials) added in Phase 19.*
 
 (30) Poling, B. E.; Prausnitz, J. M.; O'Connell, J. P. *The Properties of Gases and Liquids*, 5th ed.; McGraw-Hill: New York, 2001.
 
@@ -130,7 +130,7 @@ Similarly, when implementing an algorithm from a specific paper below, cite the 
 The modernized Rust code improves on several legacy numerical methods. Each subsection describes the legacy approach, the proposed improvement, and the justification.
 
 > **2026-07-01 update**: sections §I–§M were added (and §F upgraded) as part of the
-> performance/algorithm modernization plan — see [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md)
+> performance/algorithm modernization plan — see [PERFORMANCE_PROPOSAL.md](engine/PERFORMANCE_PROPOSAL.md)
 > for the full rationale. They replace the thesis-era flash iteration schemes with the
 > modern (largely Michelsen-derived) methodology: stability-tested, acceleration-boosted,
 > Newton-finished, with exact derivatives everywhere. The companion engineering work
@@ -227,7 +227,7 @@ The modernized Rust code improves on several legacy numerical methods. Each subs
 ## Performance Engineering
 
 Companion engineering tracks to §A–§M, adopted 2026-07-01 — full rationale and audit
-evidence in [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md). The language question was
+evidence in [PERFORMANCE_PROPOSAL.md](engine/PERFORMANCE_PROPOSAL.md). The language question was
 re-examined and settled: **the engine stays in Rust** (identical LLVM codegen to C/C++/
 Fortran for this workload; every measured cost is architectural, not linguistic).
 
@@ -263,7 +263,7 @@ Fortran for this workload; every measured cost is architectural, not linguistic)
 - `nalgebra` crate replaces hand-rolled Gauss elimination; `ndarray` available for array ops.
 - Compiles to native code with LLVM optimizations -- critical for the Newton-Raphson inner loop which evaluates the full system (2n+4) times per iteration.
 
-**2026-07-01 re-evaluation (language question re-opened and settled)**: with M0–M8.1 shipped, the choice was re-examined against C++/Fortran, Julia, and GPU offload as part of [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md). Conclusion: **stay in Rust** — every measured cost is architectural (allocations, redundant recomputation, scalar-only FFI, default build flags), not linguistic; Rust's LLVM codegen is equivalent to C++/Fortran for this workload, and a rewrite would discard ~6,000 lines of validated code. Three dependencies join the stack as the plan executes: **`num-dual`** (dual-number AD for exotic mixing-rule derivatives, §L), **rust-numpy** (the `numpy` crate — zero-copy numpy array bindings for the batch API), and **`rayon`** (data-parallel batch kernels). `ndarray` is dropped until the batch API actually needs it.
+**2026-07-01 re-evaluation (language question re-opened and settled)**: with M0–M8.1 shipped, the choice was re-examined against C++/Fortran, Julia, and GPU offload as part of [PERFORMANCE_PROPOSAL.md](engine/PERFORMANCE_PROPOSAL.md). Conclusion: **stay in Rust** — every measured cost is architectural (allocations, redundant recomputation, scalar-only FFI, default build flags), not linguistic; Rust's LLVM codegen is equivalent to C++/Fortran for this workload, and a rewrite would discard ~6,000 lines of validated code. Three dependencies join the stack as the plan executes: **`num-dual`** (dual-number AD for exotic mixing-rule derivatives, §L), **rust-numpy** (the `numpy` crate — zero-copy numpy array bindings for the batch API), and **`rayon`** (data-parallel batch kernels). `ndarray` is dropped until the batch API actually needs it.
 
 ---
 
@@ -280,20 +280,19 @@ An **independent `units/` Rust crate** (sibling to `engine/`) plus a Python comp
 
 **References**: Bridgman, P.W. *Dimensional Analysis*, Yale University Press, 1922; BIPM, *The International System of Units (SI)*, 9th ed., 2019.
 
-**Detailed design document**: [`docs/en/units/dimensional-analysis.md`](docs/en/units/dimensional-analysis.md) explains the 7 SI base dimensions, dimensional homogeneity principle, conversion strategy, and the Rust phantom-type / Python runtime implementation approach. See also `ROADMAP.md` Milestone 3 for task breakdown.
+**Detailed design document**: [`docs/en/units/dimensional-analysis.md`](../en/units/dimensional-analysis.md) explains the 7 SI base dimensions, dimensional homogeneity principle, conversion strategy, and the Rust phantom-type / Python runtime implementation approach. See also `ROADMAP.md` Milestone 3 for task breakdown.
 
 ---
 
 ## Deployment Strategy
 
-This repo distributes through **crates.io + PyPI + the example notebooks** only. The multi-user JupyterHub + Docker stack that used to live under `deploy/` has been **moved to a separate private operator repository** (an Ansible role + a gated deploy workflow that deploys to both hub hosts as a hot standby). See `CLAUDE.md` → *Deployment Rules* and [`deploy/README.md`](../deploy/README.md) for the distribution channels.
+This repo **publishes** to crates.io + PyPI, and delivers every other channel as source plus a build script. The multi-user JupyterHub + Docker stack that used to live under `deploy/` has been **moved to a separate private operator repository** (an Ansible role + a gated deploy workflow that deploys to both hub hosts as a hot standby), taking `deploy/.env.example`, `deploy/local/` and `deploy/scripts/deploy.sh` with it. See `CLAUDE.md` → *Deployment Rules*.
 
-`deploy/` now contains only:
-  - `deploy/README.md` — the distribution channels (crates.io, PyPI, notebooks)
-  - `deploy/NOTEBOOKS.md` — host-agnostic guide to running any VLE notebook
-  - `deploy/scripts/publish-crate.sh`, `publish-pypi.sh` — manual publish paths
+The two remaining folders split along the publish/build-recipe line:
+  - [`deploy/`](../../deploy/README.md) — **registries only**: `README.md` (PyPI + crates.io) and `scripts/publish-{crate,pypi}.sh` (the operator escape hatch; CI publishes directly, never through these)
+  - [`distribution/`](../../distribution/README.md) — **every non-registry channel**: `README.md` (notebooks, Swift, Kotlin, WebAssembly, the parked C#/.NET route) and `NOTEBOOKS.md` (host-agnostic notebook guide)
 
-Each non-completed milestone (8–11) that ships a user-facing artifact ends with two steps after validation tests pass: (1) create a milestone notebook following CLAUDE.md *Notebook Conventions*, and (2) update the `deploy/NOTEBOOKS.md` catalogue. Tagging a release auto-publishes to PyPI + crates.io; refreshing the hosted teaching hub is a separate operator step in a private operator repository, not part of the release. Milestone 11 adds a Chapter IV walkthrough notebook.
+Each non-completed milestone (8–11) that ships a user-facing artifact ends with two steps after validation tests pass: (1) create a milestone notebook following CLAUDE.md *Notebook Conventions*, and (2) update the `distribution/NOTEBOOKS.md` catalogue. Tagging a release auto-publishes to PyPI + crates.io; refreshing the hosted teaching hub is a separate operator step in a private operator repository, not part of the release. Milestone 11 adds a Chapter IV walkthrough notebook.
 
 ---
 
@@ -451,7 +450,7 @@ vle/
 
 ## Implementation Phases
 
-> **Phase numbering matches milestone order in [ROADMAP.md](ROADMAP.md) and [TODO.md](TODO.md).**
+> **Phase numbering matches milestone order in [ROADMAP.md](../../ROADMAP.md) and [TODO.md](../../TODO.md).**
 > Each milestone maps to one or more phases in this section. When adding, removing, or reordering phases, update ROADMAP.md's `*Phase N of MODERNIZATION_PLAN.md*` pointers in lockstep.
 
 ### Phase 1: Documentation & Translation *(Milestone 1)*
@@ -575,7 +574,7 @@ vle/
 
 ### Phase 11: Performance Foundation *(Milestone 8.2)* — **done**
 
-*Added 2026-07-01 — Tracks C + E of [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md). Pure speed and measurement work; no thermodynamic behavior change, gated by the existing test suite. Shipped: benches in `engine/benches/engine_bench.rs`, FFI benchmark in `scripts/bench_ffi_boundary.py`, `bench-rust` CI job, allocation-free cubic (`([f64;3],usize)`), `EosState`/`WilsonCache` caches, `smallvec` composition buffers, Sherman–Morrison Broyden.*
+*Added 2026-07-01 — Tracks C + E of [PERFORMANCE_PROPOSAL.md](engine/PERFORMANCE_PROPOSAL.md). Pure speed and measurement work; no thermodynamic behavior change, gated by the existing test suite. Shipped: benches in `engine/benches/engine_bench.rs`, FFI benchmark in `scripts/bench_ffi_boundary.py`, `bench-rust` CI job, allocation-free cubic (`([f64;3],usize)`), `EosState`/`WilsonCache` caches, `smallvec` composition buffers, Sherman–Morrison Broyden.*
 
 - criterion benchmark suite (`engine/benches/`): α dispatch, Z-factor, pure ln φ, saturation, activity γ; extended as mixture fugacity / RR / flash land in later phases
 - Python-side boundary benchmark (scalar-loop vs future batch) to quantify FFI overhead
@@ -610,11 +609,11 @@ vle/
 - **Analytical** `T·dA_mix/dT` for **every** mixing rule (no 5-point stencil): classical/3-param via per-component `dαᵢ/dT`, GE rules via the exact `T·d(Gᴱ/RT)/dT = −Hᴱ/(RT)` identity. VB6's numerical stencil retained only as the test oracle — see §D
 - Reference state handling (ideal-gas reference; LiqSat/VapSat anchoring via the excess-property liquid path lands with the M9 γ-φ flash)
 - **Key source files:** `legacy/pascal/TERMOII.PAS`, `legacy/pascal/TERMOIII.PAS`
-- *Deferred:* condensation enthalpy via Clausius-Clapeyron (Pascal `TERMOIII.PAS:283`) and the full liquid residual H/S condensation+excess path (`TERMOIII.PAS:294`) — originally slated for M9's γ-φ flash but never packaged (M9's adiabatic flash shipped φ-φ/cubic-only enthalpy). **Now scheduled as the packaged γ-φ `phase_enthalpy_entropy` in Phase 19 (Milestone 12.4)** — see [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md)
+- *Deferred:* condensation enthalpy via Clausius-Clapeyron (Pascal `TERMOIII.PAS:283`) and the full liquid residual H/S condensation+excess path (`TERMOIII.PAS:294`) — originally slated for M9's γ-φ flash but never packaged (M9's adiabatic flash shipped φ-φ/cubic-only enthalpy). **Now scheduled as the packaged γ-φ `phase_enthalpy_entropy` in Phase 19 (Milestone 12.4)** — see [DERIVATIVE_RELEASE_PLAN.md](engine/DERIVATIVE_RELEASE_PLAN.md)
 
 ### Phase 15: Flash Calculations *(Milestone 9)* — **done** (`engine/src/flash/`; notebooks 04–08 shipped)
 
-*Rewritten 2026-07-01 — Track A of [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md). The thesis-era iteration schemes are replaced by the modern (Michelsen-derived) methodology; the legacy two-stage bubble/dew scheme is retained only as a test oracle. All Newton loops consume the Phase 12–13 analytic/AD Jacobians (§L).*
+*Rewritten 2026-07-01 — Track A of [PERFORMANCE_PROPOSAL.md](engine/PERFORMANCE_PROPOSAL.md). The thesis-era iteration schemes are replaced by the modern (Michelsen-derived) methodology; the legacy two-stage bubble/dew scheme is retained only as a test oracle. All Newton loops consume the Phase 12–13 analytic/AD Jacobians (§L).*
 
 *Progress (Claude Fable 5): almost complete. Shipped — Wilson K-init (`init.rs`), Rachford-Rice via Halley in the Leibovici–Neoschil window (`isothermal.rs`, §F), TPD stability (`stability.rs`, §I), GDEM-accelerated SS isothermal flash (`isothermal.rs`, §J), the φ-φ / γ-φ K-value dispatch (`system.rs`), bubble/dew (T and P) (`bubble.rs`, `dew.rs`, shared `incipient.rs`, §K), adiabatic flash (`adiabatic.rs`, §M, warm-started), the mixture critical point (`critical.rs`, §G — Heidemann via dual-number Helmholtz derivatives + a 2-D Newton), and kij/Aij regression (`kij_regression.rs` with `brent_minimize`, `aij_regression.rs` with Levenberg-Marquardt). All exposed through PyO3 with Rust + Python tests; the criterion suite gained RR + flash benches; Chapter IV §4.6 (isothermal flash) is reproduced against the published table and §4.7 (kij) is validated on the sub-critical subset (`engine/tests/chapter_iv_validation.rs`). Phase-envelope continuation (24, §K) shipped too (`envelope.rs` — a unified incipient-phase (n+2)-variable Newton with min-Gibbs root selection that walks through the critical point). **Milestone 9 is complete: every Phase 15 algorithm is implemented, bound, and tested, the Chapter IV cases are validated against the published tables, and notebooks 04–08 (built by `scripts/build_notebook_m9_*.py`, executing top-to-bottom) reproduce the thesis results.*** *One documented exception, restated here because an earlier revision of this line read as if there were none: §J's **Newton finish is not implemented**. `flash_isothermal` is Wilson-init → Rachford-Rice → GDEM-accelerated successive substitution, with no terminal Newton polish on ln K — as the `ROADMAP.md` M9 checkbox has always noted and as `flash/isothermal.rs`'s module docs state. The 2026-07 external performance audit re-identified the gap independently (Part 1 §6); it is tracked in `OPTIMIZATION_PLAN_PART1.md` §5 as deliberately deferred, with the reasoning.*
 
@@ -652,7 +651,7 @@ vle/
 
 Notebooks 01–08 are produced by the milestone that builds the underlying feature (see table below), each following CLAUDE.md *Notebook Conventions*. Phase 18 is the capstone that adds the Chapter IV walkthrough notebook:
 
-- **10_chapter4_validation_walkthrough**: Single end-to-end notebook that narrates every section of [`chapter-4-validation.md`](docs/en/research-paper/chapter-4-validation.md). For each of §4.1–§4.7 it quotes the research-paper text, runs the `vle` library against the referenced table (4.1–4.12), reports absolute and percent error against published values, and presents ≥2 user exercises (e.g. "repeat the kij regression for a different binary pair").
+- **10_chapter4_validation_walkthrough**: Single end-to-end notebook that narrates every section of [`chapter-4-validation.md`](../en/research-paper/chapter-4-validation.md). For each of §4.1–§4.7 it quotes the research-paper text, runs the `vle` library against the referenced table (4.1–4.12), reports absolute and percent error against published values, and presents ≥2 user exercises (e.g. "repeat the kij regression for a different binary pair").
 
 Refreshing the hosted teaching hub after a release remains a separate, optional operator step in a private operator repository, not part of this milestone — see `CLAUDE.md` → *Deployment Rules*.
 
@@ -676,7 +675,7 @@ Refreshing the hosted teaching hub after a release remains a separate, optional 
 
 *Added 2026-07-05. Full technical spec, current-state audit (with `path:line`
 anchors), design decisions, breaking-change register, and risks:
-[DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md). Prepared by Claude
+[DERIVATIVE_RELEASE_PLAN.md](engine/DERIVATIVE_RELEASE_PLAN.md). Prepared by Claude
 Code using Claude Fable 5 for execution by Claude Opus 4.8.*
 
 **Status (2026-07-06):** all five sub-milestones **complete**. M12.1 (component
@@ -690,7 +689,7 @@ breaking change (the T/P-generic public signatures) motivates the 0.9.0 minor
 bump. The invariant tests surfaced a pre-existing Wong-Sandler departure-enthalpy
 discrepancy, **fixed in the v0.9.1 patch release** (root cause was a missing
 co-volume `db/dT` term in `energy::h_departure_rt_mix`, not the suspected
-`t_dln_a_dt_mix` — see [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md) §7).
+`t_dln_a_dt_mix` — see [DERIVATIVE_RELEASE_PLAN.md](engine/DERIVATIVE_RELEASE_PLAN.md) §7).
 
 The first downstream consumer of the published `vle-thermo` crate/wheel — the
 planned `stages-thermo` staged-separation (distillation) library — audited the
@@ -748,7 +747,7 @@ packaging (already available via `d_ln_phi_d_n`), DB growth beyond the 24.
 ### Phase 20: Steam Tables — `vle-steam` (IAPWS-IF97) *(Milestone 13)* — **shipped (v0.10.0)**
 
 *Added 2026-07-07. Full design record, API sketch, and phase breakdown:
-[STEAM_TABLES_PLAN.md](STEAM_TABLES_PLAN.md). Executed by Claude Code using
+[STEAM_TABLES_PLAN.md](engine/STEAM_TABLES_PLAN.md). Executed by Claude Code using
 Claude Opus 4.8 (1M context).*
 
 Adds an industrial **steam-tables** capability — "VLE for water only" — as a
@@ -762,7 +761,7 @@ implement the standard directly rather than interpolate tabulated data.
 **Why a separate crate (not an `engine/` module):** IF97 is self-contained with
 zero coupling to the mixture-EOS machinery, and is pure-`f64` (not even
 nalgebra), so it stays trivially portable to the planned iOS static-library
-build ([IOS_FFI_PLAN.md](IOS_FFI_PLAN.md)) — a steam-table iPhone app is the
+build ([IOS_FFI_PLAN.md](delivery/IOS_FFI_PLAN.md)) — a steam-table iPhone app is the
 natural first FFI consumer. It mirrors the `vle-units` sibling-crate precedent:
 own crates.io page/README, own release-rule entry in CLAUDE.md, published
 alongside `vle-thermo`. The wheel always ships it (`engine`'s `python` feature
@@ -823,7 +822,7 @@ regions,backward,coefficients,props,state}.rs`, `engine/src/py_steam.rs`,
 
 ### Phase 21: NRTL Activity Model + Ammonia *(Milestone 14)* — **shipped (v0.11.0)**
 
-*Added 2026-07-08. Full design record: [NRTL_AMMONIA_PLAN.md](NRTL_AMMONIA_PLAN.md).
+*Added 2026-07-08. Full design record: [NRTL_AMMONIA_PLAN.md](engine/NRTL_AMMONIA_PLAN.md).
 Executed by Claude Code using Claude Opus 4.8 (1M context).*
 
 Adds the **NRTL** (Non-Random Two-Liquid; Renon & Prausnitz, 1968) activity model
@@ -895,7 +894,7 @@ the bubble-P–x validation plot per the Notebook Conventions; ships as **v0.11.
 
 ### Phase 22: iOS/macOS FFI — `vle-ffi` (Rust → Swift via UniFFI) *(Milestone 15)* — **done (unreleased; local-build artifact)**
 
-*Added 2026-07-11. Full design record: [IOS_FFI_PLAN.md](IOS_FFI_PLAN.md)
+*Added 2026-07-11. Full design record: [IOS_FFI_PLAN.md](delivery/IOS_FFI_PLAN.md)
 (drafted as "M14"; renumbered to M15/Phase 22 on adoption because NRTL landed
 first). Executed by Claude Code using Claude Fable 5.*
 
@@ -904,7 +903,7 @@ macOS apps. **Hard constraint honored: all compilation is local to a Mac** —
 no GitHub Actions, `release.yml` untouched, and every build product
 (`VleFFI.xcframework` ~60 MB, generated Swift) is gitignored, never committed
 or published. The repo ships source + `scripts/build-ios.sh`;
-[`docs/en/ios/README.md`](docs/en/ios/README.md) teaches the pipeline (C ABI,
+[`docs/en/ios/README.md`](../en/ios/README.md) teaches the pipeline (C ABI,
 UniFFI lift/lower, XCFramework anatomy) to a newcomer.
 
 **Architecture:** a new `ffi/` wrapper crate (`vle-ffi`, `publish = false`,
@@ -971,7 +970,7 @@ same commit series.
 
 ### Phase 23: Android/Kotlin FFI — `vle-ffi` → Kotlin via UniFFI *(Milestone 16)* — **code complete (first Android Studio run pending)**
 
-*Added 2026-07-12. Full design record: [ANDROID_FFI_PLAN.md](ANDROID_FFI_PLAN.md).
+*Added 2026-07-12. Full design record: [ANDROID_FFI_PLAN.md](delivery/ANDROID_FFI_PLAN.md).
 Executed by Claude Code using Claude Fable 5.*
 
 Second consumer language for the Phase 22 wrapper crate — **zero new FFI
@@ -983,7 +982,7 @@ stability record; mobile-native is its strength, not Windows desktop) and
 Avalonia (desktop-first, tiny Android community); "run the APK on Windows"
 rejected because Microsoft killed Windows Subsystem for Android on
 2025-03-05. The C#/.NET route is documented and deliberately parked in
-[docs/en/dotnet/README.md](docs/en/dotnet/README.md): `uniffi-bindgen-cs`
+[docs/en/dotnet/README.md](../en/dotnet/README.md): `uniffi-bindgen-cs`
 targets uniffi 0.31, this workspace pins 0.32, and there are no plans to
 downgrade (status dated 2026-07-12).
 
@@ -1048,7 +1047,7 @@ smoke via the future app repo.
 
 ### Phase 24: Web/JavaScript FFI — `vle-wasm` → the browser via wasm-bindgen *(Milestone 17)* — **complete**
 
-*Added 2026-07-12. Full design record: [WEB_UI_PLAN.md](WEB_UI_PLAN.md).
+*Added 2026-07-12. Full design record: [WEB_UI_PLAN.md](delivery/WEB_UI_PLAN.md).
 Executed by Claude Code using Claude Fable 5.*
 
 Third consumer language — the engine compiles to **WebAssembly** and
@@ -1123,7 +1122,7 @@ future app repo.
 ### Phase 25: N-Scalable Mixture Core *(Milestone 18)* — **not started**
 
 *Added 2026-07-25. Full design record:
-[PETROLEUM_PSEUDOCOMPONENT_PLAN.md](PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §1.1.*
+[PETROLEUM_PSEUDOCOMPONENT_PLAN.md](engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §1.1.*
 
 The mixture core's classical quadratic rule is **O(N²) unconditionally**.
 `quad_a` runs its full double loop even when the k_ij matrix is empty — and
@@ -1157,7 +1156,7 @@ equivalence tests of the fast path against the general path.
 ### Phase 26: Petroleum Characterization *(Milestone 19)* — **not started**
 
 *Added 2026-07-25. Full design record:
-[PETROLEUM_PSEUDOCOMPONENT_PLAN.md](PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U1, U2).*
+[PETROLEUM_PSEUDOCOMPONENT_PLAN.md](engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U1, U2).*
 
 Turns a crude assay into hundreds of pseudocomponents carrying full EOS
 parameter sets — the input every crude-column calculation needs, and a
@@ -1177,7 +1176,7 @@ a milestone notebook
 ### Phase 27: Refinery Thermodynamics *(Milestone 20)* — **not started**
 
 *Added 2026-07-25. Full design record:
-[PETROLEUM_PSEUDOCOMPONENT_PLAN.md](PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U4, U5).*
+[PETROLEUM_PSEUDOCOMPONENT_PLAN.md](engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U4, U5).*
 
 The methods a refinery column is actually validated against, plus the
 free-water handling that stripping steam makes unavoidable — an atmospheric

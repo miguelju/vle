@@ -369,7 +369,7 @@ def build() -> nbf.NotebookNode:
         "- **Parameter reference**: [`docs/en/parameters/parameter_reference.md`](https://github.com/miguelju/vle/blob/main/docs/en/parameters/parameter_reference.md) "
         "documents the canonical unit for every column in the schema.\n"
         "- **Modernization plan**: "
-        "[`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/MODERNIZATION_PLAN.md) — Phase 4 describes "
+        "[`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/docs/plans/MODERNIZATION_PLAN.md) — Phase 4 describes "
         "this database as the input to every later phase.\n"
         "- **Original Pascal program** (Ref (4)): Da Silva, F. A.; Báez, L., *Ekilib* "
         "(1989) — source of the 10 experimental VLE points in Table 4.11 and the "

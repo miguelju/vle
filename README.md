@@ -83,13 +83,16 @@ The modernization introduces several numerical improvements over the original VB
 | Rachford-Rice | Newton-Raphson (quadratic) | Halley's method (cubic) | Faster convergence |
 | Critical point | Numerical Helmholtz derivatives | Analytical (2-param EOS) | Dominant cost eliminated |
 
-The plan was later expanded into [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md) — the "numpy for thermo" strategy adding the **exact-derivative mixture core** (analytic + `num-dual` dual-number AD, replacing every finite difference), the modern Michelsen flash suite (stability analysis, windowed Halley Rachford-Rice, phase-envelope continuation), a measured performance foundation, and the upcoming batch numpy API — and implemented, largely by Claude Fable 5, in Milestones 8.2–9. In the final architecture the exact analytic/AD Jacobians go further than the Broyden row above: full Newton uses them directly, with Broyden demoted to a fallback. See [MODERNIZATION_PLAN.md](MODERNIZATION_PLAN.md) for full details and justifications.
+The plan was later expanded into [PERFORMANCE_PROPOSAL.md](docs/plans/engine/PERFORMANCE_PROPOSAL.md) — the "numpy for thermo" strategy adding the **exact-derivative mixture core** (analytic + `num-dual` dual-number AD, replacing every finite difference), the modern Michelsen flash suite (stability analysis, windowed Halley Rachford-Rice, phase-envelope continuation), a measured performance foundation, and the upcoming batch numpy API — and implemented, largely by Claude Fable 5, in Milestones 8.2–9. In the final architecture the exact analytic/AD Jacobians go further than the Broyden row above: full Newton uses them directly, with Broyden demoted to a fallback. See [MODERNIZATION_PLAN.md](docs/plans/MODERNIZATION_PLAN.md) for full details and justifications.
+
+**The table above is kept as written in April 2026 — it is the plan, not a description of today's engine.** A great deal changed on the way here. Some rows were superseded (Broyden was demoted to a fallback the moment exact analytic/AD Jacobians landed). Whole tracks were added that the original analysis never imagined — a generalized mixture core, IAPWS-IF97 steam tables, three foreign-language bindings. And in July 2026 an **external performance audit** re-examined the engine and produced numbers nobody had guessed: some of its textbook-correct recommendations made this code measurably *slower* and were reverted, while measuring the layer *underneath* one of them found a 10× win and a latent correctness bug. Every plan and audit behind those changes — what it decided, what shipped, and what was rejected and why — is catalogued in **[docs/plans/README.md — the Plan & Audit History](docs/plans/README.md)**.
 
 ## Install
 
-The project is distributed on three registries — pick whichever matches how you
-want to use it. All three track the same version and are built from the same
-source tree.
+`vle-thermo` is **published** on two registries — PyPI for Python, crates.io
+for Rust. Both track the same version and are built from the same source tree.
+Every other way to use the engine ships as source plus a build script; see
+*Other ways to use the engine* below.
 
 ### Python (PyPI)
 
@@ -147,80 +150,27 @@ cargo add vle-steam
 API docs: <https://docs.rs/vle-thermo>. See [engine/README.md](engine/README.md)
 and [steam/README.md](steam/README.md).
 
-### Swift — iOS / macOS apps (build locally)
+### Other ways to use the engine
 
-The engine also compiles into a Swift package for native Apple apps
-(steam tables + component DB + mixture flash) via UniFFI. Nothing is
-published or committed as a binary — one script builds the XCFramework on
-any Mac:
+The same Rust core also compiles into **Swift** (iOS/macOS), **Kotlin**
+(Android and — via Compose Multiplatform — Windows desktop) and
+**WebAssembly** (a React site where the thermodynamics runs client-side, or
+the same bundle wrapped by Tauri, Electron or Capacitor). It also ships **20
+Jupyter notebooks** that reproduce the source thesis's Chapter IV results.
 
-```sh
-git clone https://github.com/miguelju/vle.git && cd vle
-scripts/build-ios.sh     # → swift/VleThermo (add as a local package in Xcode)
-```
-
-Theory + step-by-step guide: [docs/en/ios/README.md](docs/en/ios/README.md).
-
-### Kotlin — Android & Windows desktop apps (build locally)
-
-The same FFI layer also generates a Kotlin library for Android (Jetpack
-Compose) and desktop JVM (Compose Multiplatform — the Windows app path)
-apps. Same rules: nothing published or committed as a binary — one script
-cross-compiles the `.so`s and generates the bindings:
+None of those are published as binaries, by design — the repo distributes the
+build recipe, and one script per target produces the artifact locally:
 
 ```sh
 git clone https://github.com/miguelju/vle.git && cd vle
-scripts/build-android.sh   # → kotlin/VleThermo (open kotlin/ in Android Studio)
+scripts/build-ios.sh       # → swift/VleThermo    (add as a local package in Xcode)
+scripts/build-android.sh   # → kotlin/VleThermo   (open kotlin/ in Android Studio)
+scripts/build-wasm.sh      # → wasm/pkg           (npm install <path-to-vle>/wasm/pkg)
 ```
 
-Guide: [docs/en/android/README.md](docs/en/android/README.md). The
-C#/.NET route is documented-but-parked (version-blocked as of 2026-07-12):
-[docs/en/dotnet/README.md](docs/en/dotnet/README.md).
-
-### JavaScript — web, desktop & mobile shells via WebAssembly (build locally)
-
-The engine also compiles to **WebAssembly** for JavaScript/TypeScript
-apps: a React website (the thermodynamics runs client-side — no compute
-server), or the same bundle wrapped as a Windows/Android app with Tauri,
-Electron, or Capacitor. Same rules: nothing published (no npm), nothing
-committed as a binary — one script builds the npm package:
-
-```sh
-git clone https://github.com/miguelju/vle.git && cd vle
-scripts/build-wasm.sh      # → wasm/pkg (npm install <path-to-vle>/wasm/pkg)
-```
-
-Guide: [docs/en/web/README.md](docs/en/web/README.md). Design record:
-[WEB_UI_PLAN.md](WEB_UI_PLAN.md).
-
----
-
-### Work through the notebooks
-
-Install the library, grab the notebooks, and open them in your own Jupyter —
-**no need to clone the whole repo**:
-
-```sh
-pip install "vle-thermo[plot]" jupyterlab
-
-# Option 1 — just the notebooks/ folder (sparse, blobless git checkout):
-git clone --depth 1 --filter=blob:none --sparse https://github.com/miguelju/vle.git
-cd vle && git sparse-checkout set notebooks
-
-# Option 2 — a single notebook, straight from GitHub raw:
-curl -O https://raw.githubusercontent.com/miguelju/vle/main/notebooks/02_pure_component.ipynb
-
-# Option 3 — the folder with no git history (needs Node):
-npx degit miguelju/vle/notebooks vle-notebooks
-
-jupyter lab notebooks/        # or the file/folder you fetched
-```
-
-The notebooks use the standard `python3` kernel, so any Jupyter on a Python
-3.10+ environment with `vle-thermo` installed runs them. Full prerequisites and
-the notebook catalogue are in [deploy/NOTEBOOKS.md](deploy/NOTEBOOKS.md); all
-distribution channels (PyPI, crates.io, notebooks) are summarized in
-[deploy/README.md](deploy/README.md).
+Every one of those channels — the notebooks, all three languages, the
+per-platform guides, and the C#/.NET route that was evaluated and parked — is
+documented in **[distribution/README.md](distribution/README.md)**.
 
 Release process and registry maintenance: [PUBLISHING.md](PUBLISHING.md).
 
@@ -240,7 +190,7 @@ vle/
 │   ├── db/                  # Component database (connection, queries, models)
 │   │   └── sql/             # Bundled schema.sql + seed_chapter4.sql (ship in wheel)
 │   └── cli/                 # CLI tool (vle-db)
-├── notebooks/               # 20 Jupyter notebooks (00–14 + 01_introduction + index; see deploy/NOTEBOOKS.md)
+├── notebooks/               # 20 Jupyter notebooks (00–14 + 01_introduction + index; see distribution/NOTEBOOKS.md)
 │   └── data/                # Pre-computed 3-D surface datasets (CSV, committed)
 ├── units/                   # Independent units crate (dimensional analysis, gauge pressure, custom units)
 ├── steam/                   # Independent steam-tables crate `vle-steam` (IAPWS-IF97, dependency-free; M13)
@@ -251,6 +201,10 @@ vle/
 ├── swift/VleThermo/         # Local Swift package for iOS/macOS apps (XCFramework generated by scripts/build-ios.sh)
 ├── kotlin/VleThermo/        # Local Android/Kotlin library module (bindings + .so generated by scripts/build-android.sh)
 ├── docs/
+│   ├── plans/               # Every plan & audit — README.md is the Plan & Audit History
+│   │   ├── MODERNIZATION_PLAN.md   # 27-phase implementation plan (the one live plan)
+│   │   ├── engine/          # Calculation plans + audits (performance, steam, NRTL, petroleum)
+│   │   └── delivery/        # Platform plans (iOS, Android/Kotlin, Web/wasm)
 │   ├── en/research-paper/   # English translation (navigatable)
 │   ├── en/units/            # Units add-on design document
 │   ├── en/ios/              # Rust→Swift FFI learning guide + build instructions (M15)
@@ -261,28 +215,28 @@ vle/
 ├── legacy/
 │   ├── vb6/                 # Original VB6 source (~15,000 lines, reference)
 │   └── pascal/              # Original Pascal source (~2,500 lines, reference) (4)
+├── deploy/                  # Registry publishing only (PyPI + crates.io)
+├── distribution/            # Every non-registry channel (notebooks, Swift, Kotlin, wasm)
 ├── ROADMAP.md               # Milestones and progress tracking
 ├── TODO.md                  # Tasks with time estimates
-├── MODERNIZATION_PLAN.md    # 24-phase implementation plan
-├── OPTIMIZATION_PLAN_PART1.md      # Flash-layer performance plan + measured results
-├── OPTIMIZATION_PLAN_PART2.md      # Mixture-core performance plan + measured results
-├── OPTIMIZATION_AUDIT_HISTORY.md   # How the external audit was produced, and reviewed
 ├── PASCAL_VB6_COMPARISON.md # Legacy codebase comparison
+├── PUBLISHING.md            # Release process (tag → PyPI + crates.io)
 └── CLAUDE.md                # Claude Code development guidance and conventions
 ```
 
 ## Development Workflow
 
-This project is developed incrementally using [Claude Code](https://claude.ai/code) as an AI development partner. Each milestone follows a **plan-then-execute** cycle, tracked across three synchronized documents:
+This project is developed incrementally using [Claude Code](https://claude.ai/code) as an AI development partner. Each milestone follows a **plan-then-execute** cycle, tracked across three synchronized documents. Every plan and audit ever written for this project — including the ones whose recommendations were measured and *rejected* — is catalogued in the [Plan & Audit History](docs/plans/README.md).
 
 | Document | Purpose |
 |----------|---------|
 | [`ROADMAP.md`](ROADMAP.md) | Milestones — high-level goals and deliverables |
 | [`TODO.md`](TODO.md) | Tasks — actionable items with time estimates per milestone |
-| [`MODERNIZATION_PLAN.md`](MODERNIZATION_PLAN.md) | Phases — detailed technical implementation plan (24 phases) |
-| [`OPTIMIZATION_PLAN_PART1.md`](OPTIMIZATION_PLAN_PART1.md) | Flash-layer performance work — measured baseline, per-recommendation verdicts, results (incl. two optimizations rejected *because* they benchmarked slower) |
-| [`OPTIMIZATION_PLAN_PART2.md`](OPTIMIZATION_PLAN_PART2.md) | Mixture-core performance work — the per-(T,P) cache, activity/virial matrix caching, and the `&dyn Fn`-in-the-n²-loop finding the audit missed |
-| [`OPTIMIZATION_AUDIT_HISTORY.md`](OPTIMIZATION_AUDIT_HISTORY.md) | Provenance of the external audit (Gemini prompt → Codex audit → Claude second-audit) and what AI-reviewing-AI got right and wrong |
+| [`docs/plans/MODERNIZATION_PLAN.md`](docs/plans/MODERNIZATION_PLAN.md) | Phases — detailed technical implementation plan (27 phases) |
+| [`OPTIMIZATION_PLAN_PART1.md`](docs/plans/engine/OPTIMIZATION_PLAN_PART1.md) | Flash-layer performance work — measured baseline, per-recommendation verdicts, results (incl. two optimizations rejected *because* they benchmarked slower) |
+| [`OPTIMIZATION_PLAN_PART2.md`](docs/plans/engine/OPTIMIZATION_PLAN_PART2.md) | Mixture-core performance work — the per-(T,P) cache, activity/virial matrix caching, and the `&dyn Fn`-in-the-n²-loop finding the audit missed |
+| [`OPTIMIZATION_AUDIT_HISTORY.md`](docs/plans/engine/OPTIMIZATION_AUDIT_HISTORY.md) | Provenance of the external audit (Gemini prompt → Codex audit → Claude second-audit) and what AI-reviewing-AI got right and wrong |
+| [`docs/plans/README.md`](docs/plans/README.md) | **Plan & Audit History** — every plan and audit, clickable, with its status and the era it belongs to |
 
 ### Resuming work from a new machine
 
@@ -329,7 +283,7 @@ against the thesis's published Chapter IV tables — 22 cubic EOS, 6 activity mo
 11 mixing rules, the full flash suite with exact derivatives, IAPWS-IF97 steam
 tables, a 25-compound database, 291 Rust + 450 Python tests and 19 executable
 notebooks. The remaining `0.` in the version number is about **API** stability,
-not the numerics. The full engine (22+ EOS, mixing rules with exact derivatives, energy properties, and the modern flash/regression suite), the high-level `vle.System` Python API with a parallel batch numpy layer, and 19 notebooks — all validated against the thesis's Chapter IV tables. Latest release: **v0.12.0** on PyPI + crates.io — a performance release (isothermal flash −24…−28 %, tangent-plane stability −44…−51 %) responding to an external audit, with the measured verdicts and the rejected recommendations recorded in [OPTIMIZATION_PLAN_PART1.md](OPTIMIZATION_PLAN_PART1.md) and [OPTIMIZATION_PLAN_PART2.md](OPTIMIZATION_PLAN_PART2.md); **v0.10.0** shipped the steam tables. **Milestones 15–17** add the local-build app channels — **Swift** (iOS/macOS via UniFFI), **Kotlin** (Android + Compose Desktop via UniFFI; code complete, first Android Studio run pending), and **WebAssembly** (browser / Tauri / Electron / Capacitor via wasm-bindgen) — nothing published or committed as a binary, one build script each (`scripts/build-{ios,android,wasm}.sh`). **Milestone 14** adds the **NRTL** activity model (general multicomponent, with analytic ∂lnγ/∂T and excess enthalpy via dual-number AD) and **ammonia** to the bundled database (now 25 compounds) — the upstream liquid model the downstream `stages-thermo` library needs for the ammonia–water enthalpy–composition method (notebook `13_nrtl_ammonia.ipynb`). **Milestone 13** adds a new dependency-free crate **`vle-steam`** implementing the **IAPWS-IF97** industrial steam tables ("VLE for water only") — all five regions + the saturation line + backward equations, verified against the R7-97(2012) tables to 9 significant figures — surfaced as **`vle.steam`** with unit-aware inputs and a batch numpy API (notebook `12_steam_tables.ipynb`). **Milestone 12** — the downstream derivative & database release — is done across two releases: **v0.8.2** grew the bundled database to **24 compounds** with ideal-gas Cp°/R coefficients; **v0.9.0** added a Rust-side component database (`vle_thermo::db`, `component-db` feature), **exact temperature/pressure derivatives** of fugacity and K-values (dual-number AD), **real-mixture heat capacity** and **partial molar enthalpy**, and a packaged γ-φ phase enthalpy — the property surface a downstream staged-separation library consumes. **v0.9.1** is a patch fixing a ~1% Wong-Sandler departure-enthalpy inconsistency that the M12.3 Gibbs–Helmholtz invariant surfaced (root cause + fix in [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md) §7). See [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md). Per-milestone detail: [ROADMAP.md](ROADMAP.md).
+not the numerics. The full engine (22+ EOS, mixing rules with exact derivatives, energy properties, and the modern flash/regression suite), the high-level `vle.System` Python API with a parallel batch numpy layer, and 19 notebooks — all validated against the thesis's Chapter IV tables. Latest release: **v0.12.0** on PyPI + crates.io — a performance release (isothermal flash −24…−28 %, tangent-plane stability −44…−51 %) responding to an external audit, with the measured verdicts and the rejected recommendations recorded in [OPTIMIZATION_PLAN_PART1.md](docs/plans/engine/OPTIMIZATION_PLAN_PART1.md) and [OPTIMIZATION_PLAN_PART2.md](docs/plans/engine/OPTIMIZATION_PLAN_PART2.md); **v0.10.0** shipped the steam tables. **Milestones 15–17** add the local-build app channels — **Swift** (iOS/macOS via UniFFI), **Kotlin** (Android + Compose Desktop via UniFFI; code complete, first Android Studio run pending), and **WebAssembly** (browser / Tauri / Electron / Capacitor via wasm-bindgen) — nothing published or committed as a binary, one build script each (`scripts/build-{ios,android,wasm}.sh`). **Milestone 14** adds the **NRTL** activity model (general multicomponent, with analytic ∂lnγ/∂T and excess enthalpy via dual-number AD) and **ammonia** to the bundled database (now 25 compounds) — the upstream liquid model the downstream `stages-thermo` library needs for the ammonia–water enthalpy–composition method (notebook `13_nrtl_ammonia.ipynb`). **Milestone 13** adds a new dependency-free crate **`vle-steam`** implementing the **IAPWS-IF97** industrial steam tables ("VLE for water only") — all five regions + the saturation line + backward equations, verified against the R7-97(2012) tables to 9 significant figures — surfaced as **`vle.steam`** with unit-aware inputs and a batch numpy API (notebook `12_steam_tables.ipynb`). **Milestone 12** — the downstream derivative & database release — is done across two releases: **v0.8.2** grew the bundled database to **24 compounds** with ideal-gas Cp°/R coefficients; **v0.9.0** added a Rust-side component database (`vle_thermo::db`, `component-db` feature), **exact temperature/pressure derivatives** of fugacity and K-values (dual-number AD), **real-mixture heat capacity** and **partial molar enthalpy**, and a packaged γ-φ phase enthalpy — the property surface a downstream staged-separation library consumes. **v0.9.1** is a patch fixing a ~1% Wong-Sandler departure-enthalpy inconsistency that the M12.3 Gibbs–Helmholtz invariant surfaced (root cause + fix in [DERIVATIVE_RELEASE_PLAN.md](docs/plans/engine/DERIVATIVE_RELEASE_PLAN.md) §7). See [DERIVATIVE_RELEASE_PLAN.md](docs/plans/engine/DERIVATIVE_RELEASE_PLAN.md). Per-milestone detail: [ROADMAP.md](ROADMAP.md).
 
 ### Prerequisites
 - Python 3.10+
@@ -359,12 +313,14 @@ pytest python/tests/                  # Run the Python test suite
 - [Developer Setup Guide](docs/en/SETUP.md) — Prerequisites, build instructions, and development workflow (Rust, Python/conda, maturin)
 - [Mixing Rules — A Student's Guide](docs/en/mixing-rules.md) — What mixing rules are, the classical vs EOS/Gᴱ families, how to choose one, and the 11 rules implemented here
 - [Dimensional Analysis](docs/en/units/dimensional-analysis.md) — Units add-on design: SI dimensions, gauge pressure, extensible unit registry
-- [Modernization Plan](MODERNIZATION_PLAN.md) — Full technical plan with academic references, algorithm mapping, and performance improvements
-- [Performance Proposal](PERFORMANCE_PROPOSAL.md) — The speed/convergence plan (2026-07): modern flash algorithms, exact-derivative core, batch numpy API
-- [Optimization Plan — Part 1](OPTIMIZATION_PLAN_PART1.md) — The flash layer's response to the external audit: what the benchmarks actually said, which recommendations were executed, and which two were reverted for making it slower
-- [Optimization Plan — Part 2](OPTIMIZATION_PLAN_PART2.md) — The mixture core: caching composition-independent work per (T, P), and why the audit's square-root hoist barely mattered next to a trait object sitting n²-deep in the same loop
-- [Optimization Audit History](OPTIMIZATION_AUDIT_HISTORY.md) — A learning-repo write-up of using one AI to audit another's plan: the chain of custody, and why a reviewer that can't run `cargo bench` can't calibrate its own advice
+- **[Plan & Audit History](docs/plans/README.md)** — **Start here for the "why".** Every plan and audit the project has produced, in two clickable tables (calculations vs. delivery), with what each one decided, whether the code caught up with it, and the five eras they arrived in
+- [Modernization Plan](docs/plans/MODERNIZATION_PLAN.md) — Full technical plan with academic references, algorithm mapping, and performance improvements
+- [Performance Proposal](docs/plans/engine/PERFORMANCE_PROPOSAL.md) — The speed/convergence plan (2026-07): modern flash algorithms, exact-derivative core, batch numpy API
+- [Optimization Plan — Part 1](docs/plans/engine/OPTIMIZATION_PLAN_PART1.md) — The flash layer's response to the external audit: what the benchmarks actually said, which recommendations were executed, and which two were reverted for making it slower
+- [Optimization Plan — Part 2](docs/plans/engine/OPTIMIZATION_PLAN_PART2.md) — The mixture core: caching composition-independent work per (T, P), and why the audit's square-root hoist barely mattered next to a trait object sitting n²-deep in the same loop
+- [Optimization Audit History](docs/plans/engine/OPTIMIZATION_AUDIT_HISTORY.md) — A learning-repo write-up of using one AI to audit another's plan: the chain of custody, and why a reviewer that can't run `cargo bench` can't calibrate its own advice
 - [Pascal vs VB6 Comparison](PASCAL_VB6_COMPARISON.md) — Detailed comparison of the two legacy codebases
+- [Distribution](distribution/README.md) — Notebooks, Swift, Kotlin and WebAssembly: the channels that ship as source plus a build script. Registry publishing (PyPI, crates.io) is in [deploy/README.md](deploy/README.md)
 - [Research Paper (English)](docs/en/research-paper/README.md) — Navigatable English translation
 - [Research Paper (Spanish)](docs/es/research-paper/README.md) — Original Spanish text (PDFs)
 
@@ -379,7 +335,7 @@ The implementation cites 30 academic references (ACS format). Key ones include:
 - **(19)** Michelsen, M. L. *Fluid Phase Equilib.* **1982**, *9*, 21. — Rachford-Rice / phase split
 - **(21)** Orbey, H.; Sandler, S. I. Cambridge University Press, 1998. — Advanced mixing rules
 
-The full reference list and code mapping is in [MODERNIZATION_PLAN.md](MODERNIZATION_PLAN.md#academic-references).
+The full reference list and code mapping is in [MODERNIZATION_PLAN.md](docs/plans/MODERNIZATION_PLAN.md#academic-references).
 
 ## Built with Claude Code
 

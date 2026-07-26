@@ -304,7 +304,7 @@ def build() -> nbf.NotebookNode:
         "volume.\n"
         "- [Chapter II §2.2](https://github.com/miguelju/vle/blob/main/docs/en/research-paper/chapter-2-vle-theory.md) "
         "— activity-coefficient method and Table 2.3.\n"
-        "- [`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/MODERNIZATION_PLAN.md) "
+        "- [`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/docs/plans/MODERNIZATION_PLAN.md) "
         "— Phase 10 (activity models).\n"
         "- Previous notebook: [`02d_advanced_saturation.ipynb`](02d_advanced_saturation.ipynb)."
     ))

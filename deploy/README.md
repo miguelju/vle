@@ -1,41 +1,36 @@
-# Distribution
+# Registry Distribution — PyPI & crates.io
+
+This folder covers the two channels where `vle-thermo` is **published as a
+package**: PyPI for Python users, crates.io for Rust users. Both are fed by
+the same source tree and the same `v*` tag, and both are automated by
+[`release.yml`](../.github/workflows/release.yml).
+
+> **Looking for the other channels?** Swift (iOS/macOS), Kotlin (Android and
+> Compose Desktop), JavaScript/WebAssembly, the bundled notebooks, and the
+> parked C#/.NET route are **not** published to a registry — the repo ships
+> the build recipe instead of the artifact. They all live in
+> **[`../distribution/README.md`](../distribution/README.md)**.
 
 This repository is open-source educational software, and **how the code
-reaches its users** is itself part of what it teaches. `vle-thermo` travels
-into other people's environments through a small handful of channels — and
-each one exists for a different kind of user.
+reaches its users** is itself part of what it teaches. The two registry
+channels exist for two different kinds of user, and the shape of each
+package follows from what that user already has installed.
 
-## How `vle-thermo` reaches users
+## The two registry channels
 
-| Audience | Channel | Install / launch |
+| Audience | Channel | Install |
 |---|---|---|
 | Python users (most readers) | **PyPI** | `pip install vle-thermo` |
-| Learners working through the bundled notebooks | **GitHub** ([`notebooks/`](https://github.com/miguelju/vle/tree/main/notebooks)) | clone the repo, `pip install "vle-thermo[plot]" jupyterlab`, then open in your preferred notebook viewer — no special kernel needed |
-| Rust developers embedding the engine | **crates.io** | `cargo add vle-thermo` &nbsp; `cargo add vle-units` |
-| Swift developers building iOS/macOS apps | **GitHub (source) + local build** — nothing published, by design | clone the repo, `scripts/build-ios.sh`, then add `swift/VleThermo` as a local package in Xcode — see [docs/en/ios/README.md](../docs/en/ios/README.md) |
-| Kotlin developers building Android / Compose Desktop apps | **GitHub (source) + local build** — nothing published, by design | clone the repo, `scripts/build-android.sh`, then include `kotlin/VleThermo` from Android Studio — see [docs/en/android/README.md](../docs/en/android/README.md) |
-| JavaScript/TypeScript developers building web, desktop (Tauri/Electron), or mobile (Tauri/Capacitor) apps | **GitHub (source) + local build** — nothing published, by design | clone the repo, `scripts/build-wasm.sh`, then `npm install <path-to-vle>/wasm/pkg` — see [docs/en/web/README.md](../docs/en/web/README.md) |
+| Rust developers embedding the engine | **crates.io** | `cargo add vle-thermo` &nbsp; `cargo add vle-units` &nbsp; `cargo add vle-steam` |
 
-The channels share **one source of truth**: the same Rust source is
-published to crates.io, compiled into the PyPI wheels, and compiled locally
-into the Swift package's XCFramework, the Kotlin module's `.so`s, and the
-wasm package's `.wasm` module; the notebooks exercise that published
-library. There are no parallel implementations to keep in sync. (The
-Swift, Kotlin, and JavaScript rows are deliberately *not* registries: the
-artifacts are machine-built binaries, so the repo distributes the recipe,
-not the artifact.)
-
-> **What about C#/.NET?** That route was evaluated and is deliberately
-> **not** offered: the community C# bindings generator lags the UniFFI
-> version this workspace pins, so the toolchain doesn't line up (as of
-> 2026-07-12). The full analysis — and the complete would-be recipe, should
-> the versions ever converge — lives in
-> [docs/en/dotnet/README.md](../docs/en/dotnet/README.md).
+Both share **one source of truth**: the same Rust source is published to
+crates.io and compiled into the PyPI wheels. There are no parallel
+implementations to keep in sync.
 
 ### crates.io — Rust source distribution
 
 [crates.io](https://crates.io) is the official public registry for Rust
-libraries (analogous to PyPI for Python or npm for JavaScript). Two crates
+libraries (analogous to PyPI for Python or npm for JavaScript). Three crates
 from this project live there:
 
 - **[`vle-thermo`](https://crates.io/crates/vle-thermo)** — the numerical
@@ -43,6 +38,9 @@ from this project live there:
 - **[`vle-units`](https://crates.io/crates/vle-units)** — the unit registry
   and dimensional-analysis layer; usable standalone in any Rust project
   that needs thermodynamic-flavored units (see [`units/README.md`](../units/README.md)).
+- **[`vle-steam`](https://crates.io/crates/vle-steam)** — IAPWS-IF97 steam
+  tables, dependency-free and usable on its own ("VLE for water only";
+  see [`steam/README.md`](../steam/README.md)).
 
 Publishing is one command per crate: `cargo publish`. crates.io stores
 *source code*; when a downstream user runs `cargo add vle-thermo` and then
@@ -78,67 +76,24 @@ the FFI boundary — live in [`python/README.md`](../python/README.md), in
 the section "How the Python package wraps Rust". The manual/operator path is
 [`scripts/publish-pypi.sh`](scripts/publish-pypi.sh).
 
-### Notebooks from the repo (work through them locally)
+## The publish scripts are an operator escape hatch
 
-If you'd rather learn from the bundled notebooks on your own machine —
-in JupyterLab, classic Jupyter Notebook, VS Code's Jupyter extension, or
-any other client — pull them straight from the
-[`notebooks/`](https://github.com/miguelju/vle/tree/main/notebooks)
-directory:
-
-```sh
-git clone https://github.com/miguelju/vle.git
-cd vle
-pip install "vle-thermo[plot]" jupyterlab    # or `jupyter` / VS Code Jupyter
-jupyter lab notebooks/                        # opens the notebook folder
-```
-
-**Kernel:** nothing custom is required. The notebooks declare their
-kernel as `python3` (the standard `ipykernel` name), so any Jupyter
-install with a Python 3.10+ environment that has `vle-thermo` installed
-will run them. There's nothing `vle`-specific about the kernel itself.
-
-For the full host-agnostic prerequisites, install options, the notebook
-catalogue, and the `components.db` setup, see [`NOTEBOOKS.md`](NOTEBOOKS.md).
-
-> The `vle-thermo[plot]` extra pulls in `matplotlib`, which the
-> notebooks use for P-x-y plots. Skip the `[plot]` if you only care
-> about the numerical cells.
-
-### WebAssembly — the browser and JS runtimes
-
-The engine also compiles to **WebAssembly**: the same Rust source, built
-locally into a small npm package (`scripts/build-wasm.sh` →
-`wasm/pkg/`, ~150 KB gzipped including the flash suite, steam tables, and
-the bundled component database). The thermodynamics then runs
-**client-side in the visitor's browser** — and because every desktop and
-mobile webview is also a browser, one React (or plain JS) codebase covers
-four delivery shapes:
-
-- **React web** — import the package, `await init()`, call the engine
-  directly. The site stays static files: no compute server, no API, no
-  hosting cost beyond the files themselves.
-- **Tauri 2** — the same bundle as a **Windows** (or macOS/Linux) *and*
-  **Android/iOS** app; ~10 MB installers on the system webview. With the
-  engine as wasm inside the frontend, the shell carries no backend code.
-- **Electron** — the same bundle as a desktop-only app; bundles Chromium
-  (bigger, maximally battle-tested). A `napi-rs` native module is the
-  documented upgrade path if a desktop workload ever needs full native
-  speed with rayon threads.
-- **Capacitor** — the same bundle wrapped for Android/iOS when only
-  mobile is needed.
-
-Which shell to use is a packaging decision made in the app repo, not
-here. Build, API examples (units: K, kPa absolute), the Web Worker
-pattern, and shell notes: [docs/en/web/README.md](../docs/en/web/README.md).
+Neither script is called by CI. `release.yml` publishes with
+`pypa/gh-action-pypi-publish` (Trusted Publishing / OIDC) and
+`cargo publish -p <crate>` directly. The scripts under `scripts/` exist so
+that **the operator path always works without Actions** — a release can be
+cut by hand from any machine with the credentials, exactly as CI would do
+it. See [`../PUBLISHING.md`](../PUBLISHING.md).
 
 ## Layout
 
 ```
 deploy/
-├── README.md       this file — the distribution channels
-├── NOTEBOOKS.md    host-agnostic guide to running the bundled notebooks
+├── README.md       this file — the two registry channels
 └── scripts/
-    ├── publish-crate.sh   cargo publish (vle-units then vle-thermo)
+    ├── publish-crate.sh   cargo publish (vle-units, vle-steam, vle-thermo)
     └── publish-pypi.sh    maturin build + publish to PyPI
 ```
+
+Everything that is **not** a registry publish — notebooks, Swift, Kotlin,
+WebAssembly, C#/.NET — is in [`../distribution/`](../distribution/README.md).

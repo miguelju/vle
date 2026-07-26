@@ -10,7 +10,7 @@ need no backend code at all.
 
 This is the third sibling of the [iOS/macOS guide](../ios/README.md) (M15)
 and the [Android/Kotlin guide](../android/README.md) (M16). Design record:
-[WEB_UI_PLAN.md](../../../WEB_UI_PLAN.md).
+[WEB_UI_PLAN.md](../../plans/delivery/WEB_UI_PLAN.md).
 
 ## How it works (the 30-second version)
 

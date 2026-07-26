@@ -310,7 +310,7 @@ that an app should reach gets its FFI export in the same commit series.**
 
 - [UniFFI user guide](https://mozilla.github.io/uniffi-rs/) — especially
   "Lifting and lowering" and the Swift chapter.
-- [`IOS_FFI_PLAN.md`](../../../IOS_FFI_PLAN.md) — the design record for
+- [`IOS_FFI_PLAN.md`](../../plans/delivery/IOS_FFI_PLAN.md) — the design record for
   this pipeline (alternatives considered, open decisions).
 - [Apple: distributing binary frameworks as Swift packages](https://developer.apple.com/documentation/xcode/distributing-binary-frameworks-as-swift-packages)
 - The research paper behind the engine:

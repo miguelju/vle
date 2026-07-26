@@ -199,7 +199,7 @@ recipe, not artifacts" framing:
      not here.
 3. Keep the **C#/.NET parked-route note** (added 2026-07-12, below the
    channels table): evaluated but not offered — bindgen version-blocked —
-   with the pointer to [docs/en/dotnet/README.md](docs/en/dotnet/README.md).
+   with the pointer to [docs/en/dotnet/README.md](../../en/dotnet/README.md).
    The wasm section must not imply .NET is a supported consumer.
 4. Update the `deploy/` layout tree at the bottom if it gains no new
    files (it shouldn't — the guide lives in `docs/en/web/`).

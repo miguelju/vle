@@ -5,7 +5,8 @@
 # Enforces the mechanical half of CLAUDE.md's "Completion Claims Must Be
 # Verified Against the Code — code is the fact". A plan document is a claim;
 # the code is the fact. These checks compare the claims in ROADMAP.md,
-# TODO.md and MODERNIZATION_PLAN.md against what is actually on disk, and
+# TODO.md and docs/plans/MODERNIZATION_PLAN.md against what is actually on
+# disk, and
 # block the commit when they disagree.
 #
 # Why pre-COMMIT and not pre-push. The equivalent Claude Code agent hook in
@@ -30,7 +31,7 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
 # Only meaningful in the vle repo (the one carrying all three plan docs).
-for f in ROADMAP.md TODO.md MODERNIZATION_PLAN.md; do
+for f in ROADMAP.md TODO.md docs/plans/MODERNIZATION_PLAN.md; do
     [ -f "$f" ] || exit 0
 done
 
@@ -54,7 +55,7 @@ def read(p):
     return pathlib.Path(p).read_text(encoding="utf-8")
 
 
-roadmap, todo, plan = read("ROADMAP.md"), read("TODO.md"), read("MODERNIZATION_PLAN.md")
+roadmap, todo, plan = read("ROADMAP.md"), read("TODO.md"), read("docs/plans/MODERNIZATION_PLAN.md")
 
 # ---------------------------------------------------------------- check 1
 # Milestone headers must correspond 1:1 between ROADMAP.md and TODO.md.
@@ -121,7 +122,7 @@ if nb_dir.is_dir():
     # walked straight past.
     COUNT = re.compile(r"(?<![.\d])(\d{1,3})\s+(?:executable\s+)?notebooks\b")
     HISTORICAL = re.compile(r"then-|that existed|then[\s-]existing|at M\d+")
-    for doc in ("README.md", "python/README.md", "deploy/NOTEBOOKS.md", "ROADMAP.md", "TODO.md"):
+    for doc in ("README.md", "python/README.md", "distribution/NOTEBOOKS.md", "ROADMAP.md", "TODO.md"):
         if not pathlib.Path(doc).is_file():
             continue
         text = read(doc)

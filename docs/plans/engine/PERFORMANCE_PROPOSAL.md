@@ -1,8 +1,8 @@
 # Performance & Algorithm Proposal — "numpy for thermo"
 
-*Adopted 2026-07-01. Status: accepted; folded into [MODERNIZATION_PLAN.md](MODERNIZATION_PLAN.md)
+*Adopted 2026-07-01. Status: accepted; folded into [MODERNIZATION_PLAN.md](../MODERNIZATION_PLAN.md)
 (Algorithm Performance Improvements §A–§M + the Performance Engineering section),
-[ROADMAP.md](ROADMAP.md), and [TODO.md](TODO.md). This document is the rationale record;
+[ROADMAP.md](../../../ROADMAP.md), and [TODO.md](../../../TODO.md). This document is the rationale record;
 the planning docs are the executable plan.*
 
 *Implementation status (2026-07-03): **Track C** (engine mechanics) and **Track E**

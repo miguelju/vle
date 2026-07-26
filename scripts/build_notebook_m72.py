@@ -434,7 +434,7 @@ def build() -> nbf.NotebookNode:
         "[`docs/en/research-paper/chapter-2-vle-theory.md`](https://github.com/miguelju/vle/blob/main/docs/en/research-paper/chapter-2-vle-theory.md)\n"
         "- **MODERNIZATION_PLAN.md — Phase 7** — the α-function port plan "
         "and the M7.1 / M7.2 / M7.3 / M7.4 split. "
-        "[`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/MODERNIZATION_PLAN.md)\n"
+        "[`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/docs/plans/MODERNIZATION_PLAN.md)\n"
         "- **Reference (5): Abbott** — the generalized cubic-EOS family form.\n"
         "- **Source:** all twelve α functions ported from "
         "`legacy/vb6/clsQbicsPure.cls:1719` (`Friend Function Alpha`); the "

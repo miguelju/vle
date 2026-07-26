@@ -9,18 +9,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 1. **README.md** — Features list, project structure tree, time estimates, status
 2. **ROADMAP.md** — Check off completed milestones, update in-progress items
 3. **TODO.md** — Check off completed tasks, update time estimates and summary table
-4. **MODERNIZATION_PLAN.md** — Update if architecture or phases changed
-4b. **PERFORMANCE_PROPOSAL.md** — Update if a performance track (A–E) decision changed
-4c. **DERIVATIVE_RELEASE_PLAN.md** — Update if a Milestone 12 scope, design, or release-sequencing decision changed (the downstream/`stages-thermo` upstream-gap plan)
-4d. **OPTIMIZATION_PLAN_PART1.md** — Update if a Part 1 (flash-layer) performance decision changed, or when a new benchmark number supersedes one recorded there. It is the plan of record for the engine's response to `optimizations_audit.md` Part 1, and it records **rejected** optimizations with their measured regressions — never delete one of those, they are what stops a future reader re-proposing a change that was already tried
-4e. **OPTIMIZATION_PLAN_PART2.md** — Update if a Part 2 (mixture-core / global) performance decision changed. Same rule as Part 1: it records **rejected** recommendations with the reasoning and the measurement, and those entries are load-bearing — they are what stops a future reader re-proposing a change that was already tried and found worse
-4f. **OPTIMIZATION_AUDIT_HISTORY.md** — Update if the provenance story gains a step (a new external audit, a new reviewing model) or if a later measurement changes a verdict recorded there. This is the learning-repo record of how the audit was produced and what it got right and wrong
-4g. **PETROLEUM_PSEUDOCOMPONENT_PLAN.md** — Update if a Milestone 18/19/20 scope or design decision changed (the N-scalable mixture core, petroleum characterization, and refinery-thermodynamics track that together target an atmospheric crude column with hundreds of pseudocomponents). It is the shared technical record for work that spans **two repos** — this one and downstream `stages-thermo` — so a change to the split between them belongs here *and* in that repo's `PLAN.md` §12
+4. **`docs/plans/MODERNIZATION_PLAN.md`** — Update if architecture or phases changed
+4b. **`docs/plans/engine/PERFORMANCE_PROPOSAL.md`** — Update if a performance track (A–E) decision changed
+4c. **`docs/plans/engine/DERIVATIVE_RELEASE_PLAN.md`** — Update if a Milestone 12 scope, design, or release-sequencing decision changed (the downstream/`stages-thermo` upstream-gap plan)
+4d. **`docs/plans/engine/OPTIMIZATION_PLAN_PART1.md`** — Update if a Part 1 (flash-layer) performance decision changed, or when a new benchmark number supersedes one recorded there. It is the plan of record for the engine's response to `optimizations_audit.md` Part 1, and it records **rejected** optimizations with their measured regressions — never delete one of those, they are what stops a future reader re-proposing a change that was already tried
+4e. **`docs/plans/engine/OPTIMIZATION_PLAN_PART2.md`** — Update if a Part 2 (mixture-core / global) performance decision changed. Same rule as Part 1: it records **rejected** recommendations with the reasoning and the measurement, and those entries are load-bearing — they are what stops a future reader re-proposing a change that was already tried and found worse
+4f. **`docs/plans/engine/OPTIMIZATION_AUDIT_HISTORY.md`** — Update if the provenance story gains a step (a new external audit, a new reviewing model) or if a later measurement changes a verdict recorded there. This is the learning-repo record of how the audit was produced and what it got right and wrong
+4g. **`docs/plans/engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md`** — Update if a Milestone 18/19/20 scope or design decision changed (the N-scalable mixture core, petroleum characterization, and refinery-thermodynamics track that together target an atmospheric crude column with hundreds of pseudocomponents). It is the shared technical record for work that spans **two repos** — this one and downstream `stages-thermo` — so a change to the split between them belongs here *and* in that repo's `PLAN.md` §12
 5. **CLAUDE.md** — Update if new conventions, paths, or tools were introduced
 6. **PASCAL_VB6_COMPARISON.md** — Update if new legacy code analysis was done
 7. **docs/en/research-paper/** — Update if translations were completed or links changed
-8. **deploy/README.md** and **deploy/NOTEBOOKS.md** — Update if any generic install step, env var, or prerequisite changed
-9. **deploy/.env.example** — Update if any new environment variable was added (with a safe example value, never a real one)
+8. **`deploy/README.md`** (the two **registry** channels — PyPI + crates.io) and **`distribution/README.md`** + **`distribution/NOTEBOOKS.md`** (every **non-registry** channel — notebooks, Swift, Kotlin, WebAssembly, the parked C#/.NET route) — Update if any install step, build script, prerequisite, or channel changed. The split is load-bearing: `deploy/` is *published packages only*, `distribution/` is *the build recipe*
+9. **`docs/plans/README.md`** (the **Plan & Audit History**) — Update whenever a plan or audit document is added, retired, or changes status. Its two tables are the index to `docs/plans/engine/` and `docs/plans/delivery/`; a plan whose status changed but whose row still says "proposed" is exactly the kind of stale claim the *Completion Claims* rule below exists to prevent
 10. **`python/README.md`** (the **PyPI** long-description for [`vle-thermo`](https://pypi.org/project/vle-thermo/)) — Update whenever the change affects the Python-facing story: new/removed public API (`vle.System` methods, the `_batch` numpy API, CLI commands), status/version language, feature list, or install steps. Every code snippet must run verbatim against the current wheel — execute it (`~/miniconda3/envs/vle/bin/python`) before committing.
 11. **`engine/README.md`** (the **crates.io** page for [`vle-thermo`](https://crates.io/crates/vle-thermo), via `readme = "README.md"` in `engine/Cargo.toml`) — Update whenever the change affects the Rust-crate story: public API/type names, EOS/model coverage, `WIP` markers, status/version language, or the `vle-thermo = "0.x"` install snippet. Any `rust` code block must compile — verify it (`cargo run --example <tmp>` or a doctest) before committing.
 12. **`steam/README.md`** (the **crates.io** page for [`vle-steam`](https://crates.io/crates/vle-steam), the IAPWS-IF97 steam-tables crate, via `readme = "README.md"` in `steam/Cargo.toml`) — Update whenever the change affects the steam-crate story: IF97 region/backward coverage, `SteamState` / `SatProps` API, status language, or the `vle-steam = "0.x"` install snippet. Any `rust` code block must compile — verify it before committing.
@@ -41,13 +41,13 @@ it stops the next reader (human or model) from looking.
 
 ```sh
 # Anything matching this pattern in a to-be-pushed file is a leak.
-git diff --cached origin/main -- ':!deploy/local' ':!deploy/.env' \
+git diff --cached origin/main \
   | grep -E '(163\.192\.214\.135|cloudflareaccess\.com|BEGIN (RSA |EC )?PRIVATE KEY)' \
   && { echo "ABORT: private infrastructure detail found in staged changes"; exit 1; } \
   || echo "clean: no private details in diff"
 ```
 
-If the grep hits anything, stop and move the offending content under `deploy/local/` or replace it with an `${ENV_VAR}` / `example.com` placeholder before pushing.
+If the grep hits anything, stop and replace it with an `${ENV_VAR}` / `example.com` placeholder before pushing. (The gate used to exclude `deploy/local/` and `deploy/.env`; both were deleted when the JupyterHub deployment moved to the private operator repo, so there is nothing left to exclude — every path in the diff is now scanned.)
 
 **Pre-commit doc-sync gate (`hooks/pre-commit`)**: mechanically enforces the
 *Completion Claims* rule below by comparing the plan documents against what is
@@ -61,7 +61,7 @@ no cargo and no network:
    check that would have caught `notebooks/14_pvt_surface.ipynb`, which shipped
    and went unrecorded in both files for two weeks.
 5. Every "*N* notebooks" claim matches the real count, across `README.md`,
-   `python/README.md`, `deploy/NOTEBOOKS.md`, `ROADMAP.md` and `TODO.md`.
+   `python/README.md`, `distribution/NOTEBOOKS.md`, `ROADMAP.md` and `TODO.md`.
    Past-tense, milestone-scoped phrasing ("the then-15-notebook collection")
    is exempt — that is a record of history, not a claim about today.
 
@@ -95,7 +95,7 @@ The project's work is described at three levels of detail that MUST stay in sync
 
 - **`ROADMAP.md`** — milestones (goals, high-level deliverables)
 - **`TODO.md`** — tasks grouped by milestone (with time estimates)
-- **`MODERNIZATION_PLAN.md`** — implementation phases (technical detail per phase)
+- **`docs/plans/MODERNIZATION_PLAN.md`** — implementation phases (technical detail per phase)
 
 **Invariants that MUST hold at all times:**
 
@@ -161,8 +161,8 @@ a reader trusts. It took an outside audit with no stake in the plan
 (`optimizations_audit.md` Part 1 §6) to surface it. A milestone marked complete
 in a plan document is a claim about the past made by someone who wanted it to be
 true; the code is the only thing that cannot be mistaken about itself. See
-[`OPTIMIZATION_PLAN_PART1.md`](OPTIMIZATION_PLAN_PART1.md) §5 and
-[`OPTIMIZATION_AUDIT_HISTORY.md`](OPTIMIZATION_AUDIT_HISTORY.md) §3 for the full
+[`OPTIMIZATION_PLAN_PART1.md`](docs/plans/engine/OPTIMIZATION_PLAN_PART1.md) §5 and
+[`OPTIMIZATION_AUDIT_HISTORY.md`](docs/plans/engine/OPTIMIZATION_AUDIT_HISTORY.md) §3 for the full
 post-mortem.
 
 **Related rule — performance claims need a measurement, not an argument.** Never
@@ -234,7 +234,7 @@ This is a **VLE (Vapor-Liquid Equilibrium) thermodynamic calculator** being mode
 - **`legacy/pascal/`** — Mac Pascal program from Reference (4): Da Silva & Báez (1989). 6 units (TERMOI–TERMOVI, ~2,500 lines). Contributes Schmidt-Wenzel, Patel-Teja, Chao-Seader EOS, Antoine vapor pressure, and Aij regression with analytical Jacobians. **All code derived from this source must cite (4).**
 - **`docs/es/`** — Original research paper and program documentation in Spanish. **`docs/en/`** — English translations (navigatable, with cross-linked references).
 
-The target architecture is documented in `MODERNIZATION_PLAN.md` and the merge strategy in `PASCAL_VB6_COMPARISON.md`. The navigatable English research paper is at `docs/en/research-paper/README.md`.
+The target architecture is documented in `docs/plans/MODERNIZATION_PLAN.md` and the merge strategy in `PASCAL_VB6_COMPARISON.md`. The navigatable English research paper is at `docs/en/research-paper/README.md`.
 
 ## Target Architecture
 
@@ -249,6 +249,10 @@ kotlin/     — Local Android/Kotlin library module `VleThermo` (Gradle + smoke 
 python/     — Python wrapper package (high-level API, plotting, component DB, steam)
 notebooks/  — Jupyter notebooks reproducing research paper results
 docs/       — English translations and parameter reference
+docs/plans/ — every plan and audit document, split engine/ (calculations) vs
+              delivery/ (platforms); `README.md` is the Plan & Audit History
+deploy/     — registry publishing only (PyPI + crates.io)
+distribution/ — every non-registry channel (notebooks, Swift, Kotlin, wasm)
 ```
 
 **Build chain:** Rust (engine/) -> PyO3/maturin -> Python native module -> Python wrapper (python/) -> Jupyter notebooks
@@ -308,7 +312,7 @@ This project is based on academic research. Code derived from legacy sources mus
 
 - **Pascal-derived code** (`legacy/pascal/`): Must cite Reference (4) — Da Silva, F. A.; Báez, L. (1989). Use the comment format:
   `// Ref (4): Da Silva & Báez (1989), legacy/pascal/TERMOxx.PAS`
-- **Algorithm references**: When implementing an algorithm from a specific paper, cite the reference number in ACS style in the module-level doc comment. The full reference list (ACS format) and mapping are in `MODERNIZATION_PLAN.md` under "Academic References" and "Reference-to-Code Mapping".
+- **Algorithm references**: When implementing an algorithm from a specific paper, cite the reference number in ACS style in the module-level doc comment. The full reference list (ACS format) and mapping are in `docs/plans/MODERNIZATION_PLAN.md` under "Academic References" and "Reference-to-Code Mapping".
 - Key references used in code: (5) Abbott — cubic EOS form, (9) Müller et al. — multicomponent fugacity, (10) Stockfleth & Dohrn — numerical Jacobian, (12) Poling & Prausnitz — root selection, (14) Asselineau et al. — high-pressure NR, (16) Heidemann & Khalil — critical point, (18) Hankinson & Thomson — liquid density, (19) Michelsen Part II — Rachford-Rice, (21) Orbey & Sandler — Wong-Sandler mixing rules.
 
 ## Algorithm Choices
@@ -328,7 +332,7 @@ The modernized code improves on several legacy numerical methods. When implement
 - **Helmholtz derivatives** (critical point): Analytical for 2-parameter cubic EOS; dual-number AD (not FD) for exotic mixing rules.
 - **Cubic solver**: Cardano's method (keep as-is). Add (12) Poling & Prausnitz robustness for near-degenerate cases. Must not heap-allocate (`([f64; 3], usize)` return).
 
-See `MODERNIZATION_PLAN.md` "Algorithm Performance Improvements" (§A–§M) + "Performance Engineering", and `PERFORMANCE_PROPOSAL.md` for full justifications.
+See `docs/plans/MODERNIZATION_PLAN.md` "Algorithm Performance Improvements" (§A–§M) + "Performance Engineering", and `docs/plans/engine/PERFORMANCE_PROPOSAL.md` for full justifications.
 
 ## PyO3 Bindings Rule (M5+)
 
@@ -361,14 +365,26 @@ The minimal scaffolding (`vle._engine` exposing `version()` plus the four enum t
 
 ## Deployment Rules
 
-This repo distributes through **three channels only**: crates.io, PyPI, and the
-**example notebooks** (run locally, or on any Jupyter). It no longer carries a
-deployment — the multi-user Docker/JupyterHub stack that used to live under
+This repo **publishes** to two registries — crates.io and PyPI — and delivers
+everything else as source plus a build script. It no longer carries a
+deployment: the multi-user Docker/JupyterHub stack that used to live under
 `deploy/` moved to a **separate private operator repository** (an Ansible role
-+ a gated deploy workflow). `deploy/` now holds only
-`README.md` (distribution channels), `NOTEBOOKS.md` (host-agnostic notebook
-guide), and `scripts/publish-{crate,pypi}.sh`. See `PUBLISHING.md` for the
-release flow.
++ a gated deploy workflow), taking `deploy/.env.example`, `deploy/local/` and
+`deploy/scripts/deploy.sh` with it.
+
+The two folders that remain split along that line, and the split is
+load-bearing:
+
+- **`deploy/`** — *published packages only*: `README.md` (the PyPI and
+  crates.io channels) and `scripts/publish-{crate,pypi}.sh` (the operator
+  escape hatch; CI publishes with `pypa/gh-action-pypi-publish` and
+  `cargo publish` directly, never through these scripts).
+- **`distribution/`** — *every non-registry channel*: `README.md` (notebooks,
+  Swift, Kotlin, WebAssembly, the parked C#/.NET route) and `NOTEBOOKS.md`
+  (host-agnostic notebook guide). Nothing here is published as a binary — the
+  repo ships the recipe. The build scripts themselves stay in `scripts/`.
+
+See `PUBLISHING.md` for the release flow.
 
 ### After a release: refreshing the hub (operator-only, not in this repo)
 
@@ -384,9 +400,10 @@ coupling).
 Every milestone that produces a user-facing artifact ends with:
 
 1. **Create the milestone notebook** — see *Notebook Conventions* below.
-2. **Update the notebook docs** — add the notebook to the `deploy/NOTEBOOKS.md`
-   catalogue and note any new prerequisite; touch `deploy/README.md` only if a
-   distribution channel changed.
+2. **Update the notebook docs** — add the notebook to the
+   `distribution/NOTEBOOKS.md` catalogue and note any new prerequisite; touch
+   `distribution/README.md` only if a non-registry channel changed, and
+   `deploy/README.md` only if a registry channel changed.
 
 Deploying that notebook to the hub is a **separate operator-side step** in a
 private operator repository, not part of the milestone commit here.

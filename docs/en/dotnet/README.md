@@ -46,7 +46,7 @@ bindgen ships *inside* the `uniffi` crate itself, so it is always at
 exactly the workspace's version by construction. The version-skew problem
 this page documents structurally cannot happen on the Kotlin path — one of
 the reasons the Windows desktop app goes through **Compose Multiplatform**
-(see [ANDROID_FFI_PLAN.md](../../../ANDROID_FFI_PLAN.md)) instead of .NET.
+(see [ANDROID_FFI_PLAN.md](../../plans/delivery/ANDROID_FFI_PLAN.md)) instead of .NET.
 
 ## The route, for when it unblocks
 

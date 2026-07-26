@@ -184,4 +184,4 @@ full release procedure.
 - [`runners/linux-setup.md`](runners/linux-setup.md) — Proxmox LXC + Docker + ephemeral runner image
 - [`runners/macos-setup.md`](runners/macos-setup.md) — Mac mini M1 persistent runner setup
 - [`../PUBLISHING.md`](../PUBLISHING.md) — release procedure
-- [`../MODERNIZATION_PLAN.md`](../MODERNIZATION_PLAN.md) — Milestone 5 phase notes
+- [`../MODERNIZATION_PLAN.md`](plans/MODERNIZATION_PLAN.md) — Milestone 5 phase notes

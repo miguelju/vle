@@ -286,7 +286,7 @@ def build() -> nbf.NotebookNode:
         "(`legacy/pascal/TERMOII.PAS`).\n"
         "- **(5)** Abbott, M. M. — generalized cubic-EOS form.\n"
         "- [Chapter II §2.3](https://github.com/miguelju/vle/blob/main/docs/en/research-paper/chapter-2-vle-theory.md) — cubic EOS theory.\n"
-        "- [`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/MODERNIZATION_PLAN.md) — Phase 7 notes and the unified (U, W) three-parameter formulation.\n"
+        "- [`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/docs/plans/MODERNIZATION_PLAN.md) — Phase 7 notes and the unified (U, W) three-parameter formulation.\n"
         "- Two-parameter α zoo: [`02b_alpha_zoo.ipynb`](02b_alpha_zoo.ipynb). "
         "Advanced saturation models (M7.4): "
         "[`02d_advanced_saturation.ipynb`](02d_advanced_saturation.ipynb)."

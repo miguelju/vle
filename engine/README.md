@@ -53,7 +53,7 @@ that are correctly shaped but numerically unusable (non-finite or negative
 `zᵢ`, non-positive `Kᵢ`, non-positive tolerance). Measured effect on the
 isothermal flash: −24…−28 %; on tangent-plane stability: −44…−51 % (cumulative
 across both parts of the audit response). Details in
-[`OPTIMIZATION_PLAN_PART1.md`](https://github.com/miguelju/vle/blob/main/OPTIMIZATION_PLAN_PART1.md).
+[`OPTIMIZATION_PLAN_PART1.md`](https://github.com/miguelju/vle/blob/main/docs/plans/engine/OPTIMIZATION_PLAN_PART1.md).
 
 The mixture core followed: **`mixture::TpCache`** holds the composition-independent
 half of an evaluation (every component's α, Aᵢ, Bᵢ and their roots) so a caller
@@ -64,7 +64,7 @@ sweeping composition at fixed `(T, P)` — any flash — builds it once and call
 virial path gains flat row-major `b_mix_matrix_flat` +
 `ln_phi_mix_virial_flat_into`. Cumulative measured effect: isothermal flash
 −24…−28 %, tangent-plane stability −44…−51 %. Details in
-[`OPTIMIZATION_PLAN_PART2.md`](https://github.com/miguelju/vle/blob/main/OPTIMIZATION_PLAN_PART2.md).
+[`OPTIMIZATION_PLAN_PART2.md`](https://github.com/miguelju/vle/blob/main/docs/plans/engine/OPTIMIZATION_PLAN_PART2.md).
 
 `0.10.0` adds **IAPWS-IF97 steam
 tables** via the new sibling crate [`vle-steam`](https://crates.io/crates/vle-steam),
@@ -84,7 +84,7 @@ pin a minor version if a breaking `match` or signature change would cost you.
 
 See the [roadmap](https://github.com/miguelju/vle/blob/main/ROADMAP.md) for
 what's shipped vs. planned, and the
-[modernization plan](https://github.com/miguelju/vle/blob/main/MODERNIZATION_PLAN.md)
+[modernization plan](https://github.com/miguelju/vle/blob/main/docs/plans/MODERNIZATION_PLAN.md)
 for the phase-by-phase technical detail.
 
 ## Install

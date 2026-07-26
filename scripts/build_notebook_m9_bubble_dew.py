@@ -227,7 +227,7 @@ def build():
         "- Research paper [Chapter IV §4.3–4.5 — Bubble/Dew Points](https://github.com/miguelju/vle/blob/main/docs/en/research-paper/chapter-4-validation.md) (Tables 4.5–4.9).\n"
         "- Activity models: [Chapter II §2.2](https://github.com/miguelju/vle/blob/main/docs/en/research-paper/chapter-2-vle-theory.md) and the [activity-models notebook](03_activity_models.ipynb).\n"
         "- (21) Orbey & Sandler — the van Laar parameters.\n"
-        "- Algorithm details: [`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/MODERNIZATION_PLAN.md) §K and `engine/src/flash/{bubble,dew}.rs`.\n"
+        "- Algorithm details: [`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/docs/plans/MODERNIZATION_PLAN.md) §K and `engine/src/flash/{bubble,dew}.rs`.\n"
     ))
 
     nb.cells = c

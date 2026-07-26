@@ -317,4 +317,4 @@ API commitment. The pause-for-approval gate is what made them Miguel's.
 - [`OPTIMIZATION_PLAN_PART1.md`](OPTIMIZATION_PLAN_PART1.md) — the flash layer: verdicts and numbers
 - [`OPTIMIZATION_PLAN_PART2.md`](OPTIMIZATION_PLAN_PART2.md) — the mixture core: verdicts and numbers
 - [`PERFORMANCE_PROPOSAL.md`](PERFORMANCE_PROPOSAL.md) — Tracks A–E, the plan the audit critiques
-- [`MODERNIZATION_PLAN.md`](MODERNIZATION_PLAN.md) — §F/§I/§J, and the corrected Milestone 9 status
+- [`MODERNIZATION_PLAN.md`](../MODERNIZATION_PLAN.md) — §F/§I/§J, and the corrected Milestone 9 status

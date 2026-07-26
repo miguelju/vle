@@ -1,8 +1,21 @@
 # Downstream Derivative & Database Release Plan (Milestone 12 → vle-thermo 0.9.x)
 
 *Planning document, 2026-07-05. Prepared by Claude Code using Claude Fable 5 for
-execution by Claude Opus 4.8. **This document is a plan only — nothing in it has
-been implemented yet.***
+execution by Claude Opus 4.8.*
+
+**Status: SHIPPED as Milestone 12 / Phase 19 — all five upstream gaps closed.**
+M12.1 released in **v0.8.2** (2026-07-05); M12.2–12.5 in **v0.9.0** (2026-07-06);
+**v0.9.1** (2026-07-06) is the follow-up patch for the Wong-Sandler
+departure-enthalpy `db/dT` bug that the M12.3 Gibbs–Helmholtz invariant test
+surfaced (§7). This file remains the *design record*; the as-built state is
+[ROADMAP.md](../../../ROADMAP.md) Milestone 12 and
+[MODERNIZATION_PLAN.md](../MODERNIZATION_PLAN.md) Phase 19.
+
+> **Correction (2026-07-26).** This header previously read *"This document is a
+> plan only — nothing in it has been implemented yet."* True on 2026-07-05, stale
+> from 2026-07-06 onward. Caught while building
+> [the Plan & Audit History](../README.md); see CLAUDE.md *Completion Claims Must
+> Be Verified Against the Code*.
 
 **Origin**: `stages-thermo` — the staged-separation (distillation) library planned
 as the first downstream consumer of `vle-thermo` (see its `PLAN.md` §7
@@ -13,8 +26,8 @@ repo's rules. It is the work stages-thermo's roadmap calls
 "M4 — Upstream: vle-thermo derivative release (0.9.x, in the vle repo)".
 
 **Placement in the planning hierarchy**: this milestone is **Milestone 12** in
-[ROADMAP.md](ROADMAP.md) / [TODO.md](TODO.md) and **Phase 19** in
-[MODERNIZATION_PLAN.md](MODERNIZATION_PLAN.md). Those three documents carry the
+[ROADMAP.md](../../../ROADMAP.md) / [TODO.md](../../../TODO.md) and **Phase 19** in
+[MODERNIZATION_PLAN.md](../MODERNIZATION_PLAN.md). Those three documents carry the
 milestone/task/phase view; this document carries the full technical detail (the
 same division of labor as [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md) vs.
 its Phase 11 / Tracks A–E entries).

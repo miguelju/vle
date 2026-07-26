@@ -990,7 +990,7 @@ For an unfamiliar physical quantity, always cross-check the dimension vector aga
 
 ### Project
 
-- [MODERNIZATION_PLAN.md](../../../MODERNIZATION_PLAN.md) — Overall project plan (references this document)
+- [MODERNIZATION_PLAN.md](../../plans/MODERNIZATION_PLAN.md) — Overall project plan (references this document)
 - [CLAUDE.md](../../../CLAUDE.md) — "Units Documentation Rules" (units must be stated in every function doc comment)
 - [ROADMAP.md](../../../ROADMAP.md) — Milestone 3 tracks implementation of this add-on
 - [TODO.md](../../../TODO.md) — Detailed task breakdown with time estimates

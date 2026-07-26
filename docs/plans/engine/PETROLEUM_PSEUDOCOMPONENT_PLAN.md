@@ -2,8 +2,8 @@
 
 *Planning document, 2026-07-25. Prepared by Claude Code using Claude Opus 5
 (1M context). **This document is a plan only — nothing in it has been
-implemented.** Every checkbox it maps to in [ROADMAP.md](ROADMAP.md) /
-[TODO.md](TODO.md) is unchecked, and must stay unchecked until the code exists
+implemented.** Every checkbox it maps to in [ROADMAP.md](../../../ROADMAP.md) /
+[TODO.md](../../../TODO.md) is unchecked, and must stay unchecked until the code exists
 and a test asserts its behaviour (CLAUDE.md, *Completion Claims Must Be
 Verified Against the Code*).*
 
@@ -12,7 +12,7 @@ with **hundreds of pseudocomponents** — the canonical refinery unit, and the
 workload that most thoroughly stresses everything this project has built.
 
 **Placement.** Three new milestones in this repo — **18**, **19**, **20**
-(Phases **25**, **26**, **27** in [MODERNIZATION_PLAN.md](MODERNIZATION_PLAN.md)) —
+(Phases **25**, **26**, **27** in [MODERNIZATION_PLAN.md](../MODERNIZATION_PLAN.md)) —
 plus two in the downstream `stages-thermo` repo, whose own `PLAN.md` §12 and
 roadmap carry the matching entries. This document is the shared technical
 record, the same division of labor as

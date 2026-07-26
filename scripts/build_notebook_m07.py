@@ -454,7 +454,7 @@ def build() -> nbf.NotebookNode:
         "[`docs/en/research-paper/chapter-2-vle-theory.md`](https://github.com/miguelju/vle/blob/main/docs/en/research-paper/chapter-2-vle-theory.md)\n"
         "- **MODERNIZATION_PLAN.md — Phase 7 / 8 / 9** — phase-level "
         "scope notes for the pure-component layer. "
-        "[`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/MODERNIZATION_PLAN.md)\n"
+        "[`MODERNIZATION_PLAN.md`](https://github.com/miguelju/vle/blob/main/docs/plans/MODERNIZATION_PLAN.md)\n"
         "- **Reference (4): Da Silva & Báez (1989)** — Antoine form "
         "and 3-parameter EOS source. `legacy/pascal/TERMOI.PAS` "
         "(Antoine) and `TERMOII.PAS` (3-param EOS, deferred to M7.3).\n"

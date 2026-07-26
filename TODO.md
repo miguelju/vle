@@ -289,7 +289,7 @@ Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone i
 ## Milestone 12: Downstream Derivative & Database Release (vle-thermo 0.9.x)
 
 Closes the five upstream gaps identified by `stages-thermo` (planned first
-downstream consumer). Full technical spec: [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md).
+downstream consumer). Full technical spec: [DERIVATIVE_RELEASE_PLAN.md](docs/plans/engine/DERIVATIVE_RELEASE_PLAN.md).
 Two releases: **v0.8.2** (12.1 fast-track) then **v0.9.0** (12.2–12.5).
 Total ~25–38h. All sub-milestones **done** 2026-07-05→07-06 (Claude Opus 4.8):
 M12.1 (v0.8.2 data), M12.2–12.5 (v0.9.0 — Rust DB, T/P derivatives, real Cp +
@@ -340,7 +340,7 @@ departure-enthalpy `db/dT` bug the M12.3 invariant surfaced (plan §7).
 
 New dependency-free workspace crate implementing the IAPWS Industrial
 Formulation 1997 (IF97) — "VLE for water only" — surfaced as `vle.steam`.
-Full spec: [STEAM_TABLES_PLAN.md](STEAM_TABLES_PLAN.md). Ships as **v0.10.0**.
+Full spec: [STEAM_TABLES_PLAN.md](docs/plans/engine/STEAM_TABLES_PLAN.md). Ships as **v0.10.0**.
 Total ~27–39h (13.1–13.6). Correctness ground truth = the R7-97(2012)
 computer-program verification tables (asserted to 9 sig figs).
 
@@ -393,7 +393,7 @@ computer-program verification tables (asserted to 9 sig figs).
 ### Milestone 13.7 — Transport properties (~8–12h) — **Done (unreleased)**
 *Executed by Claude Code using Claude Opus 5 (1M context)*
 
-The transport half of the "optional, later" 13.7 in [STEAM_TABLES_PLAN.md](STEAM_TABLES_PLAN.md).
+The transport half of the "optional, later" 13.7 in [STEAM_TABLES_PLAN.md](docs/plans/engine/STEAM_TABLES_PLAN.md).
 IAPWS-95 as a high-accuracy oracle remains deferred — it is a correctness asset,
 not a user-facing capability, and is a much larger transcription.
 
@@ -436,7 +436,7 @@ machine in the same session — the untouched-baseline discipline the audit set.
 
 Upstream enabler for `stages-thermo` Milestone 2 (Ponchon–Savarit): a proper
 heat-of-mixing model + ammonia for the ammonia–water enthalpy–composition method.
-Design record: [NRTL_AMMONIA_PLAN.md](NRTL_AMMONIA_PLAN.md).
+Design record: [NRTL_AMMONIA_PLAN.md](docs/plans/engine/NRTL_AMMONIA_PLAN.md).
 
 - [x] **NRTL model** — `ActivityModel::Nrtl` (project ID 37, first free above the
       legacy space). General multicomponent γ via the column-sum form, written once
@@ -471,7 +471,7 @@ Design record: [NRTL_AMMONIA_PLAN.md](NRTL_AMMONIA_PLAN.md).
 *Executed by Claude Code using Claude Fable 5*
 
 Local-only Apple builds (no CI, no published/committed binaries — see the
-hard constraint in [IOS_FFI_PLAN.md](IOS_FFI_PLAN.md); drafted as "M14",
+hard constraint in [IOS_FFI_PLAN.md](docs/plans/delivery/IOS_FFI_PLAN.md); drafted as "M14",
 renumbered on adoption). No release: nothing on crates.io/PyPI changed. No
 milestone notebook (Swift isn't executable from Jupyter) — the learning doc
 + XCTest suite fill that role.
@@ -520,7 +520,7 @@ milestone notebook (Swift isn't executable from Jupyter) — the learning doc
 *Executed by Claude Code using Claude Fable 5*
 
 Local-only builds again (no CI, no committed binaries — see
-[ANDROID_FFI_PLAN.md](ANDROID_FFI_PLAN.md), incl. the framework decision
+[ANDROID_FFI_PLAN.md](docs/plans/delivery/ANDROID_FFI_PLAN.md), incl. the framework decision
 log and the parked C#/.NET route). No release; no milestone notebook
 (Kotlin isn't executable from Jupyter).
 
@@ -571,7 +571,7 @@ log and the parked C#/.NET route). No release; no milestone notebook
 *Executed by Claude Code using Claude Fable 5*
 
 Local-only builds again (no CI, no committed binaries, nothing on npm —
-see [WEB_UI_PLAN.md](WEB_UI_PLAN.md), incl. the framework decision log,
+see [WEB_UI_PLAN.md](docs/plans/delivery/WEB_UI_PLAN.md), incl. the framework decision log,
 the verified feasibility spike, and the single-threaded/rayon
 decomposition). No release; no milestone notebook (JS isn't executable
 from Jupyter).
@@ -622,7 +622,7 @@ from Jupyter).
 ## Milestone 18: N-Scalable Mixture Core *(~10–16h)* — **Not started**
 *Phase 25 of MODERNIZATION_PLAN.md*
 
-Plan of record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §1.1.
+Plan of record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](docs/plans/engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §1.1.
 Prerequisite for a several-hundred-component mixture, but **independently
 valuable** — a pure speedup of an existing hot path with no new physics.
 
@@ -637,7 +637,7 @@ valuable** — a pure speedup of an existing hot path with no new physics.
 ## Milestone 19: Petroleum Characterization *(~20–30h)* — **Not started**
 *Phase 26 of MODERNIZATION_PLAN.md*
 
-Plan of record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U1, U2).
+Plan of record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](docs/plans/engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U1, U2).
 The largest new module; gated by nothing.
 
 - [ ] **Distillation-curve interconversion** (~4–6h) — ASTM D86 ↔ TBP ↔ D2887 (SimDist) ↔ EFV
@@ -650,7 +650,7 @@ The largest new module; gated by nothing.
 ## Milestone 20: Refinery Thermodynamics *(~18–26h)* — **Not started**
 *Phase 27 of MODERNIZATION_PLAN.md*
 
-Plan of record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U4, U5).
+Plan of record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](docs/plans/engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U4, U5).
 Depends on M19 for the fractions these methods apply to.
 
 - [ ] **Free-water / three-phase** (~8–12h) — VLLE stability + flash, or at minimum a water-decant model. Unavoidable: atmospheric towers run stripping steam, so water forms a second liquid in the overhead drum and every side stripper
@@ -665,9 +665,9 @@ Depends on M19 for the fractions these methods apply to.
 *No new MODERNIZATION_PLAN phase — refines Phase 15 (§F/§I/§J) and the mixture core in place*
 *Executed by Claude Code using Claude Opus 5 (1M context)*
 
-Plan of record: [OPTIMIZATION_PLAN_PART1.md](OPTIMIZATION_PLAN_PART1.md) (flash layer) and
-[OPTIMIZATION_PLAN_PART2.md](OPTIMIZATION_PLAN_PART2.md) (mixture core). Provenance and
-lessons: [OPTIMIZATION_AUDIT_HISTORY.md](OPTIMIZATION_AUDIT_HISTORY.md).
+Plan of record: [OPTIMIZATION_PLAN_PART1.md](docs/plans/engine/OPTIMIZATION_PLAN_PART1.md) (flash layer) and
+[OPTIMIZATION_PLAN_PART2.md](docs/plans/engine/OPTIMIZATION_PLAN_PART2.md) (mixture core). Provenance and
+lessons: [OPTIMIZATION_AUDIT_HISTORY.md](docs/plans/engine/OPTIMIZATION_AUDIT_HISTORY.md).
 
 ### Benchmark foundation (~3–4h)
 - [x] `flash_multi` criterion group — inner RR solve, one K-value evaluation, the whole

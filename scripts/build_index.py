@@ -14,8 +14,9 @@ Run from the repo root:
     $ python scripts/build_index.py
 
 The output is deterministic — rerunning with no notebook changes produces a
-byte-identical file (modulo the timestamp-free nbformat header). Wire this
-into ``deploy/scripts/deploy.sh`` so the hub always ships a fresh index.
+byte-identical file (modulo the timestamp-free nbformat header). Run it by
+hand after adding or renaming a notebook, so the landing index stays in sync
+with ``notebooks/`` and ``distribution/NOTEBOOKS.md``.
 """
 
 from __future__ import annotations

@@ -76,7 +76,7 @@ The original Spanish text is preserved in [`docs/es/research-paper/`](../../es/r
 
 ## Related Documents
 
-- [Modernization Plan](../../../MODERNIZATION_PLAN.md) — How this thesis is being modernized into Rust + Python
+- [Modernization Plan](../../plans/MODERNIZATION_PLAN.md) — How this thesis is being modernized into Rust + Python
 - [Pascal vs VB6 Comparison](../../../PASCAL_VB6_COMPARISON.md) — Detailed comparison of the two legacy codebases
 - [Legacy VB6 Source](../../../legacy/vb6/) — Original VB6 code from this thesis
 - [Legacy Pascal Source](../../../legacy/pascal/) — Original Pascal code from Da Silva & Báez (*4*)(references.md#ref-4)

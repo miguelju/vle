@@ -56,8 +56,9 @@ typically 5–15 minutes (the Mac mini wheel build is the long pole).
 2. **Update the changelog-ish docs** per `CLAUDE.md` release rules:
    - `ROADMAP.md`, `TODO.md` — check off completed milestones
    - `README.md` — feature list, status notes
-   - `MODERNIZATION_PLAN.md` — if architecture changed
-   - `PERFORMANCE_PROPOSAL.md` — if a performance track (A–E) decision changed
+   - `docs/plans/MODERNIZATION_PLAN.md` — if architecture changed
+   - `docs/plans/engine/PERFORMANCE_PROPOSAL.md` — if a performance track (A–E) decision changed
+   - `docs/plans/README.md` — if a plan or audit changed status
 
 3. **Run the pre-push private-data gate** (see `CLAUDE.md`).
 
