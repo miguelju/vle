@@ -126,6 +126,59 @@ pub struct SatProps {
     pub u_g: f64,
 }
 
+impl SatProps {
+    /// Saturated-**liquid** dynamic viscosity, **Pa·s** (IAPWS R12-08).
+    pub fn mu_f(&self) -> f64 {
+        crate::viscosity_rho_t(1.0 / self.v_f, self.t)
+    }
+
+    /// Saturated-**vapor** dynamic viscosity, **Pa·s** (IAPWS R12-08).
+    pub fn mu_g(&self) -> f64 {
+        crate::viscosity_rho_t(1.0 / self.v_g, self.t)
+    }
+
+    /// Saturated-**liquid** thermal conductivity, **W/(m·K)** (IAPWS R15-11).
+    pub fn k_f(&self) -> Result<f64, SteamError> {
+        self.conductivity_of_phase(true)
+    }
+
+    /// Saturated-**vapor** thermal conductivity, **W/(m·K)** (IAPWS R15-11).
+    pub fn k_g(&self) -> Result<f64, SteamError> {
+        self.conductivity_of_phase(false)
+    }
+
+    /// Liquid–vapor surface tension at this row's temperature, **N/m**
+    /// (IAPWS R1-76(2014)).
+    pub fn sigma(&self) -> Result<f64, SteamError> {
+        crate::surface_tension(self.t)
+    }
+
+    /// Shared body of [`Self::k_f`] / [`Self::k_g`].
+    ///
+    /// Re-derives which region the requested phase lives in, using the same
+    /// 623.15 K split `sat_t` itself uses: below it the two phases are plain
+    /// region-1 and region-2 states at `Psat`; above it the whole dome is
+    /// inside region 3, so both phases come from the saturated densities.
+    fn conductivity_of_phase(&self, liquid: bool) -> Result<f64, SteamError> {
+        let (t, p) = (self.t, self.p);
+        let (props, drho_dp) = if t <= T_SAT_R12_MAX {
+            if liquid {
+                (region1::props(t, p), region1::drho_dp(t, p))
+            } else {
+                (region2::props(t, p), region2::drho_dp(t, p))
+            }
+        } else {
+            let (rho_f, rho_g) = region3::saturated_densities(t)?;
+            let rho = if liquid { rho_f } else { rho_g };
+            (region3::props_rho_t(rho, t), 1.0 / region3::dp_drho(rho, t))
+        };
+        let (l0, l1, l2) = crate::transport::thermal_conductivity_parts(
+            t, props.rho, props.cp, props.cv, drho_dp, true,
+        );
+        Ok((l0 * l1 + l2) * 1e-3)
+    }
+}
+
 /// Evaluate the single-phase property surface for a known region.
 fn props_for_region(t: f64, p_kpa: f64, region: Region) -> Result<Props, SteamError> {
     match region {
@@ -278,13 +331,8 @@ impl SteamState {
                 return Ok(Self::from_quality(&sat, x));
             }
         }
-        let (t, region) = t_from_ph(p_kpa, h)?;
-        Ok(Self::from_single(
-            t,
-            p_kpa,
-            props_for_region(t, p_kpa, region)?,
-            region,
-        ))
+        let (t, region, props) = t_from_ph(p_kpa, h)?;
+        Ok(Self::from_single(t, p_kpa, props, region))
     }
 
     /// State from pressure and specific entropy (isentropic / PS flash).
@@ -304,13 +352,50 @@ impl SteamState {
                 return Ok(Self::from_quality(&sat, x));
             }
         }
-        let (t, region) = t_from_ps(p_kpa, s)?;
-        Ok(Self::from_single(
-            t,
-            p_kpa,
-            props_for_region(t, p_kpa, region)?,
-            region,
-        ))
+        let (t, region, props) = t_from_ps(p_kpa, s)?;
+        Ok(Self::from_single(t, p_kpa, props, region))
+    }
+
+    /// Dynamic viscosity at this state, **Pa·s** (IAPWS R12-08).
+    ///
+    /// Returns [`SteamError::TwoPhase`] for a two-phase state — viscosity is a
+    /// per-phase quantity; read `mu_f`/`mu_g` off the [`SatProps`] row instead.
+    pub fn viscosity(&self) -> Result<f64, SteamError> {
+        if self.phase == Phase::TwoPhase {
+            return Err(SteamError::TwoPhase("viscosity"));
+        }
+        Ok(crate::viscosity_rho_t(self.rho, self.t))
+    }
+
+    /// Thermal conductivity at this state, **W/(m·K)** (IAPWS R15-11).
+    ///
+    /// Returns [`SteamError::TwoPhase`] for a two-phase state; read
+    /// `k_f`/`k_g` off the [`SatProps`] row instead.
+    pub fn thermal_conductivity(&self) -> Result<f64, SteamError> {
+        if self.phase == Phase::TwoPhase {
+            return Err(SteamError::TwoPhase("thermal conductivity"));
+        }
+        crate::thermal_conductivity(self.t, self.p)
+    }
+
+    /// Prandtl number at this state — **dimensionless**.
+    ///
+    /// `Pr = cp·μ/λ`, the group that decides whether momentum or heat diffuses
+    /// faster and hence sits in every convective heat-transfer correlation.
+    /// The `1000` converts `cp` from kJ/(kg·K) to J/(kg·K) so the group comes
+    /// out dimensionless.
+    pub fn prandtl(&self) -> Result<f64, SteamError> {
+        Ok(self.cp * 1e3 * self.viscosity()? / self.thermal_conductivity()?)
+    }
+
+    /// Kinematic viscosity `ν = μ/ρ` at this state, **m²/s**.
+    pub fn kinematic_viscosity(&self) -> Result<f64, SteamError> {
+        Ok(self.viscosity()? / self.rho)
+    }
+
+    /// Thermal diffusivity `α = λ/(ρ·cp)` at this state, **m²/s**.
+    pub fn thermal_diffusivity(&self) -> Result<f64, SteamError> {
+        Ok(self.thermal_conductivity()? / (self.rho * self.cp * 1e3))
     }
 
     /// A molar-basis view of this state (via `M_water = 18.015268 kg/kmol`).
@@ -417,7 +502,7 @@ fn t_upper_for(p_kpa: f64) -> f64 {
 /// Backward `T(p,h)`: the region-1 closed form gives a fast **seed** (accurate
 /// to ~0.02 K per IAPWS), which a Newton polish on the forward `h(T,p)` refines
 /// to exactness. Outside region 1, a bracketed forward Brent solve.
-fn t_from_ph(p_kpa: f64, h: f64) -> Result<(f64, Region), SteamError> {
+fn t_from_ph(p_kpa: f64, h: f64) -> Result<(f64, Region, Props), SteamError> {
     let seed = backward::t_ph_region1(p_kpa, h);
     if region_of(seed, kpa_to_mpa(p_kpa)) == Some(Region::One) {
         // dh/dT|_p = cp → Newton converges in 2–3 steps to forward precision.
@@ -425,45 +510,96 @@ fn t_from_ph(p_kpa: f64, h: f64) -> Result<(f64, Region), SteamError> {
         for _ in 0..12 {
             let pr = region1::props(t, p_kpa);
             let dt = (h - pr.h) / pr.cp;
-            t += dt;
             if dt.abs() < 1e-11 {
+                if region_of(t, kpa_to_mpa(p_kpa)) == Some(Region::One) {
+                    return Ok((t, Region::One, pr));
+                }
                 break;
             }
+            t += dt;
         }
         if region_of(t, kpa_to_mpa(p_kpa)) == Some(Region::One) {
-            return Ok((t, Region::One));
+            return Ok((t, Region::One, region1::props(t, p_kpa)));
+        }
+    }
+    let seed = backward::t_ph_region2(p_kpa, h);
+    if region_of(seed, kpa_to_mpa(p_kpa)) == Some(Region::Two) {
+        let mut t = seed;
+        for _ in 0..12 {
+            let pr = region2::props(t, p_kpa);
+            let dt = (h - pr.h) / pr.cp;
+            if dt.abs() < 1e-11 {
+                if region_of(t, kpa_to_mpa(p_kpa)) == Some(Region::Two) {
+                    return Ok((t, Region::Two, pr));
+                }
+                break;
+            }
+            t += dt;
+        }
+        if region_of(t, kpa_to_mpa(p_kpa)) == Some(Region::Two) {
+            return Ok((t, Region::Two, region2::props(t, p_kpa)));
         }
     }
     let (lo, hi) = single_phase_t_bracket(p_kpa, |pr| pr.h, h)?;
     let f = |t: f64| forward_prop(t, p_kpa, |pr| pr.h) - h;
     let t = solve::brent(&f, lo, hi, "T(p,h) forward")?;
     let region = region_of(t, kpa_to_mpa(p_kpa)).ok_or(SteamError::OutOfRange { t, p: p_kpa })?;
-    Ok((t, region))
+    Ok((t, region, props_for_region(t, p_kpa, region)?))
 }
 
-/// Backward `T(p,s)`: region-1 seed + Newton polish (`ds/dT|_p = cp/T`), else a
-/// bracketed forward Brent solve on `s(T,p)`.
-fn t_from_ps(p_kpa: f64, s: f64) -> Result<(f64, Region), SteamError> {
+/// Backward `T(p,s)`: a closed-form region-1 or region-2 seed refined by a
+/// Newton polish on the forward `s(T,p)` (`ds/dT|_p = cp/T`), else a bracketed
+/// forward Brent solve.
+///
+/// Mirrors [`t_from_ph`] exactly, including returning the converged [`Props`]
+/// so the caller does not repeat the forward evaluation. Adding the region-2
+/// seed is what takes the superheated-vapor PS flash off the Brent path: it
+/// measured 5.200 µs against region-1's 1.818 µs before, purely because
+/// regions 2 and up had no backward equation and fell back to iterating the
+/// 52-term forward surface.
+fn t_from_ps(p_kpa: f64, s: f64) -> Result<(f64, Region, Props), SteamError> {
+    let p_mpa = kpa_to_mpa(p_kpa);
     let seed = backward::t_ps_region1(p_kpa, s);
-    if region_of(seed, kpa_to_mpa(p_kpa)) == Some(Region::One) {
+    if region_of(seed, p_mpa) == Some(Region::One) {
         let mut t = seed;
         for _ in 0..12 {
             let pr = region1::props(t, p_kpa);
             let dt = (s - pr.s) * t / pr.cp; // ds/dT|_p = cp/T
-            t += dt;
             if dt.abs() < 1e-11 {
+                if region_of(t, p_mpa) == Some(Region::One) {
+                    return Ok((t, Region::One, pr));
+                }
                 break;
             }
+            t += dt;
         }
-        if region_of(t, kpa_to_mpa(p_kpa)) == Some(Region::One) {
-            return Ok((t, Region::One));
+        if region_of(t, p_mpa) == Some(Region::One) {
+            return Ok((t, Region::One, region1::props(t, p_kpa)));
+        }
+    }
+    let seed = backward::t_ps_region2(p_kpa, s);
+    if region_of(seed, p_mpa) == Some(Region::Two) {
+        let mut t = seed;
+        for _ in 0..12 {
+            let pr = region2::props(t, p_kpa);
+            let dt = (s - pr.s) * t / pr.cp;
+            if dt.abs() < 1e-11 {
+                if region_of(t, p_mpa) == Some(Region::Two) {
+                    return Ok((t, Region::Two, pr));
+                }
+                break;
+            }
+            t += dt;
+        }
+        if region_of(t, p_mpa) == Some(Region::Two) {
+            return Ok((t, Region::Two, region2::props(t, p_kpa)));
         }
     }
     let (lo, hi) = single_phase_t_bracket(p_kpa, |pr| pr.s, s)?;
     let f = |t: f64| forward_prop(t, p_kpa, |pr| pr.s) - s;
     let t = solve::brent(&f, lo, hi, "T(p,s) forward")?;
-    let region = region_of(t, kpa_to_mpa(p_kpa)).ok_or(SteamError::OutOfRange { t, p: p_kpa })?;
-    Ok((t, region))
+    let region = region_of(t, p_mpa).ok_or(SteamError::OutOfRange { t, p: p_kpa })?;
+    Ok((t, region, props_for_region(t, p_kpa, region)?))
 }
 
 /// Evaluate one forward property (enthalpy or entropy) at `(t, p)`, dispatching

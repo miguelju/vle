@@ -1120,6 +1120,81 @@ future app repo.
 
 ---
 
+### Phase 25: N-Scalable Mixture Core *(Milestone 18)* — **not started**
+
+*Added 2026-07-25. Full design record:
+[PETROLEUM_PSEUDOCOMPONENT_PLAN.md](PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §1.1.*
+
+The mixture core's classical quadratic rule is **O(N²) unconditionally**.
+`quad_a` runs its full double loop even when the k_ij matrix is empty — and
+`kij_at` already treats an empty matrix as all-zero, which is the normal case
+for a set of petroleum pseudocomponents. With k_ij = 0 the cross-parameter
+factorizes, `A_ij = √(A_i)√(A_j)`, and the whole form collapses to one pass:
+
+```text
+S = Σ xᵢ √Aᵢ        A = S²        Āᵢ = 2 √Aᵢ S
+```
+
+**O(N) instead of O(N²)** — at N = 300 a 300× reduction in the inner loop for
+a result identical up to summation order. Non-zero pairs (N₂, CO₂, H₂S against
+the hydrocarbons) come back as a sparse correction list, `O(N + nnz)`. The same
+collapse makes the analytic composition-derivative block a **rank-1 update**,
+so a Jacobian block can be applied without ever being formed — which is what
+makes a several-hundred-component column solve tractable downstream.
+
+This phase is a prerequisite for Phases 26–27, but it stands alone: no new
+physics, a pure speedup of an existing hot path, benefiting every current user
+of classical mixing.
+
+**Verification:** an N-sweep criterion bench (N = 10/50/100/300) showing
+*linear* growth is the acceptance criterion — per this repo's standing rule
+that a performance claim needs a measurement, not an argument — plus
+equivalence tests of the fast path against the general path.
+
+**Key source files (planned):** `engine/src/mixture.rs` (`quad_a`,
+`d_ln_phi_d_n_classical`), `engine/benches/`, `OPTIMIZATION_PLAN_PART2.md`
+
+### Phase 26: Petroleum Characterization *(Milestone 19)* — **not started**
+
+*Added 2026-07-25. Full design record:
+[PETROLEUM_PSEUDOCOMPONENT_PLAN.md](PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U1, U2).*
+
+Turns a crude assay into hundreds of pseudocomponents carrying full EOS
+parameter sets — the input every crude-column calculation needs, and a
+capability the engine has **none** of today. Distillation-curve
+interconversion (ASTM D86 ↔ TBP ↔ D2887 ↔ EFV), cutting a TBP curve into N
+pseudocomponents, then estimating MW, Tc, Pc, ω, Zc and Vc per cut from its
+normal boiling point and specific gravity (Lee–Kesler, Twu, Riazi–Daubert,
+Kesler–Lee), plus ideal-gas Cp° for fractions (API 7D3.6) feeding the
+`cp_coeffs` field `Component` already carries, and Maxwell–Bonnell vapor
+pressure.
+
+**Verification:** published API Technical Data Book worked examples, per cut.
+
+**Key source files (planned):** `engine/src/petroleum/`, `python/src/vle/`,
+a milestone notebook
+
+### Phase 27: Refinery Thermodynamics *(Milestone 20)* — **not started**
+
+*Added 2026-07-25. Full design record:
+[PETROLEUM_PSEUDOCOMPONENT_PLAN.md](PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U4, U5).*
+
+The methods a refinery column is actually validated against, plus the
+free-water handling that stripping steam makes unavoidable — an atmospheric
+tower injects steam, so a second liquid phase forms in the overhead drum and
+in every side stripper. Adds VLLE stability and flash (or at minimum a
+water-decant model), Grayson–Streed (extending the existing
+`LiquidModel::ChaoSeader`) and BK10 K-values, Lee–Kesler enthalpy departure as
+an alternative to the EOS departure route, and Peneloux volume translation for
+heavy-cut liquid density.
+
+Depends on Phase 26 for the fractions these methods apply to.
+
+**Key source files (planned):** `engine/src/flash/` (three-phase),
+`engine/src/eos.rs`, `engine/src/energy.rs`
+
+---
+
 ## Parameter Reference Document (to be created at `docs/parameters/parameter_reference.md`)
 
 Will document all required parameters organized by category:

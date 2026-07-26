@@ -48,6 +48,10 @@ __all__ = [
     "tsat",
     "latent_heat",
     "psat_derivative",
+    "viscosity",
+    "thermal_conductivity",
+    "surface_tension",
+    "transport",
     "SteamState",
     "SatState",
 ]
@@ -180,6 +184,56 @@ def psat_derivative(T: Any) -> float:
     return _engine.steam_psat_derivative(_t(T))
 
 
+def viscosity(T: Any, P: Any) -> float:
+    """Dynamic viscosity at ``(T, P)`` in **Pa·s** (IAPWS R12-08).
+
+    Args:
+        T: Temperature — a pint quantity or a bare number in **K**.
+        P: Pressure — a pint quantity (gauge units accepted) or a bare number
+            in **kPa absolute**.
+
+    Returns:
+        Dynamic viscosity in **Pa·s**.
+
+    Raises:
+        ValueError: if the state is two-phase. Viscosity is a per-phase
+            quantity; read ``mu_f``/``mu_g`` off :func:`saturation` instead.
+    """
+    return _engine.steam_viscosity(_t(T), _p(P))
+
+
+def thermal_conductivity(T: Any, P: Any) -> float:
+    """Thermal conductivity at ``(T, P)`` in **W/(m·K)** (IAPWS R15-11).
+
+    Args:
+        T: Temperature — a pint quantity or a bare number in **K**.
+        P: Pressure — a pint quantity (gauge units accepted) or a bare number
+            in **kPa absolute**.
+
+    Returns:
+        Thermal conductivity in **W/(m·K)**.
+
+    Raises:
+        ValueError: if the state is two-phase; use ``k_f``/``k_g`` from
+            :func:`saturation` instead.
+    """
+    return _engine.steam_thermal_conductivity(_t(T), _p(P))
+
+
+def surface_tension(T: Any) -> float:
+    """Liquid–vapor surface tension at ``T`` in **N/m** (IAPWS R1-76(2014)).
+
+    Args:
+        T: Temperature — a pint quantity or a bare number in **K**, between
+            the triple point and the critical temperature.
+
+    Returns:
+        Surface tension in **N/m** (multiply by 1000 for mN/m, the unit most
+        tables print).
+    """
+    return _engine.steam_surface_tension(_t(T))
+
+
 def _as_f64(a: Any) -> np.ndarray:
     """Contiguous float64 1-D view for the numpy batch kernels."""
     return np.ascontiguousarray(np.atleast_1d(np.asarray(a, dtype=np.float64)))
@@ -202,6 +256,26 @@ def ph_flash(P: Any, h: Any) -> dict[str, np.ndarray]:
     and ``x`` the quality (``NaN`` for single-phase points).
     """
     return _engine.steam_ph_batch(_as_f64(P), _as_f64(h))
+
+
+def transport(T: Any, P: Any) -> dict[str, np.ndarray]:
+    """Batch ``(T, P) → transport properties`` over numpy arrays.
+
+    Length-1 arrays broadcast against the longer partner. Returns a dict of
+    numpy arrays keyed ``t, p, mu, k, pr, nu, alpha`` — dynamic viscosity
+    (**Pa·s**), thermal conductivity (**W/(m·K)**), Prandtl number
+    (dimensionless), kinematic viscosity and thermal diffusivity (both
+    **m²/s**).
+
+    Two-phase and out-of-range points come back as ``NaN``: transport
+    properties are per-phase, and there is no meaningful quality-weighted
+    viscosity of a boiling mixture.
+
+    This is a separate call from :func:`properties` rather than extra columns
+    on it, because the R15-11 critical enhancement costs several times the
+    thermodynamic surface underneath it.
+    """
+    return _engine.steam_transport_batch(_as_f64(T), _as_f64(P))
 
 
 def sat_table(T: Any) -> dict[str, np.ndarray]:

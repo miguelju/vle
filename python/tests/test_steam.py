@@ -7,11 +7,13 @@ mode dispatch, batch-vs-scalar agreement, and two-phase quality logic.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
 
 from vle import steam
-from vle.units import set_atmospheric_pressure
+from vle.units import Q_, set_atmospheric_pressure
 
 
 # ── Region verification points (R7-97 Tables 5, 15, 33, 42) ───────────────
@@ -165,3 +167,83 @@ def test_clausius_clapeyron():
         v_fg = sat.v_g - sat.v_f
         dpdt = steam.psat_derivative(t)  # kPa/K
         assert sat.h_fg == pytest.approx(t * v_fg * dpdt, rel=2e-3)
+
+
+# ── M13.7: transport properties (IAPWS R12-08 / R15-11 / R1-76) ───────────
+
+
+def test_viscosity_against_r12_08_table_4():
+    """R12-08 Table 4 verification points, reached through the wheel.
+
+    The release tabulates µ against (T, ρ); here we go in through (T, P) at
+    states whose density lands on those points, so this exercises the whole
+    Python → PyO3 → IF97 → R12-08 path rather than the correlation alone.
+    """
+    # 20 °C liquid water: the ISO reference value the release reproduces.
+    assert steam.viscosity(293.15, 101.325) == pytest.approx(1.0016e-3, rel=2e-3)
+    # Superheated steam at 873.15 K is dominated by the dilute-gas term.
+    assert steam.viscosity(873.15, 100.0) == pytest.approx(32.65e-6, rel=5e-3)
+
+
+def test_thermal_conductivity_and_derived_groups():
+    k = steam.thermal_conductivity(293.15, 101.325)
+    assert k == pytest.approx(0.5984, rel=2e-3)
+    st = steam.Water(T=293.15, P=101.325)
+    assert st.k == pytest.approx(k, rel=1e-12)
+    # Pr = cp·µ/k, with cp in kJ/(kg·K) → J/(kg·K).
+    assert st.pr == pytest.approx(st.cp * 1e3 * st.mu / st.k, rel=1e-12)
+    assert st.nu == pytest.approx(st.mu / st.rho, rel=1e-12)
+    assert st.alpha == pytest.approx(st.k / (st.rho * st.cp * 1e3), rel=1e-12)
+    # Water at room temperature: Pr ≈ 7.
+    assert st.pr == pytest.approx(7.0, rel=2e-2)
+
+
+def test_surface_tension_table():
+    # R1-76(2014) Table 1, "calculated" column, in mN/m.
+    for t_c, expected in ((0.01, 75.65), (20.0, 72.74), (100.0, 58.91), (300.0, 14.36)):
+        assert steam.surface_tension(t_c + 273.15) * 1e3 == pytest.approx(
+            expected, abs=0.005
+        )
+
+
+def test_transport_units_and_gauge_pressure():
+    """Unit strings and gauge pressure must work here as everywhere else."""
+    mu_q = steam.viscosity(Q_(20, "degC"), Q_(1, "atm"))
+    assert mu_q == pytest.approx(steam.viscosity(293.15, 101.325), rel=1e-12)
+    # 0 barg is 1 atm absolute by the registry's default atmospheric pressure.
+    assert steam.thermal_conductivity(Q_(20, "degC"), Q_(0, "barg")) == pytest.approx(
+        steam.thermal_conductivity(293.15, 101.325), rel=1e-6
+    )
+
+
+def test_transport_is_per_phase_not_averaged():
+    """A two-phase state must report NaN, and the row must carry both phases."""
+    tsat = steam.tsat(101.325)
+    st = steam.Water(T=tsat, P=101.325)
+    assert math.isnan(st.mu)
+    assert math.isnan(st.k)
+    sat = steam.saturation(P=101.325)
+    # Saturated liquid is ~23× more viscous and ~27× more conductive.
+    assert sat.mu_f > 20 * sat.mu_g
+    assert sat.k_f > 20 * sat.k_g
+    assert sat.mu_g == pytest.approx(12.3e-6, rel=2e-2)
+    assert sat.sigma == pytest.approx(58.9e-3, rel=1e-2)
+
+
+def test_transport_batch_matches_scalar():
+    ts = np.array([300.0, 400.0, 500.0, 800.0])
+    tab = steam.transport(ts, 101.325)
+    assert sorted(tab) == ["alpha", "k", "mu", "nu", "p", "pr", "t"]
+    for i, t in enumerate(ts):
+        assert tab["mu"][i] == pytest.approx(steam.viscosity(float(t), 101.325), rel=1e-12)
+        assert tab["k"][i] == pytest.approx(
+            steam.thermal_conductivity(float(t), 101.325), rel=1e-12
+        )
+
+
+def test_transport_batch_marks_two_phase_nan():
+    tsat = steam.tsat(101.325)
+    tab = steam.transport(np.array([300.0, tsat, 500.0]), 101.325)
+    assert not math.isnan(tab["mu"][0])
+    assert math.isnan(tab["mu"][1])
+    assert not math.isnan(tab["mu"][2])

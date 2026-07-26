@@ -7,6 +7,7 @@
 //! Verification: Table 42 (e.g. `T=1500 K, p=0.5 MPa` →
 //! `v=0.138455090×10¹ m³/kg`, `h=0.521976855×10⁴ kJ/kg`).
 
+use crate::R;
 use crate::coefficients::{REGION5_IDEAL, REGION5_RES};
 use crate::props::{Gibbs, Props, gibbs_props};
 
@@ -60,6 +61,27 @@ pub(crate) fn props(t: f64, p_kpa: f64) -> Props {
     let pi = p_kpa * 1e-3; // p* = 1 MPa
     let tau = TSTAR / t;
     gibbs_props(gamma(pi, tau), pi, tau, t, p_kpa)
+}
+
+/// `(∂ρ/∂p)_T` for a region-5 state.
+///
+/// # Arguments
+/// * `t` — Temperature in **K**.
+/// * `p_kpa` — Pressure in **kPa absolute**.
+///
+/// # Returns
+/// `(∂ρ/∂p)_T` in **(kg/m³)/kPa**.
+///
+/// Analytic — see [`crate::region1::drho_dp`] for the derivation. Here
+/// `p* = 1 MPa`, so the reducing pressure is 1000 kPa.
+pub(crate) fn drho_dp(t: f64, p_kpa: f64) -> f64 {
+    const PSTAR_KPA: f64 = 1e3;
+    let pi = p_kpa / PSTAR_KPA;
+    let tau = TSTAR / t;
+    let d = gamma(pi, tau);
+    let v = R * t * d.gp / PSTAR_KPA;
+    let dv_dp = R * t * d.gpp / (PSTAR_KPA * PSTAR_KPA);
+    -dv_dp / (v * v)
 }
 
 #[cfg(test)]

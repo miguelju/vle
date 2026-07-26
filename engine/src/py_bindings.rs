@@ -2062,9 +2062,13 @@ fn _engine(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_function(wrap_pyfunction!(steam_tsat, m)?)?;
         m.add_function(wrap_pyfunction!(steam_psat_derivative, m)?)?;
         m.add_function(wrap_pyfunction!(steam_latent_heat, m)?)?;
+        m.add_function(wrap_pyfunction!(steam_viscosity, m)?)?;
+        m.add_function(wrap_pyfunction!(steam_thermal_conductivity, m)?)?;
+        m.add_function(wrap_pyfunction!(steam_surface_tension, m)?)?;
         m.add_function(wrap_pyfunction!(steam_tp_batch, m)?)?;
         m.add_function(wrap_pyfunction!(steam_ph_batch, m)?)?;
         m.add_function(wrap_pyfunction!(steam_sat_t_batch, m)?)?;
+        m.add_function(wrap_pyfunction!(steam_transport_batch, m)?)?;
     }
 
     // M12.2 — Rust-side component database lookups (gap G3). Guarded on the

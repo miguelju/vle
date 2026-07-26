@@ -1,0 +1,190 @@
+# Petroleum Pseudocomponent & Crude-Column Plan
+
+*Planning document, 2026-07-25. Prepared by Claude Code using Claude Opus 5
+(1M context). **This document is a plan only — nothing in it has been
+implemented.** Every checkbox it maps to in [ROADMAP.md](ROADMAP.md) /
+[TODO.md](TODO.md) is unchecked, and must stay unchecked until the code exists
+and a test asserts its behaviour (CLAUDE.md, *Completion Claims Must Be
+Verified Against the Code*).*
+
+**Target capability.** Simulate an **atmospheric crude distillation column**
+with **hundreds of pseudocomponents** — the canonical refinery unit, and the
+workload that most thoroughly stresses everything this project has built.
+
+**Placement.** Three new milestones in this repo — **18**, **19**, **20**
+(Phases **25**, **26**, **27** in [MODERNIZATION_PLAN.md](MODERNIZATION_PLAN.md)) —
+plus two in the downstream `stages-thermo` repo, whose own `PLAN.md` §12 and
+roadmap carry the matching entries. This document is the shared technical
+record, the same division of labor as
+[DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md) vs. its Milestone 12
+entries.
+
+---
+
+## 1. The headline finding
+
+An audit of both repos against this target says the binding constraint is
+**not the thermodynamics**. The EOS layer, the activity models, the flash
+algorithms and the derivative core are all adequate. Two *structural* things
+break at N ≈ 300, and both have clean fixes that are worth doing on their own
+merits:
+
+| | Blocker | Where | Consequence at N = 300 |
+|---|---|---|---|
+| **B1** | The classical mixing rule is unconditionally **O(N²)**, even when every k_ij is zero | `engine/src/mixture.rs`, `quad_a` | ~90 000 cross-terms per fugacity evaluation for a quantity computable in ~300 |
+| **B2** | Naphtali–Sandholm's Jacobian is dense per stage | `stages-thermo` M8 | Blocks of (2N+1)² = 361 000 entries; the block-Thomas sweep is ~10¹⁰ flops **per Newton iteration** |
+
+Everything else in this plan is new physics or new correlations — real work,
+but ordinary work. B1 and B2 are the two places where the *shape* of the code
+has to change.
+
+### 1.1 B1 — the quadratic form collapses when k_ij = 0
+
+`quad_a` (`engine/src/mixture.rs`) always runs the full double loop:
+
+```rust
+for i in 0..n {
+    let mut row = D::from(0.0);
+    for j in 0..n { row += x[j] * a_ij(i, j); }
+    a += x[i] * row;
+    a_bar[i] = row * 2.0;
+}
+```
+
+`kij_at` already treats an empty matrix as all-zero, and **a crude assay is
+exactly the case where the matrix is empty**: binary interaction parameters
+between petroleum pseudocomponents are conventionally zero. With k_ij = 0 the
+cross-parameter factorizes, `A_ij = √(A_i)·√(A_j)`, and the whole form
+collapses to a single pass:
+
+$$S=\sum_i x_i\sqrt{A_i},\qquad A = S^2,\qquad \bar A_i = 2\sqrt{A_i}\,S$$
+
+**O(N) instead of O(N²) — a 300× reduction in the inner loop, for a bit-identical
+result** (up to floating-point summation order). Real assays carry a handful of
+non-zero pairs (N₂, CO₂, H₂S against the hydrocarbons), so the general form is
+`O(N + nnz)` with a sparse correction list:
+
+$$A = S^2 - \sum_{(i,j)\in\mathcal{K}} x_i x_j\,\sqrt{A_iA_j}\,k_{ij}\cdot 2$$
+
+The same collapse applies to the analytic composition-derivative block
+(`d_ln_phi_d_n_classical`): it becomes a **rank-1 update** rather than a dense
+N×N matrix, so the Jacobian block can be *applied* without ever being *formed*.
+That is what makes B2's fix tractable too.
+
+**This is worth doing whether or not the crude column ever gets built.** It is
+a pure speedup of an existing hot path, with no new physics, benefiting every
+current user of classical mixing.
+
+### 1.2 B2 — the solver choice, not the solver quality
+
+`stages-thermo`'s flagship is Naphtali–Sandholm: full Newton on MESH with a
+block-tridiagonal Jacobian, (2N+1) unknowns per stage. At N = 300, S = 50 that
+is ~10¹⁰ flops per iteration and gigabytes of Jacobian — seconds per iteration
+at best.
+
+This is precisely why every commercial simulator solves crude towers with
+**inside-out** (Boston–Britt): the rigorous thermodynamics is called only in a
+sparse *outer* loop to refit simple local K- and H-models, and the *inner* loop
+— which does the actual iterating — is O(S·N).
+
+**So the pseudocomponent ask reorders the downstream roadmap: inside-out moves
+from Milestone 11 (stretch) onto the critical path.** It is the enabling
+algorithm for this workload, not a historical footnote. Naphtali–Sandholm
+remains the right flagship for the 5–20-component columns it was scoped for.
+
+---
+
+## 2. Upstream gaps (this repo)
+
+Verified against the working tree at v0.12.0. Re-verify signatures before
+coding; line numbers drift.
+
+| # | Capability | State today | Why the crude tower needs it |
+|---|---|---|---|
+| **U1** | **Petroleum characterization** — D86 ↔ TBP ↔ D2887 ↔ EFV interconversion; cutting a TBP curve into N pseudocomponents; T_b + SG → MW, T_c, P_c, ω, Z_c, V_c (Lee–Kesler, Twu, Riazi–Daubert, Kesler–Lee); Watson K | **absent entirely** | This *is* where "hundreds of pseudocomponents" come from. Nothing downstream can start without it |
+| **U2** | **Fraction property correlations** — ideal-gas C_p° for petroleum fractions (API 7D3.6 from Watson K + gravity); Maxwell–Bonnell vapor pressure | absent. `Component.cp_coeffs` exists and the DB carries values for *named* compounds, but there is no correlation to *generate* them for a cut | Enthalpy balances and K-values per pseudocomponent |
+| **U3** | **N-scalable mixture core** — the k_ij = 0 fast path and sparse-k_ij correction of §1.1, the matching rank-1 derivative block, plus an N-sweep benchmark (N = 10/50/100/300) guarding the scaling | **O(N²) unconditionally** | Without it every outer-loop thermo call is quadratic in assay size |
+| **U4** | **Free-water / three-phase** — VLLE stability + flash, or at minimum a water-decant model | absent | Atmospheric towers run **stripping steam**. Water forms a second liquid phase in the overhead drum and every side stripper. Unavoidable, not an edge case |
+| **U5** | **Refinery methods** — Grayson–Streed (a Chao–Seader extension), BK10, Lee–Kesler enthalpy departure, Peneloux volume translation | partial: `LiquidModel::ChaoSeader` exists as the foundation | These are what refinery cases are *validated against*; a bare cubic EOS gives heavy-cut densities and enthalpies too far off |
+| **U6** | **Allocation-free N-component evaluation** — SoA buffers, arena reuse across stages, `TpCache` hoisted across a whole column solve | `TpCache` exists and already hoists the pure-component parameters (audit Part 2 §1) | At 50 stages × 300 components × Newton iterations, per-call `Vec`s dominate |
+
+### Milestone mapping
+
+- **Milestone 18 — N-Scalable Mixture Core** (U3 + U6). *Independent of
+  everything else and independently valuable; do it first so the core is
+  proven to scale before anything is built on top.*
+- **Milestone 19 — Petroleum Characterization** (U1 + U2). The largest new
+  module; gated by nothing.
+- **Milestone 20 — Refinery Thermodynamics** (U4 + U5). Depends on 19 for the
+  fractions it applies to.
+
+---
+
+## 3. Downstream work (`stages-thermo`)
+
+- **D1 — Inside-out (Boston–Britt), promoted to the critical path.** Outer
+  loop: rigorous `vle-thermo` K and H at the current profiles → fit the local
+  models. Inner loop: solve MESH against the *simple* models. This is the
+  milestone that makes N = 300 feasible.
+- **D2 — Crude-tower topology.** Pumparounds (heat removal), side strippers
+  (their own mini-columns with steam), a flash zone, overflash. Multi-feed and
+  side draws already arrive with M5; pumparounds and side strippers are new
+  structure.
+- **D3 — Product-quality specs.** A crude tower is specified on product **D86
+  95 % points** and gaps/overlaps, not mole-fraction purity. Needs a spec type
+  that runs a distillation-curve calculation on a product stream — which loops
+  back to U1.
+- **D4 — Lumping / de-lumping.** The pragmatic escape hatch: solve with ~20
+  lumped pseudocomponents, de-lump the converged profiles. Worth having even
+  once inside-out lands, because it is what makes design *sweeps* interactive.
+- **D5 — Steam from `vle-steam`.** Stripping steam is best evaluated from
+  IF97 rather than a cubic EOS, so `vle-steam` becomes a dependency of the
+  crude-tower path. (Its transport properties, Milestone 13.7, then feed tray
+  hydraulics and heat-transfer sizing later.)
+
+---
+
+## 4. Sequencing
+
+| Phase | Repo | Content | Gated by |
+|---|---|---|---|
+| **A** | vle | **M18** — N-scalable core + N-sweep benches | — |
+| **B** | vle | **M19** — characterization + fraction correlations | — (parallel with A) |
+| **C** | vle | **M20** — free water + refinery methods | B |
+| **D** | stages-thermo | Inside-out solver | A |
+| **E** | stages-thermo | Crude-tower topology + quality specs | B, C, D |
+
+A and B are independent and may interleave. **A is worth starting immediately
+and on its own merits**, independent of whether the crude column is ever built.
+
+## 5. Validation targets
+
+A capability this large is only real if it reproduces a published case:
+
+1. **Characterization** — reproduce a published assay's cut properties (API
+   Technical Data Book worked examples) per pseudocomponent.
+2. **N-scaling** — the criterion N-sweep must show the mixing-rule cost growing
+   **linearly**, not quadratically, from N = 10 to N = 300 with empty k_ij.
+   This is the measurement that decides whether §1.1 actually worked; an
+   argument is not admissible (CLAUDE.md, *performance claims need a
+   measurement*).
+3. **Crude tower** — Watkins' *Petroleum Refinery Distillation* design case is
+   the canonical textbook target; ChemSep and DWSIM ship comparable examples
+   for cross-checking product rates, draw temperatures and pumparound duties.
+
+## 6. Alternatives considered
+
+- **Keep Naphtali–Sandholm and exploit sparsity instead of adopting
+  inside-out.** With k_ij = 0 the ∂lnK/∂x block is rank-structured, so a
+  Sherman–Morrison update could replace the dense per-stage LU. Attractive
+  because it reuses the flagship solver — but it optimizes the *inner* loop of
+  a method whose cost is dominated by calling rigorous thermodynamics on every
+  stage of every iteration, which is the thing inside-out exists to avoid.
+  Worth revisiting as a *second* solver, not the first.
+- **Lump aggressively and skip the N-scaling work** (D4 alone). Cheapest path
+  to a converged column, and genuinely how a lot of engineering gets done —
+  but it caps the product-quality resolution the whole exercise is for, and
+  leaves B1 in place for every other user.
+- **Do the region-3-style backward-equation treatment for characterization**
+  (pre-tabulate cut properties). Premature: characterization is called once per
+  assay, not per iteration. Not a hot path.

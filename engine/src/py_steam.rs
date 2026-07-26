@@ -129,6 +129,33 @@ impl SteamState {
     fn w(&self) -> f64 {
         self.inner.w
     }
+    /// Dynamic viscosity, **Pa·s** (IAPWS R12-08). `NaN` if two-phase —
+    /// transport properties are per-phase; use the `SatState` row's
+    /// `mu_f`/`mu_g`.
+    #[getter]
+    fn mu(&self) -> f64 {
+        self.inner.viscosity().unwrap_or(f64::NAN)
+    }
+    /// Thermal conductivity, **W/(m·K)** (IAPWS R15-11). `NaN` if two-phase.
+    #[getter]
+    fn k(&self) -> f64 {
+        self.inner.thermal_conductivity().unwrap_or(f64::NAN)
+    }
+    /// Prandtl number `cp·μ/λ`, **dimensionless**. `NaN` if two-phase.
+    #[getter]
+    fn pr(&self) -> f64 {
+        self.inner.prandtl().unwrap_or(f64::NAN)
+    }
+    /// Kinematic viscosity `ν = μ/ρ`, **m²/s**. `NaN` if two-phase.
+    #[getter]
+    fn nu(&self) -> f64 {
+        self.inner.kinematic_viscosity().unwrap_or(f64::NAN)
+    }
+    /// Thermal diffusivity `α = λ/(ρ·cp)`, **m²/s**. `NaN` if two-phase.
+    #[getter]
+    fn alpha(&self) -> f64 {
+        self.inner.thermal_diffusivity().unwrap_or(f64::NAN)
+    }
 
     fn __repr__(&self) -> String {
         format!(
@@ -216,6 +243,31 @@ impl SatState {
     fn u_g(&self) -> f64 {
         self.inner.u_g
     }
+    /// Saturated-liquid dynamic viscosity, **Pa·s** (IAPWS R12-08).
+    #[getter]
+    fn mu_f(&self) -> f64 {
+        self.inner.mu_f()
+    }
+    /// Saturated-vapor dynamic viscosity, **Pa·s** (IAPWS R12-08).
+    #[getter]
+    fn mu_g(&self) -> f64 {
+        self.inner.mu_g()
+    }
+    /// Saturated-liquid thermal conductivity, **W/(m·K)** (IAPWS R15-11).
+    #[getter]
+    fn k_f(&self) -> f64 {
+        self.inner.k_f().unwrap_or(f64::NAN)
+    }
+    /// Saturated-vapor thermal conductivity, **W/(m·K)** (IAPWS R15-11).
+    #[getter]
+    fn k_g(&self) -> f64 {
+        self.inner.k_g().unwrap_or(f64::NAN)
+    }
+    /// Liquid–vapor surface tension, **N/m** (IAPWS R1-76(2014)).
+    #[getter]
+    fn sigma(&self) -> f64 {
+        self.inner.sigma().unwrap_or(f64::NAN)
+    }
 
     fn __repr__(&self) -> String {
         format!(
@@ -298,6 +350,25 @@ pub fn steam_latent_heat(t: f64) -> PyResult<f64> {
 }
 
 // ── Batch numpy kernels (GIL released, rayon) ────────────────────────────
+
+/// Dynamic viscosity at `(T, P)`. `t` in K, `p` in kPa absolute; **Pa·s**.
+#[pyfunction]
+pub fn steam_viscosity(t: f64, p: f64) -> PyResult<f64> {
+    vle_steam::viscosity(t, p).map_err(steam_err)
+}
+
+/// Thermal conductivity at `(T, P)`. `t` in K, `p` in kPa absolute;
+/// **W/(m·K)**.
+#[pyfunction]
+pub fn steam_thermal_conductivity(t: f64, p: f64) -> PyResult<f64> {
+    vle_steam::thermal_conductivity(t, p).map_err(steam_err)
+}
+
+/// Liquid–vapor surface tension at `t` (K); **N/m**.
+#[pyfunction]
+pub fn steam_surface_tension(t: f64) -> PyResult<f64> {
+    vle_steam::surface_tension(t).map_err(steam_err)
+}
 
 /// One batch point's single-phase outputs, moved out of the parallel region.
 struct StatePoint {
@@ -409,6 +480,60 @@ pub fn steam_tp_batch<'py>(
             .collect::<Vec<_>>()
     });
     state_batch_dict(py, t_out, p_out, pts)
+}
+
+/// Batch `(T, P) → transport properties`. Arrays broadcast against a length-1
+/// partner. Returns a dict of numpy arrays keyed `t, p, mu, k, pr, nu, alpha`.
+///
+/// Deliberately a **separate** kernel rather than extra columns on
+/// `steam_tp_batch`: the R15-11 critical enhancement is several times the cost
+/// of the thermodynamic surface it sits on, so folding it in would tax every
+/// caller of the existing batch API to serve the ones who want it. Two-phase
+/// points come back `NaN` — transport properties are per-phase.
+#[pyfunction]
+pub fn steam_transport_batch<'py>(
+    py: Python<'py>,
+    ts: PyReadonlyArray1<'py, f64>,
+    ps: PyReadonlyArray1<'py, f64>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let ta = ts.as_slice()?;
+    let pa = ps.as_slice()?;
+    let n = batch_len(ta.len(), pa.len())?;
+    let (t_out, p_out): (Vec<f64>, Vec<f64>) = (0..n).map(|i| (bcast(ta, i), bcast(pa, i))).unzip();
+
+    let pts = py.allow_threads(|| {
+        (0..n)
+            .into_par_iter()
+            .map(|i| match CoreState::tp(bcast(ta, i), bcast(pa, i)) {
+                Ok(s) => (
+                    s.viscosity().unwrap_or(f64::NAN),
+                    s.thermal_conductivity().unwrap_or(f64::NAN),
+                    s.prandtl().unwrap_or(f64::NAN),
+                    s.kinematic_viscosity().unwrap_or(f64::NAN),
+                    s.thermal_diffusivity().unwrap_or(f64::NAN),
+                ),
+                Err(_) => (f64::NAN, f64::NAN, f64::NAN, f64::NAN, f64::NAN),
+            })
+            .collect::<Vec<_>>()
+    });
+
+    let d = PyDict::new_bound(py);
+    d.set_item("t", t_out.into_pyarray_bound(py))?;
+    d.set_item("p", p_out.into_pyarray_bound(py))?;
+    for (key, idx) in [("mu", 0), ("k", 1), ("pr", 2), ("nu", 3), ("alpha", 4)] {
+        let v: Vec<f64> = pts
+            .iter()
+            .map(|t| match idx {
+                0 => t.0,
+                1 => t.1,
+                2 => t.2,
+                3 => t.3,
+                _ => t.4,
+            })
+            .collect();
+        d.set_item(key, v.into_pyarray_bound(py))?;
+    }
+    Ok(d)
 }
 
 /// Batch `(P, h) → properties` (PH flash). Returns the same dict shape as

@@ -10,7 +10,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] Analyze legacy VB6 codebase (~15,000 lines)
 - [x] Analyze legacy Pascal codebase (~2,500 lines)
 - [x] Create Pascal vs VB6 comparison document
-- [x] Create modernization plan with 24 implementation phases *(originally 17; Phase 11 — Performance Foundation — added 2026-07-01; Phase 19 — Downstream Derivative & Database Release — added 2026-07-05; Phase 20 — Steam Tables (IAPWS-IF97) — added 2026-07-07; Phase 21 — NRTL Activity Model + Ammonia — added 2026-07-08; Phase 22 — iOS/macOS FFI via UniFFI — added 2026-07-11; Phase 23 — Android/Kotlin FFI via UniFFI — added 2026-07-12; Phase 24 — Web/JavaScript FFI via wasm-bindgen — added 2026-07-12)*
+- [x] Create modernization plan with 27 implementation phases *(originally 17; Phase 11 — Performance Foundation — added 2026-07-01; Phase 19 — Downstream Derivative & Database Release — added 2026-07-05; Phase 20 — Steam Tables (IAPWS-IF97) — added 2026-07-07; Phase 21 — NRTL Activity Model + Ammonia — added 2026-07-08; Phase 22 — iOS/macOS FFI via UniFFI — added 2026-07-11; Phase 23 — Android/Kotlin FFI via UniFFI — added 2026-07-12; Phase 24 — Web/JavaScript FFI via wasm-bindgen — added 2026-07-12; Phase 25 — N-Scalable Mixture Core — added 2026-07-25; Phase 26 — Petroleum Characterization — added 2026-07-25; Phase 27 — Refinery Thermodynamics — added 2026-07-25)*
 - [x] Map algorithms to 30 academic references (ACS format) *(originally 22; (23)–(29) added 2026-07-01 with PERFORMANCE_PROPOSAL.md; (30) added 2026-07-05 with DERIVATIVE_RELEASE_PLAN.md)*
 - [x] Propose 8 algorithm performance improvements (A–H) *(extended to §A–§M + Performance Engineering tracks 2026-07-01 — see [PERFORMANCE_PROPOSAL.md](PERFORMANCE_PROPOSAL.md))*
 - [x] Initialize git repository
@@ -410,6 +410,42 @@ computer-program verification tables, asserted to full published precision.
 - [x] CLAUDE.md release-rule entry (#12) + architecture tree; full doc sync (README, package READMEs, NOTEBOOKS); version bumped workspace-wide to **v0.10.0**; `vle-steam` wired into `publish-crate.sh` + `release.yml`
 - [x] **Operator step:** signed `v0.10.0` tag pushed + published (vle-units → vle-steam → vle-thermo); GitHub Release is Latest (2026-07-08)
 
+### Milestone 13.7 — Transport properties (viscosity, conductivity, surface tension) — **done (unreleased)**
+*Executed by Claude Code using Claude Opus 5 (1M context)*
+
+The transport half of the deferred 13.7 in [STEAM_TABLES_PLAN.md](STEAM_TABLES_PLAN.md)
+§"Out of scope". IAPWS-95 as a high-accuracy oracle stays deferred.
+
+- [x] `steam/src/transport.rs` — viscosity (IAPWS **R12-08**), thermal conductivity (**R15-11**, critical enhancement included), surface tension (**R1-76(2014)**), plus derived Prandtl / kinematic viscosity / thermal diffusivity on `SteamState`
+- [x] The **industrial** form of both transport releases throughout — thermodynamic inputs from IF97, `μ₂ = 1`, and R15-11's Eq. (25) polynomial for `ζ(T_R, ρ̄)` (the reference temperature 970.644 K is above region 3's ceiling, so evaluating it directly would mean inverting region 2 on every call)
+- [x] Analytic `(∂ρ/∂p)_T` per region (`R·T·γ_ππ/p*²` for the Gibbs regions; the inverse of `R·T·(2δφ_δ + δ²φ_δδ)` for region 3) — never finite-differenced
+- [x] Verified against **R12-08 Table 4** (11 points), **R15-11 Table 4** and **Tables 7–9** term by term (`λ₀`, `λ₁`, `λ₂`, the published `(∂ρ/∂p)_T` and `μ` columns), and **R1-76 Table 1**; plus sanity checks against the values every engineer knows (20 °C water: 1.0016 mPa·s, 0.5984 W/(m·K), Pr ≈ 7.0, σ = 72.74 mN/m)
+- [x] Per-phase semantics — a two-phase state returns `SteamError::TwoPhase` rather than a quality-weighted average; `SatProps` carries `mu_f`/`mu_g`, `k_f`/`k_g`, `sigma`
+- [x] PyO3 bindings (`mu`/`k`/`pr`/`nu`/`alpha` on `SteamState`, the `SatState` per-phase getters, three scalar fns, `steam_transport_batch`) + `vle.steam` wrapper + pytest (25 steam tests; 457 Python tests green)
+- [x] Criterion benches (`transport` group) — viscosity ~112 ns, conductivity 183–262 ns far from critical, **1.27 µs** near-critical, which is why the batch kernel is separate from `properties` rather than extra columns on it
+- [x] Doc sync — `steam/README.md` (its "not included: transport properties" line was live), crate docs, ROADMAP/TODO
+- [ ] Milestone notebook — **not done**; the transport surface is not yet demonstrated in `notebooks/12_steam_tables.ipynb` or its own notebook
+- [ ] Release — no version bump yet; the crates.io/PyPI pages only refresh on publish, so `steam/README.md`'s new transport section is not live until a `v0.13.0` tag
+
+### Milestone 13.8 — IF97 performance audit — **done (unreleased)**
+*Executed by Claude Code using Claude Opus 5 (1M context)*
+
+Triggered by the broadened 32-benchmark suite from 13.6, which exposed that the
+inverse paths for regions 2+ fell back to bracketed Brent solves. External audit
+`steam_audit.md` (Codex CLI, 2026-07-25) fixed the first two; measurement of the
+layer *underneath* them found the rest. Every number below is a criterion point
+estimate against a baseline saved on the same machine in the same session.
+
+- [x] Region-2 backward `T(p,h)` (Tables 20–22 + the B2bc boundary) with forward-Newton polish, verified against six R7-97 Tables 21–23 points — `inverse/ph_vapor` 20.038 µs → 1.9679 µs *(from `steam_audit.md`)*
+- [x] Reuse of the converged forward `Props` in `t_from_ph`, avoiding a duplicate region evaluation *(from `steam_audit.md`)*
+- [x] **Power-table series evaluation** (`steam/src/series.rs`) for regions 1/2/3 — the term loops evaluated 12 `powi` calls where 2 suffice. Every forward path ~3.3× faster: `region/r1_cold` 258.97 → 78.96 ns, `region/r2_moderate` 365.81 → 101.82 ns, `sweep/region1_200pts` 53.881 → 15.994 µs. Region 5 left alone deliberately (12-term series, 19 ns — nothing to win)
+- [x] **Region-3 density solve**: safeguarded Newton on the analytic `∂p/∂ρ` plus a pressure-only `phi_delta`, replacing a 64-point scan of the full six-derivative series — `region/r3_dense` 5.305 µs → 501.69 ns (−90.5%), `sweep/region3_50pts` 232.611 → 23.814 µs (−89.8%)
+- [x] **Region-3 density bound corrected 1000 → 760 kg/m³** — a latent correctness bug, not only a speed one: the IF97 region-3 fit is not valid there, `p(ρ)` turns over (312 MPa at 900 kg/m³ collapsing to 17 MPa at 1000; negative at 863 K), so the branch endpoints stopped bracketing the root and a scan could return a spurious root off the descending limb
+- [x] Region-2 backward `T(p,s)` (Tables 25–27, 120 coefficients extracted mechanically from R7-97 and verified against all nine Table 29 points) + the same converged-`Props` reuse in `t_from_ps` — `inverse/ps_vapor` 5.200 µs → 649.09 ns (−87.5%), ending the PS/PH asymmetry
+- [x] Test oracles pinning each optimization to the algebra it replaced: the original `powi` formulation and the original scan-and-Brent density solve are kept as `#[cfg(test)]` references and asserted over grids of state points
+- [x] Two region-3 PH benchmark points added — the coverage hole that made the audit defer region-3 backward equations without a measurable workload
+- [x] **Rejected** (measured, reverted, recorded at the call site): `powi` re-anchoring of the power chain (region 1 1.728e-11 → 1.749e-11, region 3 1.270e-12 → **5.008e-12**); log–log Newton for the region-3 density (`region/r3_hot` +122%, `sweep/region3_50pts` +28.7%); removing converged-point region validation (below noise, `steam_audit.md`)
+
 ---
 
 ## Milestone 14: NRTL Activity Model + Ammonia (vle-thermo 0.11.0) — **shipped (v0.11.0)**
@@ -576,6 +612,59 @@ verified feasibility spike; the single-threaded/rayon decomposition):
       WEB_UI_PLAN.md adopted
 - [ ] The actual React app — website + Tauri/Electron/Capacitor wrapping
       (separate repo, out of scope here) — consumes `wasm/pkg` by path
+
+---
+
+## Milestone 18: N-Scalable Mixture Core — **not started**
+
+*Phase 25 of MODERNIZATION_PLAN.md*
+
+**Goal**: Make the mixture core's cost grow **linearly** with component count
+instead of quadratically, so a several-hundred-component mixture is tractable.
+Design record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §1.1.
+
+The classical quadratic mixing rule (`quad_a` in `engine/src/mixture.rs`) runs
+its full double loop unconditionally. When every k_ij is zero — which
+`kij_at` already handles, and which is the *normal* case for a set of
+petroleum pseudocomponents — the form factorizes to `A = (Σxᵢ√Aᵢ)²` and is
+computable in a single pass. **This milestone is independently valuable**: it
+is a pure speedup of an existing hot path, no new physics, benefiting every
+current user of classical mixing.
+
+- [ ] Zero-k_ij fast path in `quad_a` + a sparse k_ij correction list (`O(N + nnz)`)
+- [ ] The matching rank-1 form of `d_ln_phi_d_n_classical`, so the derivative block is *applied* without being *formed*
+- [ ] Allocation-free N-component evaluation — SoA buffers, arena reuse, `TpCache` hoisted across a whole multi-stage solve
+- [ ] **N-sweep criterion benches (N = 10/50/100/300)** — the measurement that decides whether the above worked. Linear growth, or the milestone did not land
+- [ ] Equivalence tests: the fast path must reproduce the general path bit-for-bit up to summation order, over a grid of compositions
+
+## Milestone 19: Petroleum Characterization — **not started**
+
+*Phase 26 of MODERNIZATION_PLAN.md*
+
+**Goal**: Turn a crude assay into hundreds of pseudocomponents with full EOS
+parameter sets — the input every downstream crude-column calculation needs.
+Design record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U1, U2).
+
+- [ ] Distillation-curve interconversion — ASTM D86 ↔ TBP ↔ D2887 (SimDist) ↔ EFV
+- [ ] TBP cutting into N pseudocomponents (equal-volume / equal-temperature cuts)
+- [ ] Per-cut property estimation — MW, Tc, Pc, ω, Zc, Vc from Tb + SG (Lee–Kesler, Twu, Riazi–Daubert, Kesler–Lee); Watson K
+- [ ] Ideal-gas Cp° for fractions (API 7D3.6) feeding the existing `Component.cp_coeffs`; Maxwell–Bonnell vapor pressure
+- [ ] PyO3 bindings + Python wrapper + tests (M5+ rule); validation against published API Technical Data Book worked examples
+- [ ] Milestone notebook — building an assay and inspecting the cut property table
+
+## Milestone 20: Refinery Thermodynamics — **not started**
+
+*Phase 27 of MODERNIZATION_PLAN.md*
+
+**Goal**: The thermodynamic methods a refinery column is actually validated
+against, plus the free-water handling that stripping steam makes unavoidable.
+Design record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U4, U5).
+
+- [ ] Free-water / three-phase handling — VLLE stability + flash, or at minimum a water-decant model
+- [ ] Grayson–Streed (extending the existing `LiquidModel::ChaoSeader`) and BK10 K-value methods
+- [ ] Lee–Kesler enthalpy departure as an alternative to the EOS departure route
+- [ ] Peneloux volume translation for heavy-cut liquid density
+- [ ] PyO3 bindings + Python wrapper + tests; milestone notebook
 
 ---
 

@@ -81,20 +81,48 @@ sat = steam.saturation(P="10 bar")
 props = steam.properties(T_array, P_array)       # batch numpy, GIL released
 ```
 
+## Transport properties
+
+Viscosity, thermal conductivity and surface tension come from their own IAPWS
+releases, in the **industrial** form — the one whose thermodynamic inputs come
+from IF97 rather than from IAPWS-95:
+
+```rust
+let mu = vle_steam::viscosity(293.15, 101.325)?;              // Pa·s
+let k = vle_steam::thermal_conductivity(293.15, 101.325)?;    // W/(m·K)
+let sigma = vle_steam::surface_tension(293.15)?;              // N/m
+
+let st = vle_steam::SteamState::tp(293.15, 101.325)?;
+let (pr, nu) = (st.prandtl()?, st.kinematic_viscosity()?);    // –, m²/s
+```
+
+Transport properties are **per-phase**: a two-phase state returns
+`SteamError::TwoPhase` rather than a quality-weighted average, and the
+saturation row carries `mu_f`/`mu_g`, `k_f`/`k_g` and `sigma` instead.
+
 ## Status
 
 **Complete and verified for the properties it covers.** All five IAPWS-IF97
-regions, the region-4 saturation line, and the region-1 backward equations,
-checked against the official R7-97(2012) verification tables to 9 significant
-figures — the standard's own acceptance criterion, not a self-consistency check.
+regions, the region-4 saturation line, and the region-1 and region-2 backward
+equations, checked against the official R7-97(2012) verification tables to 9
+significant figures — the standard's own acceptance criterion, not a
+self-consistency check. Transport properties are verified the same way, against
+R12-08 Table 4, R15-11 Tables 4 and 7–9 (term by term, `λ₀`/`λ₁`/`λ₂`), and
+R1-76(2014) Table 1.
 
-Not included, by scope rather than by omission: transport properties (viscosity,
-thermal conductivity, surface tension) and IAPWS-95 as a high-accuracy oracle.
+Not included, by scope rather than by omission: IAPWS-95 as a high-accuracy
+oracle, and the supplementary region-3 backward equations.
 
 ## References
 
 - IAPWS. *Revised Release on the IAPWS Industrial Formulation 1997 for the
   Thermodynamic Properties of Water and Steam*; IAPWS R7-97(2012).
+- IAPWS. *Release on the IAPWS Formulation 2008 for the Viscosity of Ordinary
+  Water Substance*; IAPWS R12-08.
+- IAPWS. *Release on the IAPWS Formulation 2011 for the Thermal Conductivity of
+  Ordinary Water Substance*; IAPWS R15-11.
+- IAPWS. *Revised Release on Surface Tension of Ordinary Water Substance*;
+  IAPWS R1-76(2014).
 - Wagner, W.; Kretzschmar, H.-J. *International Steam Tables*, 3rd ed.;
   Springer, 2019.
 

@@ -23,9 +23,19 @@
 //! | 4 | **Saturation line**, 273.15–647.096 K | closed-form both ways |
 //! | 5 | High-T steam, 1073.15–2273.15 K, ≤ 50 MPa | Gibbs `g(p,T)` |
 //!
-//! Plus backward equations `T(p,h)` and `T(p,s)` for regions 1–2 (making
-//! PH/PS flash essentially non-iterative), and analytic derivatives
-//! throughout (never finite differences).
+//! Plus IF97 backward equations `T(p,h)` and `T(p,s)` for regions 1 and 2
+//! (all three sub-regions each), which seed a short Newton polish on the
+//! forward equation — so a PH or PS flash costs a polynomial evaluation and
+//! two or three refinement steps rather than a bracketed search. Regions 3
+//! and 5 still solve `T` by bracketed iteration on the forward surface.
+//! Property derivatives are analytic throughout, never finite differences.
+//!
+//! Beyond the thermodynamic surface, the crate implements the three IAPWS
+//! transport/interfacial releases in their **industrial** form — viscosity
+//! ([`viscosity`], R12-08), thermal conductivity ([`thermal_conductivity`],
+//! R15-11, critical enhancement included) and surface tension
+//! ([`surface_tension`], R1-76(2014)) — plus the derived Prandtl number,
+//! kinematic viscosity and thermal diffusivity. See [`transport`].
 //!
 //! ## Units
 //!
@@ -58,8 +68,10 @@ mod region3;
 pub mod region4;
 mod region5;
 pub mod regions;
+mod series;
 mod solve;
 mod state;
+pub mod transport;
 
 pub use props::Props;
 pub use state::{
@@ -113,6 +125,13 @@ pub enum SteamError {
     OutOfSaturationRange(f64),
     /// An iterative inner solve (e.g. region-3 density) failed to converge.
     NoConvergence(&'static str),
+    /// A quantity that is defined **per phase** was requested at a two-phase
+    /// state. Transport properties are the case in point: there is no
+    /// meaningful quality-weighted viscosity or thermal conductivity of a
+    /// boiling mixture — the phases differ by more than an order of magnitude
+    /// and the mixture value depends on the flow regime, which is not
+    /// thermodynamics. Read the per-phase values off [`SatProps`] instead.
+    TwoPhase(&'static str),
 }
 
 impl fmt::Display for SteamError {
@@ -129,6 +148,9 @@ impl fmt::Display for SteamError {
             }
             SteamError::NoConvergence(what) => {
                 write!(f, "iterative solve did not converge: {what}")
+            }
+            SteamError::TwoPhase(what) => {
+                write!(f, "not defined for a two-phase state: {what}")
             }
         }
     }
@@ -199,10 +221,224 @@ pub fn psat_derivative(t: f64) -> Result<f64, SteamError> {
     Ok(mpa_to_kpa(region4::d_psat_d_t(t)))
 }
 
+/// Dynamic viscosity at a single-phase state.
+///
+/// # Arguments
+/// * `t` — Temperature in **K**.
+/// * `p` — Pressure in **kPa absolute**.
+///
+/// # Returns
+/// Dynamic viscosity in **Pa·s**.
+///
+/// IAPWS R12-08, industrial form (`μ₂ = 1`, densities from IF97 — §3 of that
+/// release). Returns [`SteamError::TwoPhase`] on the saturation line, where
+/// viscosity is a per-phase quantity; use [`SatProps::mu_f`] / [`SatProps::mu_g`].
+pub fn viscosity(t: f64, p: f64) -> Result<f64, SteamError> {
+    let st = SteamState::tp(t, p)?;
+    if st.phase == Phase::TwoPhase {
+        return Err(SteamError::TwoPhase("viscosity"));
+    }
+    Ok(viscosity_rho_t(st.rho, t))
+}
+
+/// Dynamic viscosity from density and temperature — the form IAPWS R12-08 is
+/// written in, and the one region-3 callers already have.
+///
+/// # Arguments
+/// * `rho` — Density in **kg/m³**.
+/// * `t` — Temperature in **K**.
+///
+/// # Returns
+/// Dynamic viscosity in **Pa·s**.
+pub fn viscosity_rho_t(rho: f64, t: f64) -> f64 {
+    transport::viscosity_bar(rho, t) * 1e-6 // µPa·s → Pa·s
+}
+
+/// Thermal conductivity at a single-phase state.
+///
+/// # Arguments
+/// * `t` — Temperature in **K**.
+/// * `p` — Pressure in **kPa absolute**.
+///
+/// # Returns
+/// Thermal conductivity in **W/(m·K)**.
+///
+/// IAPWS R15-11, industrial form — `c_p`, `κ` and `ζ = (∂ρ̄/∂p̄)_T̄` from IF97,
+/// with the reference-temperature compressibility from that release's Eq. (25).
+/// The critical enhancement `λ₂` is included everywhere except region 5, where
+/// R15-11 §3.4 sets it to zero. Returns [`SteamError::TwoPhase`] on the
+/// saturation line; use [`SatProps::k_f`] / [`SatProps::k_g`].
+pub fn thermal_conductivity(t: f64, p: f64) -> Result<f64, SteamError> {
+    let st = SteamState::tp(t, p)?;
+    if st.phase == Phase::TwoPhase {
+        return Err(SteamError::TwoPhase("thermal conductivity"));
+    }
+    let region = st.region;
+    // R15-11 §3.4 footnote 3: in region 5 the critical enhancement is zero.
+    let enhanced = region != Region::Five;
+    let dr_dp = if enhanced {
+        transport::drho_dp(t, p, region)?
+    } else {
+        0.0
+    };
+    let (l0, l1, l2) =
+        transport::thermal_conductivity_parts(t, st.rho, st.cp, st.cv, dr_dp, enhanced);
+    Ok((l0 * l1 + l2) * 1e-3) // mW/(m·K) → W/(m·K)
+}
+
+pub use transport::surface_tension;
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
+
+    /// R15-11 **Tables 7–9** — the *industrial* program-verification tables,
+    /// keyed on IF97 regions 1, 2 and 3. These are the ones an IF97-based
+    /// implementation must reproduce; the release's Tables 4–5 were generated
+    /// with IAPWS-95 and are not reachable from here.
+    ///
+    /// Asserted term by term (`λ₀`, `λ₁`, `λ₂` and the total), because the
+    /// tables publish the breakdown — so a mistake in any one factor is
+    /// localized rather than hidden inside a total that lands close.
+    #[test]
+    fn r15_11_industrial_tables_7_to_9() {
+        // (T K, p kPa, λ mW/(m·K), λ₀, λ₁, λ₂)
+        let tp_cases = [
+            // Table 7 — region 1
+            (
+                620.0,
+                20_000.0,
+                0.481485195e3,
+                0.484911627e2,
+                0.966869008e1,
+                0.126391714e2,
+            ),
+            (
+                620.0,
+                50_000.0,
+                0.545038940e3,
+                0.484911627e2,
+                0.111212177e2,
+                0.575816285e1,
+            ),
+            // Table 8 — region 2
+            (
+                650.0,
+                300.0,
+                0.522311024e2,
+                0.518787461e2,
+                0.100678943e1,
+                0.129246457e-3,
+            ),
+            (
+                800.0,
+                50_000.0,
+                0.177709914e3,
+                0.698329394e2,
+                0.244965343e1,
+                0.664341394e1,
+            ),
+        ];
+        for (t, p, lam, l0e, l1e, l2e) in tp_cases {
+            let st = SteamState::tp(t, p).unwrap();
+            let dr = transport::drho_dp(t, p, st.region).unwrap();
+            let (l0, l1, l2) =
+                transport::thermal_conductivity_parts(t, st.rho, st.cp, st.cv, dr, true);
+            assert_relative_eq!(l0, l0e, max_relative = 1e-8);
+            assert_relative_eq!(l1, l1e, max_relative = 1e-6);
+            assert_relative_eq!(l2, l2e, max_relative = 1e-6);
+            assert_relative_eq!(l0 * l1 + l2, lam, max_relative = 1e-6);
+            assert_relative_eq!(
+                thermal_conductivity(t, p).unwrap(),
+                lam * 1e-3,
+                max_relative = 1e-6
+            );
+        }
+        // Table 9 — region 3, given as (ρ, T) rather than (p, T)
+        for (t, rho, lam, l0e, l1e, l2e) in [
+            (
+                647.35,
+                222.0,
+                0.366879411e3,
+                0.515764797e2,
+                0.348407362e1,
+                0.187183159e3,
+            ),
+            (
+                647.35,
+                322.0,
+                0.124182415e4,
+                0.515764797e2,
+                0.496819532e1,
+                0.985582122e3,
+            ),
+        ] {
+            let pr = region3::props_rho_t(rho, t);
+            let dr = 1.0 / region3::dp_drho(rho, t);
+            let (l0, l1, l2) =
+                transport::thermal_conductivity_parts(t, rho, pr.cp, pr.cv, dr, true);
+            assert_relative_eq!(l0, l0e, max_relative = 1e-8);
+            assert_relative_eq!(l1, l1e, max_relative = 1e-6);
+            assert_relative_eq!(l2, l2e, max_relative = 1e-5);
+            assert_relative_eq!(l0 * l1 + l2, lam, max_relative = 1e-5);
+        }
+    }
+
+    /// The published `(∂ρ/∂p)_T` column of Tables 7–9 — asserting the analytic
+    /// derivative directly, not only through the conductivity it feeds.
+    #[test]
+    fn drho_dp_matches_published_column() {
+        // (T K, p kPa, (∂ρ/∂p)_T in kg·m⁻³·MPa⁻¹)
+        for (t, p, expected) in [
+            (620.0, 20_000.0, 0.520937820e1),
+            (620.0, 50_000.0, 0.184869007e1),
+            (650.0, 300.0, 0.336351419e1),
+            (800.0, 50_000.0, 0.661484493e1),
+        ] {
+            let region = SteamState::tp(t, p).unwrap().region;
+            // (kg/m³)/kPa → (kg/m³)/MPa
+            let got = transport::drho_dp(t, p, region).unwrap() * 1e3;
+            assert_relative_eq!(got, expected, max_relative = 1e-6);
+        }
+        for (t, rho, expected) in [
+            (647.35, 222.0, 0.177778595e3),
+            (647.35, 322.0, 0.692651138e4),
+        ] {
+            let got = 1.0 / region3::dp_drho(rho, t) * 1e3;
+            assert_relative_eq!(got, expected, max_relative = 1e-5);
+        }
+    }
+
+    /// The published viscosity column of Tables 7–9 — confirming this crate's
+    /// R12-08 industrial viscosity is the one R15-11's `λ₂` was built on.
+    #[test]
+    fn viscosity_matches_r15_11_column() {
+        for (t, p, expected_upa) in [
+            (620.0, 20_000.0, 0.709051068e2),
+            (620.0, 50_000.0, 0.841527945e2),
+            (650.0, 300.0, 0.234877453e2),
+            (800.0, 50_000.0, 0.393727534e2),
+        ] {
+            let got = viscosity(t, p).unwrap() * 1e6; // Pa·s → µPa·s
+            assert_relative_eq!(got, expected_upa, max_relative = 1e-6);
+        }
+    }
+
+    /// Transport properties are per-phase: a two-phase state must refuse
+    /// rather than quietly average.
+    #[test]
+    fn two_phase_transport_is_refused() {
+        let tsat = tsat(100.0).unwrap();
+        assert!(matches!(
+            viscosity(tsat, 100.0),
+            Err(SteamError::TwoPhase(_))
+        ));
+        assert!(matches!(
+            thermal_conductivity(tsat, 100.0),
+            Err(SteamError::TwoPhase(_))
+        ));
+    }
 
     #[test]
     fn public_psat_in_kpa() {

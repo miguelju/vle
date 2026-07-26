@@ -140,6 +140,14 @@ fn bench_inverse(c: &mut Criterion) {
         ("ph_two_phase", 1_000.0, 2_000.0),
         ("ph_liquid", 5_000.0, 500.0),
         ("ph_vapor", 1_000.0, 3_200.0),
+        // Region 3. The audit that produced the region-2 backward `T(p,h)`
+        // deferred the region-3 one *because the suite had no region-3 PH
+        // point to measure it against* — the PH sweep runs at 1 MPa and cannot
+        // enter region 3. These two close that hole: both land above the B23
+        // line, on either side of the critical density, so a future region-3
+        // backward equation has a before/after workload to be judged on.
+        ("ph_r3_liquid_side", 25_000.0, 1_800.0),
+        ("ph_r3_vapor_side", 23_000.0, 2_400.0),
     ] {
         g.bench_function(label, |b| {
             b.iter(|| SteamState::ph(black_box(p), black_box(h)).unwrap())
@@ -241,12 +249,57 @@ fn bench_sweep(c: &mut Criterion) {
     g.finish();
 }
 
+/// Transport properties (M13.7). Split by whether the R15-11 **critical
+/// enhancement** contributes: `λ₂` costs several times the `λ₀·λ₁` product it
+/// is added to, because it needs `(∂ρ/∂p)_T` at the state *and* the
+/// reference-temperature polynomial on top of a full property evaluation.
+/// Benchmarking only a far-from-critical point would hide that entirely — and
+/// it is exactly why the batch kernel is a separate call from `properties`.
+fn bench_transport(c: &mut Criterion) {
+    let mut g = c.benchmark_group("transport");
+    for (label, t, p) in [
+        ("viscosity_liquid", 293.15, 101.325),
+        ("viscosity_vapor", 873.15, 1_000.0),
+    ] {
+        g.bench_function(label, |b| {
+            b.iter(|| vle_steam::viscosity(black_box(t), black_box(p)).unwrap())
+        });
+    }
+    for (label, t, p) in [
+        // Region 1, far from critical: Δχ ≤ 0, so λ₂ short-circuits to zero.
+        ("conductivity_liquid", 293.15, 101.325),
+        // Region 2 dilute vapor — enhancement present but negligible.
+        ("conductivity_vapor", 873.15, 1_000.0),
+        // Region 1 near the dome, where λ₂ is ~2.6% of λ and fully evaluated.
+        ("conductivity_enhanced", 620.0, 20_000.0),
+        // Region 3 just above Tc — the most expensive path in the crate.
+        ("conductivity_near_critical", 647.35, 22_000.0),
+    ] {
+        g.bench_function(label, |b| {
+            b.iter(|| vle_steam::thermal_conductivity(black_box(t), black_box(p)).unwrap())
+        });
+    }
+    g.bench_function("surface_tension", |b| {
+        b.iter(|| vle_steam::surface_tension(black_box(400.0)).unwrap())
+    });
+    g.bench_function("prandtl", |b| {
+        b.iter(|| {
+            SteamState::tp(black_box(293.15), black_box(101.325))
+                .unwrap()
+                .prandtl()
+                .unwrap()
+        })
+    });
+    g.finish();
+}
+
 criterion_group!(
     benches,
     bench_region,
     bench_boundary,
     bench_saturation,
     bench_inverse,
-    bench_sweep
+    bench_sweep,
+    bench_transport
 );
 criterion_main!(benches);
