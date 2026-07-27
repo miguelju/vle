@@ -23,10 +23,10 @@ workload that most thoroughly stresses everything this project has built.
 (Phases **25**, **26**, **27** in [MODERNIZATION_PLAN.md](../MODERNIZATION_PLAN.md)) —
 plus four in the downstream `stages-thermo` repo (**M11** inside-out, **M13–M15**
 the crude tower), whose `PLAN.md` §7.1, `ROADMAP.md`/`TODO.md` and the dedicated
-`CRUDE_COLUMN_PLAN.md` carry the matching entries. This document is the shared
+`docs/plans/CRUDE_COLUMN_PLAN.md` carry the matching entries. This document is the shared
 technical record for the **upstream** half, the same division of labor as
 [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md) vs. its Milestone 12
-entries; `CRUDE_COLUMN_PLAN.md` in `stages-thermo` is the downstream half.
+entries; `docs/plans/CRUDE_COLUMN_PLAN.md` in `stages-thermo` is the downstream half.
 
 ---
 
@@ -140,7 +140,7 @@ coding; line numbers drift.
 
 ## 3. Downstream work (`stages-thermo`)
 
-*Full detail in that repo's `CRUDE_COLUMN_PLAN.md`; milestone mapping current as
+*Full detail in that repo's `docs/plans/CRUDE_COLUMN_PLAN.md`; milestone mapping current as
 of 2026-07-26.*
 
 | | Deliverable | Downstream milestone |

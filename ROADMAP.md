@@ -636,7 +636,7 @@ only one of the three that benefits every current user of classical mixing
 whether or not the crude column is ever built.
 
 Shared record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](docs/plans/engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md)
-(upstream half) and `CRUDE_COLUMN_PLAN.md` in the stages-thermo repo (downstream half).
+(upstream half) and `docs/plans/CRUDE_COLUMN_PLAN.md` in the stages-thermo repo (downstream half).
 
 ## Milestone 18: N-Scalable Mixture Core — **not started**
 

@@ -629,7 +629,7 @@ gate it: **M18** → their M15 performance claim (*not* their M11 inside-out sol
 which is buildable today), **M19** → their M13, **M20** → their M14. **Start M18
 first**: independent of the other two, and independently valuable regardless of
 whether the crude column is ever built. Downstream half of the record:
-`CRUDE_COLUMN_PLAN.md` in the stages-thermo repo.
+`docs/plans/CRUDE_COLUMN_PLAN.md` in the stages-thermo repo.
 
 ## Milestone 18: N-Scalable Mixture Core *(~10–16h)* — **Not started**
 *Phase 25 of MODERNIZATION_PLAN.md*
