@@ -4,9 +4,8 @@
 #
 # Enforces the mechanical half of CLAUDE.md's "Completion Claims Must Be
 # Verified Against the Code — code is the fact". A plan document is a claim;
-# the code is the fact. These checks compare the claims in ROADMAP.md,
-# TODO.md and docs/plans/MODERNIZATION_PLAN.md against what is actually on
-# disk, and
+# the code is the fact. These checks compare the claims in ROADMAP.md, TODO.md
+# and docs/plans/MODERNIZATION_PLAN.md against what is actually on disk, and
 # block the commit when they disagree.
 #
 # Why pre-COMMIT and not pre-push. The equivalent Claude Code agent hook in
@@ -120,8 +119,47 @@ if nb_dir.is_dir():
     # `\s+` spans newlines on purpose: the claim this check first caught was
     # line-wrapped as "20 executable\nnotebooks", which a line-oriented grep
     # walked straight past.
-    COUNT = re.compile(r"(?<![.\d])(\d{1,3})\s+(?:executable\s+)?notebooks\b")
+    #
+    # ONE optional adjective is allowed between the number and the noun. The
+    # adjective slot was originally the literal `executable`, which let a wrong
+    # claim — "20 Jupyter notebooks", written during the docs/plans/ reorg —
+    # walk straight past this gate. Any bare word is accepted now
+    # (Jupyter/example/milestone/teaching/…), so the phrasing can vary without
+    # the check going blind.
+    #
+    # The slot is capped at ONE word, and that word must be a bare
+    # letter-initial token, both deliberately. Allowing two or more admits a
+    # prose false positive: "7 systems in notebooks" would otherwise read as a
+    # claim of 7. Requiring a letter-initial `[\w-]` token (no comma, paren or
+    # period) keeps list fragments like "(7 systems), notebooks" out.
+    COUNT = re.compile(r"(?<![.\d])(\d{1,3})\s+(?:([A-Za-z][\w-]*)\s+)?notebooks\b")
+    # A SUBSET count is not a claim about the collection size. Widening the
+    # adjective slot surfaced this class immediately: TODO.md's "Create 3
+    # placeholder notebooks" is a true statement about three files created in
+    # M7.1, not an assertion that the repo holds three. Two independent signals
+    # mark a subset, and either one exempts the match:
+    #   - the adjective itself is a subset word ("3 placeholder notebooks")
+    #   - a creation verb sits immediately before the number ("Create 3 …")
+    SUBSET_ADJ = {"placeholder", "new", "additional", "extra", "more", "further",
+                  "follow-on", "companion", "sibling"}
+    # Only verbs that PRODUCE new items. `ship`, `include`, `contain` and
+    # `build` were in this list for one draft and had to come out: "the repo
+    # ships 19 notebooks" is how a TOTAL is phrased, so accepting them
+    # re-opened the exact blind spot this change exists to close. The test
+    # harness caught it — see hooks/test-notebook-count-check.py.
+    SUBSET_VERB = re.compile(
+        r"(?i)\b(creat|add|writ|wrote|generat|introduc)\w*[\s*_`]*$"
+    )
+    # Past-tense markers that appear BEFORE the claim ("the then-15-notebook
+    # collection", "…at M11, 15 notebooks"). Scanned over the preceding clause.
     HISTORICAL = re.compile(r"then-|that existed|then[\s-]existing|at M\d+")
+    # …and the ones that trail it ("the 15 notebooks that existed at M11").
+    # Deliberately a SHORTER list than the backward set: `at M\d+` is excluded
+    # here because a milestone reference can follow a genuinely wrong claim by
+    # coincidence ("20 notebooks … shipped at M13"), which would silently
+    # exempt a real failure. `that existed` / `then-existing` are never
+    # incidental — they are written on purpose to scope a claim to the past.
+    HISTORICAL_TRAILING = re.compile(r"^\W*(that existed|then[\s-]existing)")
     for doc in ("README.md", "python/README.md", "distribution/NOTEBOOKS.md", "ROADMAP.md", "TODO.md"):
         if not pathlib.Path(doc).is_file():
             continue
@@ -131,8 +169,17 @@ if nb_dir.is_dir():
             if claimed == n:
                 continue
             # Past-tense, milestone-scoped records are exempt; look at the
-            # preceding clause, not just the matched span.
+            # preceding clause, not just the matched span…
             if HISTORICAL.search(text[max(0, m.start() - 80):m.end()]):
+                continue
+            # …and at the clause immediately following it, anchored so the
+            # marker must be the very next words, not merely nearby.
+            if HISTORICAL_TRAILING.search(text[m.end():m.end() + 40]):
+                continue
+            # Subset counts describe a handful of files, not the collection.
+            if (m.group(2) or "").lower() in SUBSET_ADJ:
+                continue
+            if SUBSET_VERB.search(text[max(0, m.start() - 30):m.start()]):
                 continue
             fail.append(
                 f"{doc}: claims '{' '.join(m.group(0).split())}' but {n} notebooks exist "

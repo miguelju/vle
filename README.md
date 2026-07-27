@@ -190,7 +190,7 @@ vle/
 │   ├── db/                  # Component database (connection, queries, models)
 │   │   └── sql/             # Bundled schema.sql + seed_chapter4.sql (ship in wheel)
 │   └── cli/                 # CLI tool (vle-db)
-├── notebooks/               # 20 Jupyter notebooks (00–14 + 01_introduction + index; see distribution/NOTEBOOKS.md)
+├── notebooks/               # 19 notebooks (00–14 + 01_introduction + m06) plus index.ipynb; see distribution/NOTEBOOKS.md
 │   └── data/                # Pre-computed 3-D surface datasets (CSV, committed)
 ├── units/                   # Independent units crate (dimensional analysis, gauge pressure, custom units)
 ├── steam/                   # Independent steam-tables crate `vle-steam` (IAPWS-IF97, dependency-free; M13)

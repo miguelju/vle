@@ -619,6 +619,18 @@ from Jupyter).
 
 ---
 
+---
+
+# The petroleum track (M18–M20) — gating a downstream headline capability
+
+*Updated 2026-07-26.* The **atmospheric crude distillation unit is now the
+terminal goal of the downstream `stages-thermo` project**. These three milestones
+gate it: **M18** → their M15 performance claim (*not* their M11 inside-out solver,
+which is buildable today), **M19** → their M13, **M20** → their M14. **Start M18
+first**: independent of the other two, and independently valuable regardless of
+whether the crude column is ever built. Downstream half of the record:
+`CRUDE_COLUMN_PLAN.md` in the stages-thermo repo.
+
 ## Milestone 18: N-Scalable Mixture Core *(~10–16h)* — **Not started**
 *Phase 25 of MODERNIZATION_PLAN.md*
 

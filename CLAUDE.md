@@ -62,8 +62,13 @@ no cargo and no network:
    and went unrecorded in both files for two weeks.
 5. Every "*N* notebooks" claim matches the real count, across `README.md`,
    `python/README.md`, `distribution/NOTEBOOKS.md`, `ROADMAP.md` and `TODO.md`.
-   Past-tense, milestone-scoped phrasing ("the then-15-notebook collection")
-   is exempt — that is a record of history, not a claim about today.
+   The count is **content notebooks only** — `index.ipynb` is excluded, so 19
+   notebooks live beside it in a directory of 20 files. One optional adjective
+   may sit between the number and the noun ("19 executable notebooks",
+   "19 Jupyter notebooks"). Two kinds of statement are exempt: past-tense,
+   milestone-scoped records ("the then-15-notebook collection"), and **subset
+   counts** — a number of notebooks *created*, not a claim about the
+   collection ("Create 3 placeholder notebooks").
 
 It runs at **commit** time, not push, deliberately: commits here are made by a
 human at the keyboard (YubiKey touch), so a Claude-side hook never sees them,
@@ -72,11 +77,30 @@ history. The semantic checks a script cannot do — "does this prose still
 describe what the workflow does?" — remain with the agent hook on `git push`
 in `.claude/settings.json`, which is the second net, not the first.
 
-If a check produces a false positive, **fix the check**, don't bypass it. Both
-false-positive classes it currently guards against (version strings like
-`v0.3.0 notebook`, historical adjectives like `then-15-notebook`) were found by
-running the gate against deliberately broken trees — do the same before
-changing it.
+If a check produces a false positive, **fix the check**, don't bypass it. All
+four false-positive classes check 5 guards against — version strings
+(`v0.3.0 notebook`), historical adjectives (`then-15-notebook`), prose gaps
+(`7 systems in notebooks`) and subset counts (`Create 3 placeholder
+notebooks`) — were found by running the gate against deliberately broken
+trees. **Do the same before changing it**, and that is now one command:
+
+```sh
+~/miniconda3/envs/vle/bin/python hooks/test-notebook-count-check.py
+```
+
+`hooks/test-notebook-count-check.py` extracts check 5's live regexes out of
+`hooks/pre-commit` rather than restating them — a copied pattern would pass its
+own tests while the hook shipped something else — and asserts 23 cases covering
+every class above plus the wrong-claim cases that must still fire.
+
+It earns its keep. Check 5's adjective slot was the literal `executable` until
+2026-07-26, so the wrong claim **"20 Jupyter notebooks"** walked straight
+through the gate and was caught only by reading the hook. While widening the
+slot to fix that, a first draft added `ship` to the subset-verb exemption —
+which silently re-opened the same hole, because "the repo *ships* 19 notebooks"
+is exactly how a total is phrased. The harness failed that case immediately.
+A gate that has never been tested against a claim it is supposed to reject is
+not known to work.
 
 **Pre-push formatting gate (`hooks/pre-push`)**: the repo ships a versioned git
 pre-push hook that runs `cargo fmt --check` and **blocks the push on any diff** —

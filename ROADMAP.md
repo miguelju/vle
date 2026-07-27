@@ -615,6 +615,29 @@ verified feasibility spike; the single-threaded/rayon decomposition):
 
 ---
 
+---
+
+# The petroleum track (M18–M20) — gating a downstream headline capability
+
+*Updated 2026-07-26.* The **atmospheric crude distillation unit is now the
+terminal goal of the downstream `stages-thermo` project**, not a speculative
+extension. These three milestones are therefore the **gating path** for a stated
+headline capability rather than optional-someday work:
+
+| | Gates |
+|---|---|
+| **M18** — N-Scalable Mixture Core | stages-thermo **M15**'s C ≈ 300 performance claim. *Does **not** gate their inside-out solver (M11), which is buildable today* |
+| **M19** — Petroleum Characterization | stages-thermo **M13** (assay → pseudocomponent column) |
+| **M20** — Refinery Thermodynamics | stages-thermo **M14** (crude-tower topology + free water) |
+
+**M18 is the one to start first** — it is independent of M19/M20, independently
+valuable (a pure speedup of an existing hot path, no new physics), and it is the
+only one of the three that benefits every current user of classical mixing
+whether or not the crude column is ever built.
+
+Shared record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](docs/plans/engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md)
+(upstream half) and `CRUDE_COLUMN_PLAN.md` in the stages-thermo repo (downstream half).
+
 ## Milestone 18: N-Scalable Mixture Core — **not started**
 
 *Phase 25 of MODERNIZATION_PLAN.md*
