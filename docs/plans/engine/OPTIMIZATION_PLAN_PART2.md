@@ -322,6 +322,199 @@ In the order the evidence now supports:
 
 ---
 
+## 7. Milestone 18 — the N-scalable mixture core
+
+*Executed 2026-08-15 by Claude Code using Claude Opus 5 (1M context). Plan of
+record: [`PETROLEUM_PSEUDOCOMPONENT_PLAN.md`](PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §1.1 (blocker B1).*
+
+Not an audit response — this one came from the petroleum track — but it lands
+in the same file because it is the same code, and because it settles a
+question Part 2 left open: **how does the mixture core behave as N grows?**
+Every measurement in this plan above is at n ≤ 8.
+
+### 7.1 What changed
+
+`quad_a` ran its full double loop unconditionally. With every `kᵢⱼ = 0` the
+cross-parameter factorizes and the form collapses to a single pass:
+
+```text
+S = Σⱼ xⱼ√Aⱼ        A = S²        Āᵢ = 2√Aᵢ·S
+```
+
+That is the crude-assay case exactly — interaction parameters between
+petroleum pseudocomponents are conventionally zero, so `kij` is left empty and
+the collapse is free to detect. Three forms now exist, selected by `kij_form`:
+
+| form | when | cost |
+|---|---|---|
+| `quad_a_factorized` | `kij` empty, or an index proving all-zero | **O(N)** |
+| `quad_a_sparse` | index with density < 0.15 | **O(N + nnz)** |
+| `quad_a` | otherwise | O(N²) |
+
+`KijIndex` scans the matrix once and lives in `TpCache`, because scanning an
+N×N matrix per call is itself O(N²) and would defeat the purpose. The uncached
+entry point keeps the free half (empty ⇒ factorized) and otherwise runs the
+general loop, whose complexity a per-call scan could not have improved on.
+
+The same collapse turns the analytic composition Jacobian into a **sum of
+rank-1 outer products** — the only place `Aᵢⱼ` enters `d_ln_phi_d_n_classical`
+is a single `−2Ĩ√Aᵢ√Aⱼ` term, and every other `(i, j)` term was already an
+i-vector times a j-vector. So `d_ln_phi_d_n_apply` computes `J·v` in O(N)
+without ever forming the block.
+
+### 7.2 Measured — `mixture_scaling` criterion group
+
+Whole-fugacity evaluation, PR1976, classical mixing:
+
+| N | dense O(N²) | factorized O(N) | speedup | + `TpCache` |
+|---:|---:|---:|---|---:|
+| 10 | 278 ns | 225 ns | 1.24× | 141 ns |
+| 50 | 1.845 µs | 502 ns | 3.68× | 240 ns |
+| 100 | 6.623 µs | 833 ns | **7.95×** | 367 ns |
+| 300 | 60.74 µs | 1.978 µs | **30.7×** | **825 ns** |
+
+Composition Jacobian, formed vs applied:
+
+| N | formed O(N²) | applied O(N) | speedup |
+|---:|---:|---:|---|
+| 10 | 652 ns | 320 ns | 2.0× |
+| 50 | 7.304 µs | 939 ns | 7.8× |
+| 100 | 26.08 µs | 1.672 µs | 15.6× |
+| 300 | 216.7 µs | 4.297 µs | **50.4×** |
+
+**The scaling is the point, not the ratio.** Dense grows 8.3× from N = 100 to
+N = 300 (≈ 3² = 9, quadratic); factorized grows 2.37× and applied 2.57×
+(≈ 3, linear). The milestone's own acceptance criterion was "linear growth or
+it did not land" — it is linear.
+
+The sparse path on a realistic assay pattern (three light gases against every
+hydrocarbon, ~2 % fill) reads 5.25 µs at N = 300 against the dense 60.7 µs —
+11.6×, also linear.
+
+### 7.3 The threshold was wrong, and the sweep is what caught it
+
+`SPARSE_KIJ_MAX_DENSITY` was first written as `0.25` with a comment claiming it
+came from measurement. It had not been measured. A density sweep at N = 100
+showed the dense path costs a flat ~5.91 µs regardless of fill, while sparse
+grows linearly and crosses it at **d ≈ 0.19**:
+
+| density | 0.010 | 0.050 | 0.099 | 0.198 |
+|---|---:|---:|---:|---:|
+| sparse | 476 ns | 1.609 µs | 3.241 µs | 6.135 µs |
+
+At the originally chosen 0.25 the engine would have taken the sparse path in a
+band where it is measurably *slower*. The constant is now **0.15**, below the
+crossover, because the constant factor drifts with N and being on the wrong
+side costs more when the matrix is large.
+
+This is the *Related rule* from `CLAUDE.md` catching its author: a performance
+claim written into a code comment without a number behind it was wrong within
+the hour. The sweep bench was temporary and is not committed; its numbers live
+here instead.
+
+### 7.4 Wong-Sandler collapses too — for a different reason
+
+`quad_a` is not the only quadratic in the core. **Wong-Sandler has its own**
+(`bij_ws`), and Part 2 §1 measured its composition derivative at 5.1× the
+analytic path. Its cross term is a **sum**, not a product:
+
+```text
+bijᵂ = ½(cᵢ + cⱼ)(1 − kᵢⱼ),   cᵢ = Bᵢ − Aᵢ
+```
+
+so with every `kᵢⱼ = 0` the double sum separates a different way — by
+distributing rather than factoring:
+
+```text
+Qᵂ = ½ΣᵢΣⱼ xᵢxⱼ(cᵢ + cⱼ) = C·X       Σⱼ xⱼbijᵂ = ½(cᵢ·X + C)
+```
+
+with `C = Σxᵢcᵢ`, `X = Σxᵢ`. Written with `X` rather than assuming `Σx = 1`,
+because the dual paths normalize *in dual arithmetic* and the identity has to
+hold there too. `wong_sandler_collapse_matches_general_path` pins it at
+N = 2/3/12/45 against a dense all-zeros matrix.
+
+At n = 4 this is worth ~2 % — the cost there is the Wilson activity model and
+the four dual sweeps, not the 16-term quadratic. It is an O(N²) → O(N) shape
+change, so like the classical collapse its value is at scale.
+
+### 7.5 A benchmark that cannot resolve what was asked of it
+
+`d_ln_phi_d_n_classical_n4` was read three times across builds whose changes
+touched **different mixing rules**:
+
+| build | time |
+|---|---:|
+| before Milestone 18 | 242.0–243.0 ns |
+| after the classical collapse | 230.3–231.6 ns |
+| after the Wong-Sandler collapse | 241.8–244.1 ns |
+
+Two consecutive runs of the *same* build agree to 0.5 % (239.9, 241.2 ns). So
+the bench carries ~**±5 % build-to-build variance from code layout** against
+~1 % run-to-run variance, and the middle row is not a Milestone 18 win — it is
+the same artefact that produced the "unexplained" 4.4 % regression recorded in
+[`SECOND_OPINION_TRIAL.md`](SECOND_OPINION_TRIAL.md) §6, now resolved there.
+
+**Neither delta was real.** This is worth stating plainly because both were
+briefly written down as findings: a single-digit-percent change on this
+benchmark is evidence of nothing unless the build is otherwise identical. The
+Milestone 18 claims that *do* hold are the ones with an order of magnitude
+behind them — 30.7× and 50.4× at N = 300, where the asymptotics dwarf layout.
+
+### 7.6 Allocation-free evaluation (U6) — done, with one cost recorded
+
+`mixture_params_with` now **fills a caller-provided `MixtureParams`** instead
+of returning one. Every mixing branch writes into `out.a_bar` / `out.b_bar`,
+`three_param_uw` writes `out.u_bar` / `out.w_bar`, and the `quad_a` family
+writes into caller slices (including the sparse path's row-correction
+scratch). The public `MixtureWorkspace` owns those buffers, and
+`ln_phi_mix_cached_ws_into` is the entry point that reuses them. Buffers only
+grow, so a solve settles after its first evaluation and then allocates
+nothing.
+
+**The algebra is still written once** — this is a change of *where the
+buffers live*, not a second implementation. That was the binding constraint
+(§2, `PreparedModel` rejected), and it held.
+
+Measured, same build (the only comparison layout noise cannot distort):
+
+| N | allocating (`ln_phi_mix_cached_into`) | workspace (`..._ws_into`) | |
+|---:|---:|---:|---|
+| 10 | 165.1 ns | **83.9 ns** | 2.0× |
+| 50 | 285.6 ns | **171.6 ns** | 1.7× |
+| 100 | 447.7 ns | **302.0 ns** | 1.5× |
+| 300 | 1081.3 ns | **876.0 ns** | **1.23×** |
+
+The N = 300 figure matches the standalone probe that sized this work before it
+started — four `SmallVec<[f64; 8]>` buffers at N = 300 cost **145.7 ns**
+against an 825 ns call, ≈18 %. The measurement predicted the outcome.
+
+**The cost, recorded rather than buried.** A *fresh* workspace is slightly
+slower than the old code, because `resize` zero-fills four buffers the mixing
+branch then overwrites, where the old path built three of them with `collect`
+in a single pass. At N = 300 that is ~7 KB of redundant zeroing. It is paid
+**once** by a reused workspace — and on every call by the compatibility
+wrapper `ln_phi_mix_cached_into`, which constructs a fresh one.
+
+That wrapper is on the flash's hot path, so the question that mattered was
+whether the flash regressed. It did not — measured against the v0.12.0
+figures recorded in [`OPTIMIZATION_PLAN_PART1.md`](OPTIMIZATION_PLAN_PART1.md) §6 on this machine:
+
+| bench | v0.12.0 | now | |
+|---|---:|---:|---|
+| `flash_multi/isothermal_n4` | 3.58 µs | **2.93 µs** | −18 % |
+| `flash_multi/isothermal_n8` | 5.21 µs | **3.94 µs** | −24 % |
+| `flash_multi/stability_n4` | 6.40 µs | **5.33 µs** | −17 % |
+
+The collapses gain the flash more than the extra fill costs it. **The
+remaining work, if the fill ever matters, is threading a `MixtureWorkspace`
+through `flash/system.rs`'s five `&SystemTpCache` entry points** — not
+attempted here because the end-to-end measurement says there is nothing to
+recover yet. Do not do it on the strength of the microbench alone; measure the
+flash first.
+
+---
+
 ## References
 
 - [`optimizations_audit.md`](optimizations_audit.md) — the external audit

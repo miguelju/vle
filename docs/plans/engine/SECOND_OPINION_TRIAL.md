@@ -195,12 +195,22 @@ real defects — the correct call.
 The Wong-Sandler win is real and reproducible. **Predicted 520 ns, measured
 566 ns — an 8 % error on a number it had no way to test.**
 
-The classical regression is small but reproducible (two independent runs at
-~253 ns, `p = 0.85` between them). That path's code is untouched — it early-returns
-before the new dispatch — so this is almost certainly code-layout or i-cache
-fallout from four new monomorphizations of the mixture core. It is ~10 ns on a
-path that is already the fast one, but it is a real cost and is recorded rather
-than rounded away.
+The classical regression is small but reproducible *within a build* (two
+independent runs at ~253 ns, `p = 0.85` between them). That path's code is
+untouched — it early-returns before the new dispatch — so the suspicion at the
+time was code-layout or i-cache fallout from four new monomorphizations.
+
+> **Resolved 2026-08-15, during Milestone 18 — it was layout, and it is not
+> specific to this patch.** `d_ln_phi_d_n_classical_n4` measured
+> **242 ns → 231 ns → 243 ns** across three consecutive builds whose changes
+> touched *other* mixing rules entirely, while two consecutive runs of the
+> **same** build agreed to 0.5 % (239.9 ns, 241.2 ns). This benchmark carries
+> roughly **±5 % build-to-build variance from code layout** against ~1 %
+> run-to-run variance. The 4.4 % "regression" above sits inside that band and
+> is not a cost of the patch — and neither was the 4.8 % "improvement"
+> Milestone 18 briefly appeared to hand the same benchmark. Both were the same
+> artefact. A single-digit-percent delta here is evidence of nothing unless the
+> build is otherwise identical.
 
 ### The prediction that mattered most
 
@@ -277,8 +287,10 @@ what it was.
    n = 4 and n = 20 are measured here; 8, 16, 32 and ≥ 100 are not.
 2. Commit the n = 20 benchmark (and probably n = 8 and n = 50) so the width
    table has a permanent guard.
-3. Explain or accept the +4.4 % classical regression — it is the one number here
-   that nobody predicted.
+3. ~~Explain or accept the +4.4 % classical regression~~ — **done, 2026-08-15**:
+   it is code-layout variance, not a cost of the patch. See the resolution note
+   in §6 above. The bench needs an identical build to be read at this
+   resolution.
 4. Verify through the PyO3 surface (`mixture_d_ln_phi_d_n`) and the M12.3
    Gibbs–Helmholtz invariants, neither of which this trial exercised.
 5. Check compile time and wasm binary size against the added monomorphizations.

@@ -767,6 +767,191 @@ fn bench_derivatives(c: &mut Criterion) {
     g.finish();
 }
 
+/// Milestone 18 — does the mixture core scale linearly in N?
+///
+/// This is the measurement the milestone lives or dies by. Each size is run
+/// three ways so the comparison is like-for-like on identical numbers:
+///
+/// - `dense_zeros` — an N×N matrix of zeros, forcing the general `O(N²)`
+///   double loop. This is what every size cost before Milestone 18.
+/// - `factorized` — the same mixture with an **empty** `kij`, taking the
+///   `O(N)` collapse.
+/// - `sparse` — a realistic assay pattern (three light gases interacting with
+///   everything, the rest structurally zero) through the cached `O(N + nnz)`
+///   path.
+///
+/// Read it as a ratio across N, not as absolute times: `dense_zeros` should
+/// grow ~N² while `factorized` grows ~N.
+fn bench_mixture_scaling(c: &mut Criterion) {
+    use vle_thermo::mixing::MixingRule;
+    use vle_thermo::mixture::{
+        MixtureSpec, MixtureWorkspace, TpCache, d_ln_phi_d_n, d_ln_phi_d_n_apply, ln_phi_mix,
+        ln_phi_mix_cached_into, ln_phi_mix_cached_ws_into,
+    };
+
+    let mut g = c.benchmark_group("mixture_scaling");
+    // 300 components at O(N²) is slow enough that the default 100 samples is
+    // a poor trade; the variance here is tiny compared with the effect size.
+    g.sample_size(20);
+
+    for n in [10usize, 50, 100, 300] {
+        // N distinct pseudo-alkanes — the shape a TBP cut produces.
+        let comps: Vec<Component> = (0..n)
+            .map(|i| {
+                let f = 1.0 + 0.021 * i as f64;
+                Component {
+                    name: format!("pseudo{i}"),
+                    tc: 190.0 * f,
+                    pc: 4600.0 / f,
+                    omega: 0.011 + 0.006 * i as f64,
+                    psat_coeffs: vec![4.2, 900.0 * f, -8.0],
+                    liquid_volume: 37.9 * f,
+                    ..Component::default()
+                }
+            })
+            .collect();
+        let x: Vec<f64> = vec![1.0 / n as f64; n];
+        let zeros: Vec<Vec<f64>> = vec![vec![0.0; n]; n];
+        // Three light gases against every hydrocarbon — a real assay's
+        // sparsity, not a uniformly random fill.
+        let mut sparse_kij = vec![vec![0.0; n]; n];
+        for gidx in 0..3.min(n) {
+            for j in 0..n {
+                if gidx != j {
+                    // Symmetric fill; written as explicit index pairs because
+                    // the pattern *is* a matrix coordinate, not a traversal.
+                    let (lo, hi) = (gidx.min(j), gidx.max(j));
+                    sparse_kij[lo][hi] = 0.08;
+                    sparse_kij[hi][lo] = 0.08;
+                }
+            }
+        }
+
+        let base = MixtureSpec {
+            eos: CubicEos::PR1976,
+            rule: MixingRule::Classical,
+            components: &comps,
+            kij: &[],
+            ge: None,
+        };
+        let dense = MixtureSpec {
+            kij: &zeros,
+            ..base
+        };
+        let sparse = MixtureSpec {
+            kij: &sparse_kij,
+            ..base
+        };
+
+        g.bench_function(format!("ln_phi_dense_zeros_n{n}"), |b| {
+            b.iter(|| {
+                ln_phi_mix(
+                    black_box(&dense),
+                    FLASH_T,
+                    FLASH_P,
+                    black_box(&x),
+                    PhaseId::Liquid,
+                )
+                .unwrap()
+            })
+        });
+        g.bench_function(format!("ln_phi_factorized_n{n}"), |b| {
+            b.iter(|| {
+                ln_phi_mix(
+                    black_box(&base),
+                    FLASH_T,
+                    FLASH_P,
+                    black_box(&x),
+                    PhaseId::Liquid,
+                )
+                .unwrap()
+            })
+        });
+
+        // Cached: the column-solve pattern — build the (T, P) state and the
+        // kij index once, then sweep composition.
+        let cache_sparse = TpCache::new(&sparse, FLASH_T, FLASH_P).unwrap();
+        let mut out = vec![0.0; n];
+        g.bench_function(format!("ln_phi_cached_sparse_n{n}"), |b| {
+            b.iter(|| {
+                ln_phi_mix_cached_into(
+                    black_box(&sparse),
+                    black_box(&cache_sparse),
+                    black_box(&x),
+                    PhaseId::Liquid,
+                    &mut out,
+                )
+                .unwrap()
+            })
+        });
+        // Composition Jacobian: forming the N×N block vs applying it as a sum
+        // of rank-1 terms. Forming is O(N²) in time *and* memory; applying is
+        // O(N). At N = 300 forming it means 90 000 doubles a Newton step
+        // never actually needs.
+        let v: Vec<f64> = (0..n).map(|k| (k as f64 + 1.0).sin()).collect();
+        let mut jv = vec![0.0; n];
+        g.bench_function(format!("jacobian_formed_n{n}"), |b| {
+            b.iter(|| {
+                d_ln_phi_d_n(
+                    black_box(&base),
+                    FLASH_T,
+                    FLASH_P,
+                    black_box(&x),
+                    PhaseId::Liquid,
+                )
+                .unwrap()
+            })
+        });
+        g.bench_function(format!("jacobian_applied_n{n}"), |b| {
+            b.iter(|| {
+                d_ln_phi_d_n_apply(
+                    black_box(&base),
+                    FLASH_T,
+                    FLASH_P,
+                    black_box(&x),
+                    PhaseId::Liquid,
+                    black_box(&v),
+                    &mut jv,
+                )
+                .unwrap()
+            })
+        });
+
+        // Milestone 18 (U6): same cached path, caller-owned buffers. The
+        // delta between these two is exactly the per-call allocation cost.
+        let cache_ws = TpCache::new(&base, FLASH_T, FLASH_P).unwrap();
+        let mut ws = MixtureWorkspace::new();
+        g.bench_function(format!("ln_phi_cached_ws_n{n}"), |b| {
+            b.iter(|| {
+                ln_phi_mix_cached_ws_into(
+                    black_box(&base),
+                    black_box(&cache_ws),
+                    &mut ws,
+                    black_box(&x),
+                    PhaseId::Liquid,
+                    &mut out,
+                )
+                .unwrap()
+            })
+        });
+
+        let cache_zero = TpCache::new(&base, FLASH_T, FLASH_P).unwrap();
+        g.bench_function(format!("ln_phi_cached_factorized_n{n}"), |b| {
+            b.iter(|| {
+                ln_phi_mix_cached_into(
+                    black_box(&base),
+                    black_box(&cache_zero),
+                    black_box(&x),
+                    PhaseId::Liquid,
+                    &mut out,
+                )
+                .unwrap()
+            })
+        });
+    }
+    g.finish();
+}
+
 criterion_group!(
     benches,
     bench_alpha,
@@ -777,6 +962,7 @@ criterion_group!(
     bench_flash,
     bench_flash_multi,
     bench_mixture_core,
+    bench_mixture_scaling,
     bench_derivatives
 );
 criterion_main!(benches);

@@ -1119,7 +1119,7 @@ future app repo.
 
 ---
 
-### Phase 25: N-Scalable Mixture Core *(Milestone 18)* — **not started**
+### Phase 25: N-Scalable Mixture Core *(Milestone 18)* — **shipped in v0.14.0**
 
 *Added 2026-07-25. Full design record:
 [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §1.1.*

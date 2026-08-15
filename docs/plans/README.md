@@ -32,14 +32,14 @@ ROADMAP → TODO → PLAN trio described in `CLAUDE.md`'s synchronization rules.
 | [`MODERNIZATION_PLAN.md`](MODERNIZATION_PLAN.md) | 2026-04-04 | **live plan** | Active — 27 phases; started at 17, grown 10 times since | all |
 | [`PERFORMANCE_PROPOSAL.md`](engine/PERFORMANCE_PROPOSAL.md) | 2026-07-01 | plan | Accepted, folded into the trio. Tracks C+E → M8.2, B → M8.3, A → M9, D → M10 | 8.2 – 10 |
 | [`DERIVATIVE_RELEASE_PLAN.md`](engine/DERIVATIVE_RELEASE_PLAN.md) | 2026-07-05 | plan | **Shipped** — all five downstream gaps closed (v0.8.2, v0.9.0, + patch v0.9.1) | 12 |
-| [`STEAM_TABLES_PLAN.md`](engine/STEAM_TABLES_PLAN.md) | 2026-07-07 | plan | **Shipped** in v0.10.0; extended by M13.7 – 13.8 in **v0.13.0** (transport properties + the IF97 performance pass). The 13.7 milestone notebook remains open | 13 |
+| [`STEAM_TABLES_PLAN.md`](engine/STEAM_TABLES_PLAN.md) | 2026-07-07 | plan | **Shipped** in v0.10.0; extended by M13.7 – 13.8 in **v0.13.0** (transport properties + the IF97 performance pass); the 13.7 notebook landed just after the tag as a transport section in `12_steam_tables.ipynb` | 13 |
 | [`NRTL_AMMONIA_PLAN.md`](engine/NRTL_AMMONIA_PLAN.md) | 2026-07-07 | plan | **Shipped** in v0.11.0. §8 (van Laar vs NRTL comparison) is a *proposed* follow-up, not scheduled | 14 |
 | [`optimizations_audit.md`](engine/optimizations_audit.md) | 2026-07-24 | **audit** (external) | Delivered and answered in full; kept verbatim, never edited | — |
 | [`OPTIMIZATION_PLAN_PART1.md`](engine/OPTIMIZATION_PLAN_PART1.md) | 2026-07-25 | plan | **Complete** — the flash layer's measured response to Part 1 | → v0.12.0 |
 | [`OPTIMIZATION_PLAN_PART2.md`](engine/OPTIMIZATION_PLAN_PART2.md) | 2026-07-25 | plan | **High-value subset complete** — the mixture core's response to Part 2 | → v0.12.0 |
 | [`OPTIMIZATION_AUDIT_HISTORY.md`](engine/OPTIMIZATION_AUDIT_HISTORY.md) | 2026-07-25 | provenance | Living record of how the audit was produced and reviewed | — |
 | [`steam_audit.md`](engine/steam_audit.md) | 2026-07-25 | **audit** (external) | Delivered; two items adopted directly, the rest superseded by measuring the layer underneath | 13.8 |
-| [`PETROLEUM_PSEUDOCOMPONENT_PLAN.md`](engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) | 2026-07-25 | plan | **Proposed — not started.** Nothing in it is implemented | 18 – 20 |
+| [`PETROLEUM_PSEUDOCOMPONENT_PLAN.md`](engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) | 2026-07-25 | plan | **Partly executed.** §1.1 (blocker B1) shipped as Milestone 18 in **v0.14.0** — the N-scalable mixture core, measured linear to N = 300. §2 (M19/M20) not started | 18 – 20 |
 | [`SECOND_OPINION_TRIAL.md`](engine/SECOND_OPINION_TRIAL.md) | 2026-08-15 | **experiment** (external model) | **Run and graded.** Nothing merged — the engine is unchanged. Revises the *reason* `OPTIMIZATION_PLAN_PART2.md` §6 is deferred | — |
 
 ## Delivery & platforms

@@ -46,7 +46,7 @@ derivatives throughout — exposed via a unit-aware Python facade (`vle.System`)
 and a vectorized numpy **batch API** that releases the GIL (a 200 000-point
 isothermal flash sweep runs in ~60 ms). The bundled component database (25
 compounds with ideal-gas Cp°/R coefficients), IAPWS-IF97 steam tables, CLI and
-units layer round it out. 450 Python tests and 291 Rust tests back it, and the
+units layer round it out. 457 Python tests and 318 Rust tests back it, and the
 numbers are checked against the published Chapter IV tables of the thesis this
 engine derives from — 19 executable notebooks reproduce them.
 
@@ -54,6 +54,15 @@ engine derives from — 19 executable notebooks reproduce them.
 Python surface has been stable across the last several releases, and the
 underlying Rust crate still reserves the right to change shape before 1.0. The
 numerical core is settled.
+`0.14.0` is an **engine performance release** — the Python API is unchanged.
+The mixture core now scales **linearly** with component count instead of
+quadratically: classical mixing with no binary interaction parameters takes an
+O(N) path, a sparse correction covers the handful of real non-zero pairs, the
+composition Jacobian can be applied without being formed, and a composition
+sweep at fixed (T, P) is allocation-free after its first evaluation. Measured
+at 300 components: partial fugacity coefficients **30.7×** faster, the
+composition Jacobian **50.4×**. Nothing you call from Python changed name or
+shape — flash and stability simply get faster, most visibly on large mixtures.
 `0.13.0` adds **transport properties to `vle.steam`** — dynamic viscosity
 (IAPWS R12-08), thermal conductivity (R15-11, critical enhancement included)
 and surface tension (R1-76(2014)), in the IF97-based *industrial* form these

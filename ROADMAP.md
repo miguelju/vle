@@ -424,7 +424,7 @@ The transport half of the deferred 13.7 in [STEAM_TABLES_PLAN.md](docs/plans/eng
 - [x] PyO3 bindings (`mu`/`k`/`pr`/`nu`/`alpha` on `SteamState`, the `SatState` per-phase getters, three scalar fns, `steam_transport_batch`) + `vle.steam` wrapper + pytest (25 steam tests; 457 Python tests green)
 - [x] Criterion benches (`transport` group) — viscosity ~112 ns, conductivity 183–262 ns far from critical, **1.27 µs** near-critical, which is why the batch kernel is separate from `properties` rather than extra columns on it
 - [x] Doc sync — `steam/README.md` (its "not included: transport properties" line was live), crate docs, ROADMAP/TODO
-- [ ] Milestone notebook — **still not done**; the transport surface is not yet demonstrated in `notebooks/12_steam_tables.ipynb` or its own notebook. This is the one deliverable 13.7 shipped without
+- [x] Milestone notebook — `notebooks/12_steam_tables.ipynb` **extended with a transport section** (not a new notebook; transport belongs to the steam story and the collection stays at 19). Covers the three standards and the industrial-vs-scientific split, a 20 °C sanity cell at the tolerance that route holds, the per-phase rule shown rather than asserted, a saturation-line plot where the **critical enhancement is visible** as the conductivity upturn near `T_c`, the batch kernel, and a Dittus–Boelter exercise (cold-start vs operating `h`, 1.59×). Executed in a fresh kernel; 36 cells, 0 errors. **Landed after the v0.13.0 tag** — the code shipped first, the worked example followed
 - [x] **Release** — version bumped workspace-wide to **v0.13.0**; full doc sync (root README, `steam/README.md`, `engine/README.md`, the `python/README.md` PyPI version history). Both milestones ride the same tag
 
 ### Milestone 13.8 — IF97 performance audit — **shipped in v0.13.0**
@@ -638,9 +638,10 @@ whether or not the crude column is ever built.
 Shared record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](docs/plans/engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md)
 (upstream half) and `docs/plans/CRUDE_COLUMN_PLAN.md` in the stages-thermo repo (downstream half).
 
-## Milestone 18: N-Scalable Mixture Core — **not started**
+## Milestone 18: N-Scalable Mixture Core — **shipped in v0.14.0**
 
 *Phase 25 of MODERNIZATION_PLAN.md*
+*Executed by Claude Code using Claude Opus 5 (1M context)*
 
 **Goal**: Make the mixture core's cost grow **linearly** with component count
 instead of quadratically, so a several-hundred-component mixture is tractable.
@@ -654,11 +655,12 @@ computable in a single pass. **This milestone is independently valuable**: it
 is a pure speedup of an existing hot path, no new physics, benefiting every
 current user of classical mixing.
 
-- [ ] Zero-k_ij fast path in `quad_a` + a sparse k_ij correction list (`O(N + nnz)`)
-- [ ] The matching rank-1 form of `d_ln_phi_d_n_classical`, so the derivative block is *applied* without being *formed*
-- [ ] Allocation-free N-component evaluation — SoA buffers, arena reuse, `TpCache` hoisted across a whole multi-stage solve
-- [ ] **N-sweep criterion benches (N = 10/50/100/300)** — the measurement that decides whether the above worked. Linear growth, or the milestone did not land
-- [ ] Equivalence tests: the fast path must reproduce the general path bit-for-bit up to summation order, over a grid of compositions
+- [x] Zero-k_ij fast path in `quad_a` (`quad_a_factorized`, `O(N)`) + a sparse correction (`quad_a_sparse`, `O(N + nnz)`) selected by `kij_form`; `KijIndex` scans the matrix once and lives in `TpCache`, because a per-call scan is itself `O(N²)`
+- [x] The matching rank-1 form — `d_ln_phi_d_n_apply` computes `J·v` in `O(N)` without forming the block, because the only place `Aᵢⱼ` enters the analytic Jacobian is a single `−2Ĩ√Aᵢ√Aⱼ` term and everything else was already an i-vector times a j-vector
+- [x] **N-sweep criterion benches (N = 10/50/100/300)** — `mixture_scaling` group. **`ln_phi_mix` 60.74 µs → 1.978 µs at N = 300 (30.7×)**; the Jacobian **216.7 µs → 4.297 µs (50.4×)**. Growth from N = 100 → 300 is 8.3× dense (quadratic) against 2.37× factorized and 2.57× applied (linear) — the acceptance criterion was linear growth, and it is linear
+- [x] **Wong-Sandler collapses too** — not in the plan, found while measuring. Its cross term is a *sum* (`bijᵂ = ½(cᵢ+cⱼ)(1−kᵢⱼ)`), so with `kij` empty the double sum separates as `Qᵂ = C·X`, `Σⱼxⱼbijᵂ = ½(cᵢX + C)` — the same O(N²) → O(N) change by a different identity, on the rule Part 2 §1 measured at 5.1× the analytic path. Written with `X = Σxⱼ` rather than assuming `Σx = 1`, because the dual paths normalize in dual arithmetic. `wong_sandler_collapse_matches_general_path`
+- [x] Equivalence tests: `factorized_matches_general_path`, `sparse_matches_general_path` (including an asymmetric matrix), `rank1_apply_matches_formed_jacobian` (three probe vectors, both phases, N up to 70), `cached_and_uncached_agree_at_scale`
+- [x] Allocation-free N-component evaluation — `mixture_params_with` now **fills a caller-provided `MixtureParams`** (every mixing branch, `three_param_uw`, and the whole `quad_a` family write into caller slices), with the public **`MixtureWorkspace`** owning the buffers and `ln_phi_mix_cached_ws_into` reusing them. Buffers only grow, so a solve settles after its first evaluation and then allocates nothing. **1.23× at N = 300** (1081 → 876 ns, same build), matching the 145.7 ns allocation probe that sized the work beforehand. The algebra is still written once. One cost recorded rather than buried: a *fresh* workspace zero-fills buffers it then overwrites, so the compatibility wrapper pays it per call — but the flash is **18–24 % faster than the v0.12.0 baseline** end-to-end, so nothing regressed where it counts
 
 ## Milestone 19: Petroleum Characterization — **not started**
 

@@ -25,7 +25,7 @@ critical point), tangent-plane stability analysis, the mixture critical point by
 Heidemann's method, and kij/Aij regression — all with **exact derivatives**
 (hand-derived analytic for the classical paths, `num-dual` dual-number AD for
 the GE-based mixing rules; finite differences survive only as test oracles).
-291 Rust tests back it, and the results are checked against the published
+318 Rust tests back it, and the results are checked against the published
 Chapter IV tables of the thesis this engine derives from, not merely against
 themselves.
 
@@ -40,6 +40,24 @@ isothermal flash's terminal Newton polish on ln K (the analytic-Jacobian finish
 described in the modernization plan §J) is **not** implemented — it converges by
 GDEM-accelerated successive substitution, which reaches the Chapter IV cases in
 7–14 iterations.
+
+`0.14.0` — the mixture core became **N-scalable**. Classical mixing with
+no binary interaction parameters (the normal state of a set of petroleum
+pseudocomponents) now takes an **O(N)** path instead of the unconditional
+O(N²) double loop, because `Aᵢⱼ = √Aᵢ·√Aⱼ` factorizes and the whole quadratic
+form collapses to `A = (Σxᵢ√Aᵢ)²`. A sparse correction covers the handful of
+real non-zero pairs in `O(N + nnz)` via the new **`mixture::KijIndex`**, which
+`mixture::TpCache` scans once and reuses. The same collapse makes the analytic
+composition Jacobian a sum of rank-1 terms, so the new
+**`mixture::d_ln_phi_d_n_apply`** computes `J·v` in **O(N) without forming the
+N×N block**. Wong-Sandler's own quadratic collapses too, by a different
+identity — its cross term is a sum, not a product. And a new
+**`mixture::MixtureWorkspace`** with `ln_phi_mix_cached_ws_into` makes a
+composition sweep at fixed `(T, P)` **allocation-free** after its first
+evaluation. Measured at N = 300: `ln_phi_mix` 60.74 µs → 1.978 µs (**30.7×**),
+the Jacobian 216.7 µs → 4.297 µs (**50.4×**), and a further **1.23×** on the
+cached path from the workspace — growth linear where the old path was
+quadratic. No existing signature changed.
 
 `0.13.0` is a **`vle-steam` release** — the thermo engine itself is unchanged.
 The sibling steam crate gained **transport properties** (viscosity IAPWS
@@ -100,7 +118,7 @@ for the phase-by-phase technical detail.
 
 ```toml
 [dependencies]
-vle-thermo = "0.13"
+vle-thermo = "0.14"
 ```
 
 Or with `cargo add`:

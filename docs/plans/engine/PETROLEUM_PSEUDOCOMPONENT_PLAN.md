@@ -1,11 +1,18 @@
 # Petroleum Pseudocomponent & Crude-Column Plan
 
 *Planning document, 2026-07-25. Prepared by Claude Code using Claude Opus 5
-(1M context). **This document is a plan only — nothing in it has been
-implemented.** Every checkbox it maps to in [ROADMAP.md](../../../ROADMAP.md) /
-[TODO.md](../../../TODO.md) is unchecked, and must stay unchecked until the code exists
-and a test asserts its behaviour (CLAUDE.md, *Completion Claims Must Be
-Verified Against the Code*).*
+(1M context). **Status, 2026-08-15: §1.1 is implemented; §2 is not.***
+
+> **Update, 2026-08-15 — blocker B1 is fixed.** §1.1's k_ij = 0 collapse, the
+> sparse correction and the rank-1 derivative block shipped as **Milestone 18**
+> and are measured linear to N = 300 (`ln_phi_mix` 30.7× faster, the
+> composition Jacobian 50.4×). Numbers, the threshold a sweep corrected, and
+> the one sub-item that is only partial live in
+> [`OPTIMIZATION_PLAN_PART2.md`](OPTIMIZATION_PLAN_PART2.md) §7.
+> **Everything else in this document — §2's U1, U2, U4, U5, the whole of
+> M19 and M20 — remains unimplemented**, and its checkboxes must stay
+> unchecked until the code exists and a test asserts its behaviour
+> (CLAUDE.md, *Completion Claims Must Be Verified Against the Code*).
 
 **Target capability.** Simulate an **atmospheric crude distillation column**
 with **hundreds of pseudocomponents** — the canonical refinery unit, and the

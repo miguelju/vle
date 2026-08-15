@@ -290,6 +290,7 @@ fn pure_params<D: DualNum<f64> + Copy>(
 /// one (T, P, composition) point. This is the mixture-side analog of
 /// [`EosState`](crate::eos::EosState) (M8.2 §C2): computed once, consumed by
 /// Z / fugacity / departure code.
+#[derive(Debug, Clone)]
 pub struct MixtureParams<D> {
     /// Mixture A. **Dimensionless.**
     pub big_a: D,
@@ -307,6 +308,47 @@ pub struct MixtureParams<D> {
     pub u_bar: Buf<D>,
     /// W̄ᵢ = (1/n)·∂(n²W)/∂nᵢ per component.
     pub w_bar: Buf<D>,
+}
+
+impl<D: DualNum<f64> + Copy> MixtureParams<D> {
+    /// An empty parameter set, ready to be filled by an evaluation.
+    ///
+    /// Milestone 18 (U6): the buffers are owned by the caller so a solve that
+    /// sweeps composition at fixed `(T, P)` — every flash, every column stage —
+    /// pays for them once instead of once per evaluation.
+    pub fn new() -> Self {
+        Self {
+            big_a: D::from(0.0),
+            big_b: D::from(0.0),
+            u: D::from(0.0),
+            w: D::from(0.0),
+            a_bar: Buf::new(),
+            b_bar: Buf::new(),
+            u_bar: Buf::new(),
+            w_bar: Buf::new(),
+        }
+    }
+
+    /// Grow every per-component buffer to hold `n`. Never shrinks, so a
+    /// workspace reused across a solve settles after the first call.
+    fn resize(&mut self, n: usize) {
+        for buf in [
+            &mut self.a_bar,
+            &mut self.b_bar,
+            &mut self.u_bar,
+            &mut self.w_bar,
+        ] {
+            if buf.len() < n {
+                buf.resize(n, D::from(0.0));
+            }
+        }
+    }
+}
+
+impl<D: DualNum<f64> + Copy> Default for MixtureParams<D> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Validate the spec against the input sizes and rule/EOS pairing rules.
@@ -369,7 +411,10 @@ pub fn mixture_params<D: DualNum<f64> + Copy>(
 ) -> Result<MixtureParams<D>, MixError> {
     validate(spec, x.len())?;
     let pure = pure_params(spec.eos, spec.rule, t, p, spec.components);
-    mixture_params_with(spec, t, x, &pure)
+    let mut out = MixtureParams::new();
+    let mut scratch = Buf::new();
+    mixture_params_with(spec, t, x, &pure, None, &mut out, &mut scratch)?;
+    Ok(out)
 }
 
 /// [`mixture_params`] against an **already-built** pure-component state.
@@ -401,9 +446,9 @@ fn quad_a<D: DualNum<f64> + Copy, F: Fn(usize, usize) -> D>(
     n: usize,
     x: &[D],
     a_ij: F,
-) -> (D, Buf<D>) {
+    a_bar: &mut [D],
+) -> D {
     let mut a = D::from(0.0);
-    let mut a_bar: Buf<D> = smallvec::smallvec![D::from(0.0); n];
     for i in 0..n {
         let mut row = D::from(0.0);
         for j in 0..n {
@@ -412,7 +457,216 @@ fn quad_a<D: DualNum<f64> + Copy, F: Fn(usize, usize) -> D>(
         a += x[i] * row;
         a_bar[i] = row * 2.0;
     }
-    (a, a_bar)
+    a
+}
+
+/// The **factorized** classical quadratic form — `O(N)` instead of `O(N²)`.
+///
+/// When every `kᵢⱼ` is zero the cross-parameter `Aᵢⱼ = √(AᵢAⱼ)(1 − kᵢⱼ)`
+/// loses its coupling and becomes the outer product `√Aᵢ·√Aⱼ`. The double sum
+/// then collapses onto a single scalar (Milestone 18 / petroleum plan §1.1):
+///
+/// ```text
+///   S = Σⱼ xⱼ√Aⱼ        A = S²        Āᵢ = 2√Aᵢ·S
+/// ```
+///
+/// A crude assay is precisely this case — binary interaction parameters
+/// between petroleum pseudocomponents are conventionally zero, so `kij` is
+/// left empty — and at N = 300 that is 90 000 cross-terms replaced by 300.
+///
+/// The result is identical to [`quad_a`] up to floating-point **summation
+/// order**: the general path accumulates `Σᵢ xᵢ(Σⱼ xⱼAᵢⱼ)` while this one
+/// squares a single sum. `factorized_matches_general_path` pins the agreement.
+#[inline]
+fn quad_a_factorized<D: DualNum<f64> + Copy>(
+    n: usize,
+    x: &[D],
+    sqrt_a: &[D],
+    a_bar: &mut [D],
+) -> D {
+    let mut s = D::from(0.0);
+    for j in 0..n {
+        s += x[j] * sqrt_a[j];
+    }
+    for i in 0..n {
+        a_bar[i] = sqrt_a[i] * s * 2.0;
+    }
+    s * s
+}
+
+/// The factorized form plus a **sparse correction** — `O(N + nnz)`.
+///
+/// Real assays are not quite k_ij-free: a handful of pairs (N₂, CO₂, H₂S
+/// against the hydrocarbons) carry non-zero values while the other ~90 000
+/// entries are structurally zero. Splitting the sum keeps the collapse and
+/// pays only for the exceptions:
+///
+/// ```text
+///   rᵢ = Σⱼ xⱼ√Aⱼ kᵢⱼ   (only the non-zero entries contribute)
+///   Āᵢ = 2√Aᵢ(S − rᵢ)
+///   A  = S² − Σᵢ xᵢ√Aᵢ rᵢ
+/// ```
+///
+/// `entries` must list **every** non-zero `(i, j)` of the matrix, both
+/// triangles and the diagonal — not a symmetric half. That keeps this exactly
+/// equivalent to the dense path even for an asymmetric `kij`, which nothing
+/// forbids the caller from supplying.
+#[inline]
+fn quad_a_sparse<D: DualNum<f64> + Copy>(
+    n: usize,
+    x: &[D],
+    sqrt_a: &[D],
+    entries: &[KijEntry],
+    a_bar: &mut [D],
+    r: &mut [D],
+) -> D {
+    let mut s = D::from(0.0);
+    for j in 0..n {
+        s += x[j] * sqrt_a[j];
+    }
+    // Per-row correction rᵢ, touched once per stored non-zero. `r` is caller
+    // scratch so the sparse path allocates nothing either.
+    for slot in r.iter_mut().take(n) {
+        *slot = D::from(0.0);
+    }
+    for e in entries {
+        let (i, j) = (e.i as usize, e.j as usize);
+        r[i] += x[j] * sqrt_a[j] * e.kij;
+    }
+    let mut a = s * s;
+    for i in 0..n {
+        a -= x[i] * sqrt_a[i] * r[i];
+        a_bar[i] = sqrt_a[i] * (s - r[i]) * 2.0;
+    }
+    a
+}
+
+/// One stored non-zero binary interaction parameter.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct KijEntry {
+    /// Row index.
+    pub i: u32,
+    /// Column index.
+    pub j: u32,
+    /// The interaction parameter itself. **Dimensionless.**
+    pub kij: f64,
+}
+
+/// A sparse view of a binary-interaction matrix, built once and reused.
+///
+/// Scanning an N×N matrix for its non-zeros is itself `O(N²)`, so doing it
+/// per evaluation would defeat the purpose. This type exists to pay that cost
+/// **once** and hand every later evaluation an `O(N + nnz)` path; it is
+/// therefore owned by [`TpCache`], which is already the "hoist across many
+/// compositions" vehicle (a column solve sweeps composition at fixed T, P).
+///
+/// The uncached [`mixture_params`] entry point keeps the free part of the
+/// optimization — an **empty** `kij` still selects the `O(N)` factorized path,
+/// because emptiness costs nothing to detect — and otherwise runs the general
+/// double loop, whose complexity a per-call scan could not have improved on.
+#[derive(Debug, Clone, Default)]
+pub struct KijIndex {
+    entries: Vec<KijEntry>,
+    n: usize,
+}
+
+impl KijIndex {
+    /// Scan a dense `kij` matrix into its non-zero entries. `O(N²)`, once.
+    ///
+    /// An empty matrix yields an empty index, which is the same thing the
+    /// zero-`kij` fast path wants — callers need not special-case it.
+    pub fn build(kij: &[Vec<f64>]) -> Self {
+        let n = kij.len();
+        let mut entries = Vec::new();
+        for (i, row) in kij.iter().enumerate() {
+            for (j, &k) in row.iter().enumerate() {
+                if k != 0.0 {
+                    entries.push(KijEntry {
+                        i: i as u32,
+                        j: j as u32,
+                        kij: k,
+                    });
+                }
+            }
+        }
+        Self { entries, n }
+    }
+
+    /// Number of stored non-zero interaction parameters.
+    pub fn nnz(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Fraction of the N×N matrix that is non-zero, in `[0, 1]`.
+    pub fn density(&self) -> f64 {
+        if self.n == 0 {
+            0.0
+        } else {
+            self.entries.len() as f64 / (self.n * self.n) as f64
+        }
+    }
+
+    /// True when no interaction parameter is non-zero — the factorized case.
+    pub fn is_zero(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// The stored non-zeros.
+    #[inline]
+    fn entries(&self) -> &[KijEntry] {
+        &self.entries
+    }
+}
+
+/// Which quadratic form to evaluate for classical mixing.
+enum KijForm<'a> {
+    /// Every kᵢⱼ is zero — the form factorizes. `O(N)`.
+    Zero,
+    /// Few enough non-zeros that the correction beats the double loop.
+    /// `O(N + nnz)`.
+    Sparse(&'a [KijEntry]),
+    /// The general double loop. `O(N²)`.
+    Dense,
+}
+
+/// Above this fill fraction the sparse correction stops paying.
+///
+/// The sparse path walks an indirection-heavy `(i, j, k)` list, which LLVM
+/// cannot vectorize, while the dense loop is a flat sequential scan whose cost
+/// does not care how many entries are zero. Below this density the asymptotics
+/// win; above it the constant factor does.
+///
+/// **Measured, not guessed** (N = 100 cached `ln_phi_mix`, this machine):
+///
+/// ```text
+///   density   0.010   0.050   0.099   0.198      dense (any fill)
+///   sparse    476ns   1.61µs  3.24µs  6.13µs     5.91µs
+/// ```
+///
+/// Sparse grows linearly in `nnz` and crosses the flat dense cost at
+/// **d ≈ 0.19**. The threshold sits below the crossover on purpose: the
+/// constant factor drifts with N and cache behaviour, and picking the wrong
+/// side costs far more when the matrix is large. A first draft of this
+/// constant said 0.25 — the sweep above is what corrected it.
+const SPARSE_KIJ_MAX_DENSITY: f64 = 0.15;
+
+/// Classify the interaction matrix for this evaluation.
+///
+/// The empty check is free and always available. The sparse route needs a
+/// prebuilt index, which only the cached entry point has — see [`KijIndex`]
+/// for why scanning per call would be self-defeating.
+#[inline]
+fn kij_form<'a>(kij: &[Vec<f64>], index: Option<&'a KijIndex>, n: usize) -> KijForm<'a> {
+    if kij.is_empty() {
+        return KijForm::Zero;
+    }
+    match index {
+        Some(idx) if idx.is_zero() => KijForm::Zero,
+        Some(idx) if (idx.nnz() as f64) < SPARSE_KIJ_MAX_DENSITY * (n * n) as f64 => {
+            KijForm::Sparse(idx.entries())
+        }
+        _ => KijForm::Dense,
+    }
 }
 
 fn mixture_params_with<D: DualNum<f64> + Copy>(
@@ -420,8 +674,19 @@ fn mixture_params_with<D: DualNum<f64> + Copy>(
     t: D,
     x: &[D],
     pure: &PureParams<D>,
-) -> Result<MixtureParams<D>, MixError> {
+    kij_index: Option<&KijIndex>,
+    out: &mut MixtureParams<D>,
+    scratch: &mut Buf<D>,
+) -> Result<(), MixError> {
     let n = x.len();
+    // Milestone 18 (U6): every per-component buffer is caller-owned and only
+    // grows. After the first call at a given n this loop is a no-op and the
+    // whole evaluation is allocation-free — see `OPTIMIZATION_PLAN_PART2.md`
+    // §7.6 for the measurement that justified threading them through.
+    out.resize(n);
+    if scratch.len() < n {
+        scratch.resize(n, D::from(0.0));
+    }
     let (ai, bi) = (&pure.big_a, &pure.big_b);
 
     // B is linear (B̄ᵢ = Bᵢ) for every rule except Wong-Sandler, which
@@ -449,17 +714,31 @@ fn mixture_params_with<D: DualNum<f64> + Copy>(
     let fc = crate::eos::family_constants(spec.eos);
 
     // --- mixture (A, B) + (Āᵢ, B̄ᵢ) per rule -----------------------------
-    let (big_a, big_b, a_bar, b_bar): (D, D, Buf<D>, Buf<D>) = match spec.rule {
+    let (big_a, big_b): (D, D) = match spec.rule {
         // Classical one-fluid and IVDW share the same math (VB6 implements
         // them as separate cases with identical formulas — see the
         // extraction of clsQbicsMulticomp.cls:455-476 vs :552-568).
         MixingRule::Classical | MixingRule::IVDW => {
             let sq = &pure.sqrt_a;
-            let a_ij = |i: usize, j: usize| sq[i] * sq[j] * (1.0 - kij_at(spec.kij, i, j));
-            let (a, a_bar) = quad_a(n, x, a_ij);
+            // Milestone 18 / petroleum plan §1.1 — pick the cheapest form the
+            // interaction matrix allows. All three produce the same (A, Āᵢ)
+            // up to summation order; `factorized_matches_general_path` and
+            // `sparse_matches_general_path` pin that.
+            let a = match kij_form(spec.kij, kij_index, n) {
+                KijForm::Zero => quad_a_factorized(n, x, sq, &mut out.a_bar),
+                KijForm::Sparse(entries) => {
+                    quad_a_sparse(n, x, sq, entries, &mut out.a_bar, scratch)
+                }
+                KijForm::Dense => {
+                    let a_ij = |i: usize, j: usize| sq[i] * sq[j] * (1.0 - kij_at(spec.kij, i, j));
+                    quad_a(n, x, a_ij, &mut out.a_bar)
+                }
+            };
             let b = lin_b(x);
-            let b_bar: Buf<D> = (0..n).map(|i| bi[i]).collect();
-            (a, b, a_bar, b_bar)
+            for i in 0..n {
+                out.b_bar[i] = bi[i];
+            }
+            (a, b)
         }
 
         // IIVDW: composition-dependent kij, km(i,j) = kij·xᵢ + kji·xⱼ
@@ -473,7 +752,7 @@ fn mixture_params_with<D: DualNum<f64> + Copy>(
             let sq = &pure.sqrt_a;
             let sqrt_aa = |i: usize, j: usize| -> D { sq[i] * sq[j] };
             let mut a = D::from(0.0);
-            let mut a_bar: Buf<D> = smallvec::smallvec![D::from(0.0); n];
+            let a_bar = &mut out.a_bar;
             // sum3 = Σₖⱼ xₖ²xⱼ√(AₖAⱼ)(kₖⱼ + kⱼₖ)
             let mut sum3 = D::from(0.0);
             for k in 0..n {
@@ -497,8 +776,10 @@ fn mixture_params_with<D: DualNum<f64> + Copy>(
                 a_bar[i] = row * 2.0 - x[i] * row_k + sum3;
             }
             let b = lin_b(x);
-            let b_bar: Buf<D> = (0..n).map(|i| bi[i]).collect();
-            (a, b, a_bar, b_bar)
+            for i in 0..n {
+                out.b_bar[i] = bi[i];
+            }
+            (a, b)
         }
 
         // Wong-Sandler (21) — VB6 clsQbicsMulticomp.cls:422-453 in
@@ -513,18 +794,46 @@ fn mixture_params_with<D: DualNum<f64> + Copy>(
         MixingRule::WongSandler => {
             let (lng, g_rt) = ge_terms(x);
             let c_star = hv_c_constant(spec.eos);
-            let bij_ws = |i: usize, j: usize| -> D {
-                ((bi[i] - ai[i]) + (bi[j] - ai[j])) * (0.5 * (1.0 - kij_at(spec.kij, i, j)))
-            };
+            // Milestone 18, extended: Wong-Sandler's quadratic collapses too,
+            // and for a *different* reason than the classical one. Its cross
+            // term is a **sum**, `bijᵂ = ½(cᵢ + cⱼ)(1 − kᵢⱼ)` with
+            // `cᵢ = Bᵢ − Aᵢ`, so with every kᵢⱼ = 0 the double sum separates:
+            //
+            //   Qᵂ = ½ΣᵢΣⱼ xᵢxⱼ(cᵢ + cⱼ) = ½(C·X + X·C) = C·X
+            //   Σⱼ xⱼ bijᵂ                = ½(cᵢ·X + C)
+            //
+            // where C = Σxᵢcᵢ and X = Σxᵢ. Written with X rather than
+            // assuming Σx = 1: the dual paths normalize in dual arithmetic
+            // and the identity must hold there too, not just to machine
+            // precision on the value path.
+            //
+            // This matters more than the classical collapse per call —
+            // Wong-Sandler is the mixing rule Part 2 §1 measured at 5.1× the
+            // analytic path — and it is the same O(N²) → O(N) shape change.
             let mut q_ws = D::from(0.0);
             let mut row_ws: Buf<D> = smallvec::smallvec![D::from(0.0); n];
-            for i in 0..n {
-                let mut row = D::from(0.0);
+            if spec.kij.is_empty() {
+                let (mut c_sum, mut x_sum) = (D::from(0.0), D::from(0.0));
                 for j in 0..n {
-                    row += x[j] * bij_ws(i, j);
+                    c_sum += x[j] * (bi[j] - ai[j]);
+                    x_sum += x[j];
                 }
-                q_ws += x[i] * row;
-                row_ws[i] = row;
+                q_ws = c_sum * x_sum;
+                for i in 0..n {
+                    row_ws[i] = ((bi[i] - ai[i]) * x_sum + c_sum) * 0.5;
+                }
+            } else {
+                let bij_ws = |i: usize, j: usize| -> D {
+                    ((bi[i] - ai[i]) + (bi[j] - ai[j])) * (0.5 * (1.0 - kij_at(spec.kij, i, j)))
+                };
+                for i in 0..n {
+                    let mut row = D::from(0.0);
+                    for j in 0..n {
+                        row += x[j] * bij_ws(i, j);
+                    }
+                    q_ws += x[i] * row;
+                    row_ws[i] = row;
+                }
             }
             let mut d_ws = g_rt / c_star;
             for i in 0..n {
@@ -533,16 +842,14 @@ fn mixture_params_with<D: DualNum<f64> + Copy>(
             let one_minus_d = -d_ws + 1.0;
             let b = q_ws / one_minus_d;
             let a = b * d_ws;
-            let mut b_bar: Buf<D> = smallvec::smallvec![D::from(0.0); n];
-            let mut a_bar: Buf<D> = smallvec::smallvec![D::from(0.0); n];
             for i in 0..n {
                 let d_bar_i = lng[i] / c_star + ai[i] / bi[i];
                 let b_bar_i = row_ws[i] * 2.0 / one_minus_d
                     - q_ws * (-d_bar_i + 1.0) / (one_minus_d * one_minus_d);
-                b_bar[i] = b_bar_i;
-                a_bar[i] = d_ws * b_bar_i + b * d_bar_i;
+                out.b_bar[i] = b_bar_i;
+                out.a_bar[i] = d_ws * b_bar_i + b * d_bar_i;
             }
-            (a, b, a_bar, b_bar)
+            (a, b)
         }
 
         // Huron-Vidal original / simplified, MHV1 — all share the linear-b,
@@ -573,8 +880,9 @@ fn mixture_params_with<D: DualNum<f64> + Copy>(
                 alpha_sum + g_rt / c
             };
             let a = b * alpha_mix;
-            let mut a_bar: Buf<D> = smallvec::smallvec![D::from(0.0); n];
-            let b_bar: Buf<D> = (0..n).map(|i| bi[i]).collect();
+            for i in 0..n {
+                out.b_bar[i] = bi[i];
+            }
             for i in 0..n {
                 let alpha_bar_i = if with_b_log {
                     // ᾱᵢ = αᵢ + [lnγᵢ + ln(B/Bᵢ) + Bᵢ/B − 1]/c
@@ -582,9 +890,9 @@ fn mixture_params_with<D: DualNum<f64> + Copy>(
                 } else {
                     lng[i] / c + ai[i] / bi[i]
                 };
-                a_bar[i] = alpha_bar_i * b + alpha_mix * bi[i];
+                out.a_bar[i] = alpha_bar_i * b + alpha_mix * bi[i];
             }
-            (a, b, a_bar, b_bar)
+            (a, b)
         }
 
         // MHV2 — quadratic in α (VB6 :571-603):
@@ -608,8 +916,9 @@ fn mixture_params_with<D: DualNum<f64> + Copy>(
             let alpha_mix = if r1.re() >= r2.re() { r1 } else { r2 };
             let a = b * alpha_mix;
             let denom = alpha_mix * (2.0 * q2) + q1;
-            let mut a_bar: Buf<D> = smallvec::smallvec![D::from(0.0); n];
-            let b_bar: Buf<D> = (0..n).map(|i| bi[i]).collect();
+            for i in 0..n {
+                out.b_bar[i] = bi[i];
+            }
             for i in 0..n {
                 let alpha_i = ai[i] / bi[i];
                 // ᾱᵢ = [q₁αᵢ + q₂(αᵢ²+α²) + lnγᵢ + ln(B/Bᵢ) + Bᵢ/B − 1]/(q₁+2q₂α).
@@ -622,9 +931,9 @@ fn mixture_params_with<D: DualNum<f64> + Copy>(
                     + alpha_i * q1
                     - 1.0)
                     / denom;
-                a_bar[i] = alpha_bar_i * b + alpha_mix * bi[i];
+                out.a_bar[i] = alpha_bar_i * b + alpha_mix * bi[i];
             }
-            (a, b, a_bar, b_bar)
+            (a, b)
         }
 
         // C-parameter rules rejected in validate().
@@ -634,28 +943,24 @@ fn mixture_params_with<D: DualNum<f64> + Copy>(
     };
 
     // --- (U, W) + derivatives ---------------------------------------------
-    let (u, w, u_bar, w_bar): (D, D, Buf<D>, Buf<D>) = if !spec.eos.is_three_parameter() {
+    let (u, w) = if !spec.eos.is_three_parameter() {
         // 2-parameter families: U = k1·B, W = k2·B² exactly, so
         // Ūᵢ = k1·B̄ᵢ and W̄ᵢ = 2·k2·B·B̄ᵢ.
-        let u = big_b * fc.k1;
-        let w = big_b * big_b * fc.k2;
-        let u_bar: Buf<D> = b_bar.iter().map(|&bb| bb * fc.k1).collect();
-        let w_bar: Buf<D> = b_bar.iter().map(|&bb| big_b * bb * (2.0 * fc.k2)).collect();
-        (u, w, u_bar, w_bar)
+        for i in 0..n {
+            let bb = out.b_bar[i];
+            out.u_bar[i] = bb * fc.k1;
+            out.w_bar[i] = big_b * bb * (2.0 * fc.k2);
+        }
+        (big_b * fc.k1, big_b * big_b * fc.k2)
     } else {
-        three_param_uw(spec, x, pure, big_b, &b_bar)?
+        three_param_uw(spec, x, pure, big_b, out)?
     };
 
-    Ok(MixtureParams {
-        big_a,
-        big_b,
-        u,
-        w,
-        a_bar,
-        b_bar,
-        u_bar,
-        w_bar,
-    })
+    out.big_a = big_a;
+    out.big_b = big_b;
+    out.u = u;
+    out.w = w;
+    Ok(())
 }
 
 /// Mixture (U, W) + derivatives for the 3-parameter EOS (Ref (4),
@@ -669,14 +974,13 @@ fn mixture_params_with<D: DualNum<f64> + Copy>(
 /// Derivatives via ∂(nQ)/∂nᵢ = Q + ∂Q/∂xᵢ − Σₖxₖ∂Q/∂xₖ for degree-0 Q(x)
 /// (and the (1/n)∂(n²·)/∂nᵢ analog for W). For the weighted averages,
 /// Σₖxₖ·∂C/∂xₖ = 0, which simplifies the algebra below.
-#[allow(clippy::type_complexity)]
 fn three_param_uw<D: DualNum<f64> + Copy>(
     spec: &MixtureSpec,
     x: &[D],
     pure: &PureParams<D>,
     big_b: D,
-    b_bar: &[D],
-) -> Result<(D, D, Buf<D>, Buf<D>), MixError> {
+    out: &mut MixtureParams<D>,
+) -> Result<(D, D), MixError> {
     let n = x.len();
     match spec.eos {
         CubicEos::SchmidtWenzel => {
@@ -691,17 +995,16 @@ fn three_param_uw<D: DualNum<f64> + Copy>(
             let c = f_num / e_den;
             let u = (c * 3.0 + 1.0) * big_b;
             let w = c * big_b * big_b * (-3.0);
-            let mut u_bar = Buf::with_capacity(n);
-            let mut w_bar = Buf::with_capacity(n);
             for i in 0..n {
                 let dc = (-c + spec.components[i].omega) * pure.sqrt_a[i] / e_den;
+                let bb = out.b_bar[i];
                 // Ū: nU = (1+3C)·nB → Ūᵢ = (1+3C)B̄ᵢ + 3B·∂(nC)/∂nᵢ|proj
                 // with ∂(nC)... collapsing to dc (Σxₖ∂C/∂xₖ = 0):
-                u_bar.push((c * 3.0 + 1.0) * b_bar[i] + big_b * dc * 3.0);
+                out.u_bar[i] = (c * 3.0 + 1.0) * bb + big_b * dc * 3.0;
                 // W̄: n²W = −3C(nB)² → W̄ᵢ = −3[dc·B² + 2C·B·B̄ᵢ]
-                w_bar.push((dc * big_b * big_b + c * big_b * b_bar[i] * 2.0) * (-3.0));
+                out.w_bar[i] = (dc * big_b * big_b + c * big_b * bb * 2.0) * (-3.0);
             }
-            Ok((u, w, u_bar, w_bar))
+            Ok((u, w))
         }
         CubicEos::PatelTeja | CubicEos::PatelTejaUSB => {
             let ci = &pure.big_c;
@@ -732,15 +1035,14 @@ fn three_param_uw<D: DualNum<f64> + Copy>(
             // U = B + C, W = −B·C.
             let u = big_b + c;
             let w = -(big_b * c);
-            let mut u_bar = Buf::with_capacity(n);
-            let mut w_bar = Buf::with_capacity(n);
             for i in 0..n {
                 let c_bar_i = dc_dx[i]; // ∂(nC)/∂nᵢ
-                u_bar.push(b_bar[i] + c_bar_i);
+                let bb = out.b_bar[i];
+                out.u_bar[i] = bb + c_bar_i;
                 // n²W = −(nB)(nC) → (1/n)∂/∂nᵢ = −[B̄ᵢ·C + B·C̄ᵢ]
-                w_bar.push(-(b_bar[i] * c + big_b * c_bar_i));
+                out.w_bar[i] = -(bb * c + big_b * c_bar_i);
             }
-            Ok((u, w, u_bar, w_bar))
+            Ok((u, w))
         }
         _ => unreachable!("three_param_uw called for 2-parameter EOS"),
     }
@@ -920,12 +1222,54 @@ pub fn ln_phi_mix(
 ///     ln_phi_mix_cached_into(&spec, &cache, &x, PhaseId::Liquid, &mut out)?;
 /// }
 /// ```
+/// Reusable working buffers for an allocation-free mixture evaluation.
+///
+/// Milestone 18 (U6). [`TpCache`] hoists the composition-**independent** work
+/// across a solve; this hoists the composition-**dependent** buffers. Together
+/// they make a composition sweep at fixed `(T, P)` allocate nothing after the
+/// first evaluation.
+///
+/// Buffers only ever grow, so one workspace serves a whole solve — and can be
+/// reused across solves of the same or smaller size.
+///
+/// ```ignore
+/// let cache = TpCache::new(&spec, 350.0, 2000.0)?;
+/// let mut ws = MixtureWorkspace::new();
+/// for x in compositions {
+///     ln_phi_mix_cached_ws_into(&spec, &cache, &mut ws, &x, PhaseId::Liquid, &mut out)?;
+/// }
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct MixtureWorkspace {
+    params: MixtureParams<f64>,
+    scratch: Buf<f64>,
+}
+
+impl MixtureWorkspace {
+    /// An empty workspace. The first evaluation sizes it; later ones reuse it.
+    pub fn new() -> Self {
+        Self {
+            params: MixtureParams::new(),
+            scratch: Buf::new(),
+        }
+    }
+
+    /// The mixture parameters produced by the most recent evaluation.
+    pub fn params(&self) -> &MixtureParams<f64> {
+        &self.params
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TpCache {
     eos: CubicEos,
     t: f64,
     p: f64,
     pure: PureParams<f64>,
+    /// The interaction matrix scanned once (Milestone 18). Composition-,
+    /// temperature- and pressure-independent, so it outlives every
+    /// evaluation this cache serves.
+    kij: KijIndex,
 }
 
 impl TpCache {
@@ -942,6 +1286,7 @@ impl TpCache {
             t,
             p,
             pure: pure_params(spec.eos, spec.rule, t, p, spec.components),
+            kij: KijIndex::build(spec.kij),
         })
     }
 
@@ -1016,9 +1361,53 @@ pub fn ln_phi_mix_cached_into(
     if !cache.matches(spec, cache.t, cache.p) || x.len() != cache.len() {
         return Err(cache.mismatch(spec, cache.t, cache.p));
     }
-    let pars = mixture_params_with(spec, cache.t, x, &cache.pure)?;
-    let z = z_mix_generic::<f64>(&pars, phase)?;
-    ln_phi_from_params_generic(&pars, z, out);
+    let mut ws = MixtureWorkspace::new();
+    ln_phi_mix_cached_ws_into(spec, cache, &mut ws, x, phase, out)
+}
+
+/// [`ln_phi_mix_cached_into`] with a caller-owned [`MixtureWorkspace`] —
+/// **allocation-free** after the first call.
+///
+/// Milestone 18 (U6). `ln_phi_mix_cached_into` allocates a fresh set of
+/// per-component buffers on every call; above the `SmallVec` inline capacity
+/// of 8 those go to the heap. This variant takes them from the caller, so a
+/// solve that sweeps composition at fixed `(T, P)` — a flash, a column stage,
+/// a stability search — allocates once and then not at all.
+///
+/// # Arguments
+/// * `x` — mole fractions (length N); `out` receives ln φ̂ᵢ, **dimensionless**.
+///
+/// # Errors
+/// As [`ln_phi_mix_cached_into`].
+pub fn ln_phi_mix_cached_ws_into(
+    spec: &MixtureSpec,
+    cache: &TpCache,
+    ws: &mut MixtureWorkspace,
+    x: &[f64],
+    phase: PhaseId,
+    out: &mut [f64],
+) -> Result<(), MixError> {
+    if out.len() != x.len() {
+        return Err(MixError::Dimension(format!(
+            "out.len()={} but composition.len()={}",
+            out.len(),
+            x.len()
+        )));
+    }
+    if !cache.matches(spec, cache.t, cache.p) || x.len() != cache.len() {
+        return Err(cache.mismatch(spec, cache.t, cache.p));
+    }
+    mixture_params_with(
+        spec,
+        cache.t,
+        x,
+        &cache.pure,
+        Some(&cache.kij),
+        &mut ws.params,
+        &mut ws.scratch,
+    )?;
+    let z = z_mix_generic::<f64>(&ws.params, phase)?;
+    ln_phi_from_params_generic(&ws.params, z, out);
     Ok(())
 }
 
@@ -1047,8 +1436,17 @@ pub fn ln_phi_mix_min_gibbs_cached_into(
     if !cache.matches(spec, cache.t, cache.p) || n != cache.len() {
         return Err(cache.mismatch(spec, cache.t, cache.p));
     }
-    let pars = mixture_params_with(spec, cache.t, x, &cache.pure)?;
-    min_gibbs_from_params(&pars, x, out)
+    let mut ws = MixtureWorkspace::new();
+    mixture_params_with(
+        spec,
+        cache.t,
+        x,
+        &cache.pure,
+        Some(&cache.kij),
+        &mut ws.params,
+        &mut ws.scratch,
+    )?;
+    min_gibbs_from_params(&ws.params, x, out)
 }
 
 /// Shared tail of the two min-Gibbs entry points: evaluate both cubic roots
@@ -1224,6 +1622,152 @@ pub fn d_ln_phi_d_n(
         }
     }
     Ok(jac)
+}
+
+/// Apply `∂ln φ̂ᵢ/∂nⱼ` to a vector **without forming the matrix** — `O(N)`.
+///
+/// Computes `out = J·v`. Milestone 18 / petroleum plan §1.1: with classical
+/// mixing and `kᵢⱼ = 0` the cross-parameter factorizes, `Aᵢⱼ = √Aᵢ·√Aⱼ`, and
+/// the only place `a_ij` enters [`d_ln_phi_d_n_classical`] is a single term
+/// `−2Ĩ·√Aᵢ√Aⱼ`. Every other `(i, j)` term is already a product of an
+/// `i`-vector and a `j`-vector, so the whole Jacobian is a **sum of a handful
+/// of rank-1 outer products**.
+///
+/// A rank-1 matrix `u⊗w` applied to `v` is `u·(w·v)` — one `O(N)` reduction
+/// and one `O(N)` scale. So the matvec costs `O(N)` while forming the matrix
+/// costs `O(N²)` in both time and memory. At N = 300 that is 300 numbers
+/// instead of 90 000, which is what makes a Newton step on a
+/// several-hundred-pseudocomponent mixture tractable at all.
+///
+/// # Arguments
+/// * `t` — Temperature in **K**; `p` — pressure in **kPa absolute**.
+/// * `x` — mole fractions (length N, summing to 1).
+/// * `v` — the vector to apply, length N. **Dimensionless** (mole numbers).
+/// * `out` — receives `J·v`, length N. **Dimensionless.**
+///
+/// # Errors
+/// [`MixError::Dimension`] if any length disagrees. Falls back to forming the
+/// matrix — same answer, `O(N²)` — for any case the collapse does not cover
+/// (a non-empty `kij`, a GE mixing rule, or a 3-parameter EOS).
+pub fn d_ln_phi_d_n_apply(
+    spec: &MixtureSpec,
+    t: f64,
+    p: f64,
+    x: &[f64],
+    phase: PhaseId,
+    v: &[f64],
+    out: &mut [f64],
+) -> Result<(), MixError> {
+    let n = x.len();
+    if v.len() != n || out.len() != n {
+        return Err(MixError::Dimension(format!(
+            "d_ln_phi_d_n_apply: x={n}, v={}, out={}",
+            v.len(),
+            out.len()
+        )));
+    }
+    let factorized = spec.kij.is_empty()
+        && matches!(spec.rule, MixingRule::Classical | MixingRule::IVDW)
+        && !spec.eos.is_three_parameter();
+    if !factorized {
+        // Correct, just not cheap: everything outside the collapse still has
+        // to build the block. Doing it here rather than refusing keeps the
+        // API total, so a caller can use it unconditionally.
+        let jac = d_ln_phi_d_n(spec, t, p, x, phase)?;
+        for i in 0..n {
+            out[i] = (0..n).map(|j| jac[i][j] * v[j]).sum();
+        }
+        return Ok(());
+    }
+
+    let pars = mixture_params::<f64>(spec, t, p, x)?;
+    let z = z_mix_generic(&pars, phase)?;
+    let fc = crate::eos::family_constants(spec.eos);
+    let (k1, k2) = (fc.k1, fc.k2);
+    let (a, b) = (pars.big_a, pars.big_b);
+    let (u, w) = (pars.u, pars.w);
+    let pure = pure_params(spec.eos, spec.rule, t, p, spec.components);
+
+    // Shared scalars — identical to `d_ln_phi_d_n_classical`.
+    let q = z * z + u * z + w;
+    let itilde = i_tilde(z, u, w);
+    let disc = u * u - 4.0 * w;
+    let scale = (u * u).max(4.0 * w.abs()).max(1e-300);
+    let degenerate = disc.abs() <= 1e-12 * scale;
+    let j0 = if degenerate {
+        1.0 / (3.0 * (z + 0.5 * u).powi(3))
+    } else {
+        ((2.0 * z + u) / q - 2.0 * itilde) / disc
+    };
+    let j1 = 1.0 / (2.0 * q) - 0.5 * u * j0;
+    let f_z = 3.0 * z * z + 2.0 * (u - b - 1.0) * z + (a + w - u - b * u);
+    let f_a = z - b;
+    let f_b = (k1 - 1.0) * z * z + (2.0 * k2 * b - k1 - 2.0 * k1 * b) * z
+        - (a + 2.0 * k2 * b + k2 * b * b + 2.0 * k2 * b * b);
+
+    // ---- The j-side reductions. Each is one O(N) pass; every one of them
+    // is a `⟨y, v⟩` inner product that a rank-1 term needs. ----
+    let (mut s_v, mut s_qv) = (0.0, 0.0); // Σvⱼ, Σ√Aⱼvⱼ
+    let (mut s_da, mut s_db, mut s_du, mut s_dw) = (0.0, 0.0, 0.0, 0.0);
+    // No `s_dq`: every use of `dq` (in d4, J₀' and J₁') is consumed inside
+    // the j-loop, so it never becomes a rank-1 factor.
+    let (mut s_dz, mut s_dit) = (0.0, 0.0);
+    let (mut s_dj0, mut s_dj1) = (0.0, 0.0);
+    let mut s_scalar = 0.0; // the purely j-dependent terms d1 + d4
+    for j in 0..n {
+        let vj = v[j];
+        let da = pars.a_bar[j] - 2.0 * a;
+        let db = pure.big_b[j] - b;
+        let du = k1 * db;
+        let dw = 2.0 * k2 * b * db;
+        let dz = -(f_a * da + f_b * db) / f_z;
+        let dq = (2.0 * z + u) * dz + z * du + dw;
+        let ditilde = -dz / q - j1 * du - j0 * dw;
+        let dj0 = if degenerate {
+            -(z + 0.5 * u).powi(-4) * (dz + 0.5 * du)
+        } else {
+            let dd2 = 2.0 * u * du - 4.0 * dw;
+            let num = (2.0 * z + u) / q - 2.0 * itilde;
+            ((2.0 * dz + du) / q - (2.0 * z + u) * dq / (q * q) - 2.0 * ditilde) / disc
+                - num * dd2 / (disc * disc)
+        };
+        let dj1 = -dq / (2.0 * q * q) - 0.5 * (du * j0 + u * dj0);
+
+        s_v += vj;
+        s_qv += pure.sqrt_a[j] * vj;
+        s_da += da * vj;
+        s_db += db * vj;
+        s_du += du * vj;
+        s_dw += dw * vj;
+        s_dz += dz * vj;
+        s_dit += ditilde * vj;
+        s_dj0 += dj0 * vj;
+        s_dj1 += dj1 * vj;
+        // d1 (−(dz−db)/(Z−B)) and d4, both independent of i.
+        s_scalar += vj * (-(dz - db) / (z - b) - (da * z / q + a * dz / q - a * z * dq / (q * q)));
+    }
+
+    // ---- The i-side: O(1) per component, no matrix anywhere. ----
+    let zb2 = (z - b) * (z - b);
+    for i in 0..n {
+        let a_bar_i = pars.a_bar[i];
+        let b_bar_i = pars.b_bar[i];
+        let q_i = pure.sqrt_a[i];
+        let bracket_i = j1 * (k1 * b_bar_i - u) + j0 * (2.0 * k2 * b * b_bar_i - 2.0 * w);
+        // d2
+        let mut acc = -b_bar_i * (s_dz - s_db) / zb2;
+        // d3, with the rank-1 −2Ĩ·√Aᵢ·⟨√A, v⟩ term carrying the whole
+        // composition coupling that used to cost a full row.
+        acc += -2.0 * itilde * q_i * s_qv + itilde * a_bar_i * s_v + itilde * s_da
+            - (a_bar_i - a) * s_dit;
+        // d5
+        acc += bracket_i * s_da
+            + a * ((k1 * b_bar_i - u) * s_dj1 - j1 * s_du
+                + (2.0 * k2 * b * b_bar_i - 2.0 * w) * s_dj0
+                + j0 * (2.0 * k2 * b_bar_i * s_db - 2.0 * s_dw));
+        out[i] = acc + s_scalar;
+    }
+    Ok(())
 }
 
 /// Hand-derived analytic ∂ln φ̂ᵢ/∂nⱼ for classical mixing (Classical/IVDW)
@@ -1953,6 +2497,410 @@ mod tests {
             let fd = jac_fd(&spec, 350.0, 2000.0, &x, PhaseId::Vapor);
             assert_jac_close(&dual, &fd, 1e-4, &format!("{eos:?} dual-vs-fd"));
         }
+    }
+
+    // -----------------------------------------------------------------
+    // Milestone 18 — N-scalable mixture core. The fast paths must be the
+    // general path, not merely close to it.
+    // -----------------------------------------------------------------
+
+    /// A synthetic N-component mixture: N distinct pseudo-alkanes, the shape
+    /// a petroleum assay produces.
+    fn pseudo_components(n: usize) -> Vec<Component> {
+        (0..n)
+            .map(|i| {
+                let f = 1.0 + 0.021 * i as f64;
+                Component {
+                    name: format!("pseudo{i}"),
+                    tc: 190.0 * f,
+                    pc: 4600.0 / f,
+                    omega: 0.011 + 0.006 * i as f64,
+                    psat_coeffs: vec![4.2, 900.0 * f, -8.0],
+                    liquid_volume: 37.9 * f,
+                    ..Component::default()
+                }
+            })
+            .collect()
+    }
+
+    /// The `kij = 0` collapse must reproduce the double loop, to the
+    /// summation-order agreement the docs claim and no worse.
+    #[test]
+    fn factorized_matches_general_path() {
+        for n in [2usize, 5, 17, 60] {
+            let comps = pseudo_components(n);
+            // Dense-but-all-zero: forces the general path on one side while
+            // the empty matrix selects the factorized path on the other.
+            let zeros: Vec<Vec<f64>> = vec![vec![0.0; n]; n];
+            let (t, p) = (350.0, 2000.0);
+            for weights in [vec![1.0; n], (1..=n).map(|k| k as f64).collect()] {
+                let total: f64 = weights.iter().sum();
+                let x: Vec<f64> = weights.iter().map(|w| w / total).collect();
+                let dense = MixtureSpec {
+                    eos: CubicEos::PR1976,
+                    rule: MixingRule::Classical,
+                    components: &comps,
+                    kij: &zeros,
+                    ge: None,
+                };
+                let fast = MixtureSpec { kij: &[], ..dense };
+                let pd = mixture_params::<f64>(&dense, t, p, &x).unwrap();
+                let pf = mixture_params::<f64>(&fast, t, p, &x).unwrap();
+                let tol = 1e-12 * pd.big_a.abs().max(1.0);
+                assert!(
+                    (pd.big_a - pf.big_a).abs() < tol,
+                    "n={n}: A {} vs {}",
+                    pd.big_a,
+                    pf.big_a
+                );
+                for i in 0..n {
+                    assert!(
+                        (pd.a_bar[i] - pf.a_bar[i]).abs() < 1e-12 * pd.a_bar[i].abs().max(1.0),
+                        "n={n} i={i}: Ābar {} vs {}",
+                        pd.a_bar[i],
+                        pf.a_bar[i]
+                    );
+                }
+            }
+        }
+    }
+
+    /// The sparse correction must reproduce the dense loop for a matrix that
+    /// is mostly — but not entirely — zero, including an **asymmetric** one.
+    #[test]
+    fn sparse_matches_general_path() {
+        let n = 40;
+        let comps = pseudo_components(n);
+        let mut kij = vec![vec![0.0; n]; n];
+        // A realistic sparsity pattern: three "light gas" rows/columns
+        // interacting with everything, plus one deliberately asymmetric pair.
+        for g in 0..3 {
+            for j in 0..n {
+                if g != j {
+                    kij[g][j] = 0.08 + 0.001 * j as f64;
+                    kij[j][g] = kij[g][j];
+                }
+            }
+        }
+        kij[7][9] = 0.05;
+        kij[9][7] = -0.02; // asymmetric on purpose
+        let index = KijIndex::build(&kij);
+        assert!(index.nnz() > 0 && index.density() < SPARSE_KIJ_MAX_DENSITY);
+
+        let (t, p) = (350.0, 2000.0);
+        let x: Vec<f64> = (0..n).map(|i| (i + 1) as f64).collect();
+        let total: f64 = x.iter().sum();
+        let x: Vec<f64> = x.iter().map(|v| v / total).collect();
+        let spec = MixtureSpec {
+            eos: CubicEos::PR1976,
+            rule: MixingRule::Classical,
+            components: &comps,
+            kij: &kij,
+            ge: None,
+        };
+        let pure = pure_params(spec.eos, spec.rule, t, p, spec.components);
+        let mut dense = MixtureParams::new();
+        let mut sparse = MixtureParams::new();
+        let mut scratch = Buf::new();
+        mixture_params_with(&spec, t, &x, &pure, None, &mut dense, &mut scratch).unwrap();
+        mixture_params_with(&spec, t, &x, &pure, Some(&index), &mut sparse, &mut scratch).unwrap();
+        assert!(
+            (dense.big_a - sparse.big_a).abs() < 1e-12 * dense.big_a.abs(),
+            "A {} vs {}",
+            dense.big_a,
+            sparse.big_a
+        );
+        for i in 0..n {
+            assert!(
+                (dense.a_bar[i] - sparse.a_bar[i]).abs() < 1e-12 * dense.a_bar[i].abs().max(1.0),
+                "i={i}: {} vs {}",
+                dense.a_bar[i],
+                sparse.a_bar[i]
+            );
+        }
+        let _ = p;
+    }
+
+    /// The cached entry point must agree with the uncached one at N where the
+    /// two now take structurally different routes.
+    #[test]
+    fn cached_and_uncached_agree_at_scale() {
+        let n = 80;
+        let comps = pseudo_components(n);
+        let x: Vec<f64> = vec![1.0 / n as f64; n];
+        let (t, p) = (350.0, 2000.0);
+        let spec = MixtureSpec {
+            eos: CubicEos::PR1976,
+            rule: MixingRule::Classical,
+            components: &comps,
+            kij: &[],
+            ge: None,
+        };
+        let cache = TpCache::new(&spec, t, p).unwrap();
+        assert!(cache.kij.is_zero());
+        let mut cached = vec![0.0; n];
+        ln_phi_mix_cached_into(&spec, &cache, &x, PhaseId::Liquid, &mut cached).unwrap();
+        let direct = ln_phi_mix(&spec, t, p, &x, PhaseId::Liquid).unwrap();
+        for i in 0..n {
+            assert!(
+                (cached[i] - direct[i]).abs() < 1e-12 * direct[i].abs().max(1.0),
+                "i={i}: {} vs {}",
+                cached[i],
+                direct[i]
+            );
+        }
+    }
+
+    /// The rank-1 application must reproduce forming the matrix and
+    /// multiplying — that equivalence is the entire claim.
+    #[test]
+    fn rank1_apply_matches_formed_jacobian() {
+        for n in [2usize, 4, 25, 70] {
+            let comps = pseudo_components(n);
+            let x: Vec<f64> = {
+                let w: Vec<f64> = (1..=n).map(|k| k as f64).collect();
+                let s: f64 = w.iter().sum();
+                w.iter().map(|v| v / s).collect()
+            };
+            let spec = MixtureSpec {
+                eos: CubicEos::PR1976,
+                rule: MixingRule::Classical,
+                components: &comps,
+                kij: &[],
+                ge: None,
+            };
+            for phase in [PhaseId::Vapor, PhaseId::Liquid] {
+                let jac = d_ln_phi_d_n(&spec, 350.0, 2000.0, &x, phase).unwrap();
+                // Several probe vectors, so a term that happens to cancel for
+                // one of them cannot hide.
+                let probes: Vec<Vec<f64>> = vec![
+                    vec![1.0; n],
+                    (0..n)
+                        .map(|k| if k % 2 == 0 { 1.0 } else { -1.0 })
+                        .collect(),
+                    (0..n).map(|k| (k as f64 + 1.0).sin()).collect(),
+                ];
+                for v in probes {
+                    let want: Vec<f64> = (0..n)
+                        .map(|i| (0..n).map(|j| jac[i][j] * v[j]).sum())
+                        .collect();
+                    let mut got = vec![0.0; n];
+                    d_ln_phi_d_n_apply(&spec, 350.0, 2000.0, &x, phase, &v, &mut got).unwrap();
+                    for i in 0..n {
+                        let denom = want[i].abs().max(1.0);
+                        assert!(
+                            (got[i] - want[i]).abs() / denom < 1e-9,
+                            "n={n} {phase:?} i={i}: got {} want {}",
+                            got[i],
+                            want[i]
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// The fallback route (a case the collapse does not cover) must still be
+    /// correct — the API is total, not partial.
+    #[test]
+    fn rank1_apply_falls_back_correctly() {
+        let n = 6;
+        let comps = pseudo_components(n);
+        let x: Vec<f64> = vec![1.0 / n as f64; n];
+        // Non-empty kij *and* a 3-parameter EOS — both disqualify the collapse.
+        let kij: Vec<Vec<f64>> = (0..n)
+            .map(|i| (0..n).map(|j| if i == j { 0.0 } else { 0.02 }).collect())
+            .collect();
+        for eos in [CubicEos::PR1976, CubicEos::PatelTeja] {
+            let spec = MixtureSpec {
+                eos,
+                rule: MixingRule::Classical,
+                components: &comps,
+                kij: &kij,
+                ge: None,
+            };
+            let jac = d_ln_phi_d_n(&spec, 350.0, 2000.0, &x, PhaseId::Vapor).unwrap();
+            let v: Vec<f64> = (0..n).map(|k| (k as f64 + 1.0).cos()).collect();
+            let want: Vec<f64> = (0..n)
+                .map(|i| (0..n).map(|j| jac[i][j] * v[j]).sum())
+                .collect();
+            let mut got = vec![0.0; n];
+            d_ln_phi_d_n_apply(&spec, 350.0, 2000.0, &x, PhaseId::Vapor, &v, &mut got).unwrap();
+            for i in 0..n {
+                assert!(
+                    (got[i] - want[i]).abs() < 1e-12 * want[i].abs().max(1.0),
+                    "{eos:?} i={i}: {} vs {}",
+                    got[i],
+                    want[i]
+                );
+            }
+        }
+        // Length disagreement is an error, not a panic.
+        let spec = MixtureSpec {
+            eos: CubicEos::PR1976,
+            rule: MixingRule::Classical,
+            components: &comps,
+            kij: &[],
+            ge: None,
+        };
+        let mut out = vec![0.0; n];
+        assert!(matches!(
+            d_ln_phi_d_n_apply(&spec, 350.0, 2000.0, &x, PhaseId::Vapor, &[1.0], &mut out),
+            Err(MixError::Dimension(_))
+        ));
+    }
+
+    /// Wong-Sandler's own quadratic collapses when `kij` is empty. Its cross
+    /// term is a *sum*, not a product, so this is a different identity from
+    /// the classical one and needs its own check.
+    #[test]
+    fn wong_sandler_collapse_matches_general_path() {
+        for n in [2usize, 3, 12, 45] {
+            let comps = pseudo_components(n);
+            let aij: Vec<Vec<f64>> = (0..n)
+                .map(|i| {
+                    (0..n)
+                        .map(|j| {
+                            if i == j {
+                                0.0
+                            } else {
+                                120.0 * (j as f64 - i as f64)
+                            }
+                        })
+                        .collect()
+                })
+                .collect();
+            let vl: Vec<f64> = comps.iter().map(|c| c.liquid_volume).collect();
+            let ge = GeSpec {
+                model: ActivityModel::Wilson,
+                aij: &aij,
+                alpha: &[],
+                vl: &vl,
+                delta: &[],
+            };
+            let zeros: Vec<Vec<f64>> = vec![vec![0.0; n]; n];
+            let (t, p) = (350.0, 2000.0);
+            let w: Vec<f64> = (1..=n).map(|k| k as f64).collect();
+            let s: f64 = w.iter().sum();
+            let x: Vec<f64> = w.iter().map(|v| v / s).collect();
+            let dense = MixtureSpec {
+                eos: CubicEos::RKS1972,
+                rule: MixingRule::WongSandler,
+                components: &comps,
+                kij: &zeros,
+                ge: Some(ge),
+            };
+            let fast = MixtureSpec { kij: &[], ..dense };
+            let pd = mixture_params::<f64>(&dense, t, p, &x).unwrap();
+            let pf = mixture_params::<f64>(&fast, t, p, &x).unwrap();
+            for (label, d, f) in [
+                ("A", pd.big_a, pf.big_a),
+                ("B", pd.big_b, pf.big_b),
+                ("U", pd.u, pf.u),
+                ("W", pd.w, pf.w),
+            ] {
+                assert!(
+                    (d - f).abs() < 1e-11 * d.abs().max(1.0),
+                    "n={n} {label}: {d} vs {f}"
+                );
+            }
+            for i in 0..n {
+                assert!(
+                    (pd.a_bar[i] - pf.a_bar[i]).abs() < 1e-11 * pd.a_bar[i].abs().max(1.0),
+                    "n={n} i={i} Ā: {} vs {}",
+                    pd.a_bar[i],
+                    pf.a_bar[i]
+                );
+                assert!(
+                    (pd.b_bar[i] - pf.b_bar[i]).abs() < 1e-11 * pd.b_bar[i].abs().max(1.0),
+                    "n={n} i={i} B̄: {} vs {}",
+                    pd.b_bar[i],
+                    pf.b_bar[i]
+                );
+            }
+        }
+    }
+
+    /// The allocation-free workspace path must equal the allocating one, and
+    /// must stay correct when the same workspace is reused across different
+    /// component counts (buffers only grow, so stale tail entries exist).
+    #[test]
+    fn workspace_matches_allocating_path_and_survives_reuse() {
+        let mut ws = MixtureWorkspace::new();
+        // Descending n on purpose: after the n = 40 call the buffers are
+        // longer than the later calls need, so a length bug shows up here.
+        for n in [40usize, 9, 25, 3] {
+            let comps = pseudo_components(n);
+            let x: Vec<f64> = {
+                let w: Vec<f64> = (1..=n).map(|k| k as f64).collect();
+                let s: f64 = w.iter().sum();
+                w.iter().map(|v| v / s).collect()
+            };
+            for rule in [MixingRule::Classical, MixingRule::IVDW] {
+                let spec = MixtureSpec {
+                    eos: CubicEos::PR1976,
+                    rule,
+                    components: &comps,
+                    kij: &[],
+                    ge: None,
+                };
+                let cache = TpCache::new(&spec, 350.0, 2000.0).unwrap();
+                for phase in [PhaseId::Vapor, PhaseId::Liquid] {
+                    let want = ln_phi_mix(&spec, 350.0, 2000.0, &x, phase).unwrap();
+                    let mut got = vec![0.0; n];
+                    ln_phi_mix_cached_ws_into(&spec, &cache, &mut ws, &x, phase, &mut got).unwrap();
+                    for i in 0..n {
+                        assert!(
+                            (got[i] - want[i]).abs() < 1e-12 * want[i].abs().max(1.0),
+                            "n={n} {rule:?} {phase:?} i={i}: {} vs {}",
+                            got[i],
+                            want[i]
+                        );
+                    }
+                }
+            }
+        }
+        // A 3-parameter EOS exercises `three_param_uw`'s in-place writes.
+        let comps = pseudo_components(12);
+        let x = vec![1.0 / 12.0; 12];
+        for eos in [CubicEos::SchmidtWenzel, CubicEos::PatelTeja] {
+            let spec = MixtureSpec {
+                eos,
+                rule: MixingRule::Classical,
+                components: &comps,
+                kij: &[],
+                ge: None,
+            };
+            let cache = TpCache::new(&spec, 350.0, 2000.0).unwrap();
+            let want = ln_phi_mix(&spec, 350.0, 2000.0, &x, PhaseId::Vapor).unwrap();
+            let mut got = vec![0.0; 12];
+            ln_phi_mix_cached_ws_into(&spec, &cache, &mut ws, &x, PhaseId::Vapor, &mut got)
+                .unwrap();
+            for i in 0..12 {
+                assert!(
+                    (got[i] - want[i]).abs() < 1e-12 * want[i].abs().max(1.0),
+                    "{eos:?} i={i}: {} vs {}",
+                    got[i],
+                    want[i]
+                );
+            }
+        }
+    }
+
+    /// `KijIndex` bookkeeping: it stores every non-zero of both triangles.
+    #[test]
+    fn kij_index_counts_every_nonzero() {
+        assert!(KijIndex::build(&[]).is_zero());
+        assert_eq!(KijIndex::build(&[]).density(), 0.0);
+        let m = vec![
+            vec![0.0, 0.1, 0.0],
+            vec![0.1, 0.0, 0.0],
+            vec![0.0, 0.0, 0.0],
+        ];
+        let idx = KijIndex::build(&m);
+        assert_eq!(idx.nnz(), 2);
+        assert!(!idx.is_zero());
+        assert!((idx.density() - 2.0 / 9.0).abs() < 1e-15);
     }
 
     // -----------------------------------------------------------------
