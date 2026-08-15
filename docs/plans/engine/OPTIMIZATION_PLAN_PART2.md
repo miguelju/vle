@@ -135,6 +135,27 @@ accuracy risk on the exact path M12.3's Gibbs–Helmholtz invariants guard. §10
 needs a batch profile first: the batch already runs at 0.29 µs/point with the
 GIL released, so the AoS→SoA transpose is not obviously dominant.
 
+> **Correction, 2026-08-15 — §6's stated deferral reason is wrong.** The
+> sentence above says §6 "means reimplementing dual arithmetic". It does not.
+> `num-dual` 0.11.2 — already in the dependency tree — supplies
+> `DualSVec64<W>`, a statically-sized multidirectional dual that is `Copy` for
+> const `W` and therefore satisfies the existing `D: DualNum<f64> + Copy` bound
+> **with no new arithmetic and no trait-bound edit**. A patch built on it
+> compiled and passed all 194 tests, including the FD oracle and the symmetry
+> invariant, and measured **566 ns vs the 1288 ns baseline at n = 4 (2.28×)**.
+>
+> Two things keep §6 deferred anyway, and neither is the accuracy risk quoted
+> above. First, the win **does not scale**: at n = 20 the same patch measured
+> 61.0 µs against a 61.6 µs baseline — 1.0× — because the block width is the
+> real tunable, and re-measuring at `W = 8` gave **17.1 µs (3.6×)**. Second,
+> the n = 4 classical path regressed +4.4 % (242.5 → 253.2 ns) for reasons
+> nobody has explained. So §6 now needs *width tuning plus a benchmark set
+> covering n > 8*, which is ordinary work — not the milestone-sized accuracy
+> risk recorded above.
+>
+> Provenance and full numbers: [`SECOND_OPINION_TRIAL.md`](SECOND_OPINION_TRIAL.md).
+> Nothing is merged; `d_ln_phi_d_n` on `main` is unchanged.
+
 ---
 
 ## 3. The finding the audit missed: `&dyn Fn` in the n² loop
@@ -288,6 +309,12 @@ In the order the evidence now supports:
    vs 243 ns analytic. One dual evaluation per Jacobian column is O(n³); a
    fixed-width multi-derivative dual would make it one pass. Largest remaining
    algorithmic win, and the highest accuracy risk — its own milestone.
+   **Revised 2026-08-15:** the route is now known —
+   `num_dual::DualSVec64<W>` in `W`-wide column blocks, measured at 2.28× for
+   n = 4 and 3.6× for n = 20 *at the right `W`*, with no new dual arithmetic
+   and no bound changes. The open work is choosing `W` per bucket **by
+   measurement** and adding benchmarks above n = 8. See the correction note in
+   §2 and [`SECOND_OPINION_TRIAL.md`](SECOND_OPINION_TRIAL.md). Still unmerged.
 2. **§10 — batch SoA output.** Profile the batch path first.
 3. **§3 — flat `kij`.** Only worth it bundled with a deliberate 1.0 API break.
 4. **§2 — `Component` SoA.** Only if a post-§1 profile still shows it.

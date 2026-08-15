@@ -51,9 +51,23 @@ numbers are checked against the published Chapter IV tables of the thesis this
 engine derives from — 19 executable notebooks reproduce them.
 
 **What `0.x` means here.** It describes the **API**, not the numerics. The
-Python surface has been stable across the last several releases and this one
-adds no new methods, but the underlying Rust crate still reserves the right to
-change shape before 1.0. The numerical core is settled.
+Python surface has been stable across the last several releases, and the
+underlying Rust crate still reserves the right to change shape before 1.0. The
+numerical core is settled.
+`0.13.0` adds **transport properties to `vle.steam`** — dynamic viscosity
+(IAPWS R12-08), thermal conductivity (R15-11, critical enhancement included)
+and surface tension (R1-76(2014)), in the IF97-based *industrial* form these
+releases define for exactly this case. New module functions
+`steam.viscosity(T, P)`, `steam.thermal_conductivity(T, P)` and
+`steam.surface_tension(T)`; new `steam.transport(T, P)` batch kernel returning
+`mu`, `k`, `pr`, `nu`, `alpha`; new `mu`/`k`/`pr`/`nu`/`alpha` attributes on
+`steam.Water`, and `mu_f`/`mu_g`, `k_f`/`k_g`, `sigma` on the saturation row.
+Transport is a **per-phase** quantity, never quality-averaged: inside the
+dome the module functions raise `ValueError` and the `steam.Water` attributes
+read `nan`, so take the phase you mean off the saturation row. The same
+release makes the underlying IF97 surface
+substantially faster (every forward region ~3.3×, region-3 density −90 %,
+region-2 backward `T(p,s)` −87.5 %); no existing API changed.
 `0.12.0` is a **performance release** — the isothermal flash is 24–28 % faster
 and the tangent-plane stability test 44–51 % faster (measured across 2–8
 components), with no change to the Python API: the composition-independent

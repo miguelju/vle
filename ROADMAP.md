@@ -410,7 +410,7 @@ computer-program verification tables, asserted to full published precision.
 - [x] CLAUDE.md release-rule entry (#12) + architecture tree; full doc sync (README, package READMEs, NOTEBOOKS); version bumped workspace-wide to **v0.10.0**; `vle-steam` wired into `publish-crate.sh` + `release.yml`
 - [x] **Operator step:** signed `v0.10.0` tag pushed + published (vle-units → vle-steam → vle-thermo); GitHub Release is Latest (2026-07-08)
 
-### Milestone 13.7 — Transport properties (viscosity, conductivity, surface tension) — **done (unreleased)**
+### Milestone 13.7 — Transport properties (viscosity, conductivity, surface tension) — **shipped in v0.13.0**
 *Executed by Claude Code using Claude Opus 5 (1M context)*
 
 The transport half of the deferred 13.7 in [STEAM_TABLES_PLAN.md](docs/plans/engine/STEAM_TABLES_PLAN.md)
@@ -419,15 +419,15 @@ The transport half of the deferred 13.7 in [STEAM_TABLES_PLAN.md](docs/plans/eng
 - [x] `steam/src/transport.rs` — viscosity (IAPWS **R12-08**), thermal conductivity (**R15-11**, critical enhancement included), surface tension (**R1-76(2014)**), plus derived Prandtl / kinematic viscosity / thermal diffusivity on `SteamState`
 - [x] The **industrial** form of both transport releases throughout — thermodynamic inputs from IF97, `μ₂ = 1`, and R15-11's Eq. (25) polynomial for `ζ(T_R, ρ̄)` (the reference temperature 970.644 K is above region 3's ceiling, so evaluating it directly would mean inverting region 2 on every call)
 - [x] Analytic `(∂ρ/∂p)_T` per region (`R·T·γ_ππ/p*²` for the Gibbs regions; the inverse of `R·T·(2δφ_δ + δ²φ_δδ)` for region 3) — never finite-differenced
-- [x] Verified against **R12-08 Table 4** (11 points), **R15-11 Table 4** and **Tables 7–9** term by term (`λ₀`, `λ₁`, `λ₂`, the published `(∂ρ/∂p)_T` and `μ` columns), and **R1-76 Table 1**; plus sanity checks against the values every engineer knows (20 °C water: 1.0016 mPa·s, 0.5984 W/(m·K), Pr ≈ 7.0, σ = 72.74 mN/m)
+- [x] Verified against **R12-08 Table 4** (11 points), **R15-11 Table 4** and **Tables 7–9** term by term (`λ₀`, `λ₁`, `λ₂`, the published `(∂ρ/∂p)_T` and `μ` columns), and **R1-76 Table 1**; plus sanity checks against the values every engineer knows, at the tolerance the *industrial* route can hold rather than as exact reproductions (20 °C water computes μ = 1.0016 mPa·s, λ = 0.5980 W/(m·K) against a 0.5984 reference, Pr = 7.009, σ = 72.74 mN/m — the residual gap is the accepted IF97-vs-IAPWS-95 difference)
 - [x] Per-phase semantics — a two-phase state returns `SteamError::TwoPhase` rather than a quality-weighted average; `SatProps` carries `mu_f`/`mu_g`, `k_f`/`k_g`, `sigma`
 - [x] PyO3 bindings (`mu`/`k`/`pr`/`nu`/`alpha` on `SteamState`, the `SatState` per-phase getters, three scalar fns, `steam_transport_batch`) + `vle.steam` wrapper + pytest (25 steam tests; 457 Python tests green)
 - [x] Criterion benches (`transport` group) — viscosity ~112 ns, conductivity 183–262 ns far from critical, **1.27 µs** near-critical, which is why the batch kernel is separate from `properties` rather than extra columns on it
 - [x] Doc sync — `steam/README.md` (its "not included: transport properties" line was live), crate docs, ROADMAP/TODO
-- [ ] Milestone notebook — **not done**; the transport surface is not yet demonstrated in `notebooks/12_steam_tables.ipynb` or its own notebook
-- [ ] Release — no version bump yet; the crates.io/PyPI pages only refresh on publish, so `steam/README.md`'s new transport section is not live until a `v0.13.0` tag
+- [ ] Milestone notebook — **still not done**; the transport surface is not yet demonstrated in `notebooks/12_steam_tables.ipynb` or its own notebook. This is the one deliverable 13.7 shipped without
+- [x] **Release** — version bumped workspace-wide to **v0.13.0**; full doc sync (root README, `steam/README.md`, `engine/README.md`, the `python/README.md` PyPI version history). Both milestones ride the same tag
 
-### Milestone 13.8 — IF97 performance audit — **done (unreleased)**
+### Milestone 13.8 — IF97 performance audit — **shipped in v0.13.0**
 *Executed by Claude Code using Claude Opus 5 (1M context)*
 
 Triggered by the broadened 32-benchmark suite from 13.6, which exposed that the

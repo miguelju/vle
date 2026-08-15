@@ -1,0 +1,193 @@
+diff --git a/engine/src/mixture.rs b/engine/src/mixture.rs
+index 29fabdf..c1100dd 100644
+--- a/engine/src/mixture.rs
++++ b/engine/src/mixture.rs
+@@ -72,7 +72,8 @@
+ // lint here rather than obscure the formulas.
+ #![allow(clippy::needless_range_loop)]
+ 
+-use num_dual::DualNum;
++use nalgebra::{Const, SVector, U1};
++use num_dual::{DualNum, DualSVec64};
+ use smallvec::SmallVec;
+ use thiserror::Error;
+ 
+@@ -1169,63 +1170,138 @@ pub fn ln_phi_mix_min_gibbs_into(
+     min_gibbs_from_params(&pars, x, out)
+ }
+ 
+-/// Exact composition Jacobian ∂ln φ̂ᵢ/∂nⱼ (per **mole number**, evaluated
+-/// at total moles n = 1, i.e. at the given mole-fraction point).
++/// Evaluate composition-Jacobian columns in groups of `W` forward directions.
+ ///
+-/// Route (§L): classical mixing + 2-parameter EOS uses the hand-derived
+-/// analytic closed form; every other rule/EOS evaluates the SAME generic
+-/// value path with dual numbers (`num-dual`) — exact to machine precision,
+-/// never finite differences.
++/// For `n <= W`, the complete Jacobian is produced by exactly one pass through
++/// the mixture algebra. For larger `n`, columns are evaluated in `W`-wide
++/// blocks. Pure-component parameters and the output/seed buffers are reused
++/// across blocks.
+ ///
+-/// Returns `jac[i][j] = ∂ln φ̂ᵢ/∂nⱼ`. The matrix is symmetric in exact
+-/// arithmetic (a Gibbs-Duhem consequence — used as a test invariant).
+-pub fn d_ln_phi_d_n(
++/// `DualSVec64<W>` is statically sized and `Copy`, so it satisfies the existing
++/// `D: DualNum<f64> + Copy` bounds without changing any mixing implementation.
++fn d_ln_phi_d_n_multidual<const W: usize>(
+     spec: &MixtureSpec,
+     t: f64,
+     p: f64,
+     x: &[f64],
+     phase: PhaseId,
+ ) -> Result<Vec<Vec<f64>>, MixError> {
+-    let analytic = matches!(spec.rule, MixingRule::Classical | MixingRule::IVDW)
+-        && !spec.eos.is_three_parameter();
+-    if analytic {
+-        return d_ln_phi_d_n_classical(spec, t, p, x, phase);
+-    }
++    debug_assert!(W > 0);
++
+     let n = x.len();
++    validate(spec, n)?;
++
+     let mut jac = vec![vec![0.0; n]; n];
+-    // One dual sweep per column j: seed nⱼ with unit dual part. lnφ̂ is
+-    // intensive (degree-0 in n), so evaluating with moles = x and reading
+-    // the dual part gives ∂lnφ̂ᵢ/∂nⱼ at Σn = 1 directly. The generic path
+-    // normalizes internally.
+-    for j in 0..n {
+-        let moles: Buf<num_dual::Dual64> = (0..n)
+-            .map(|k| {
+-                let mut d = num_dual::Dual64::from(x[k]);
+-                if k == j {
+-                    d.eps = 1.0;
+-                }
+-                d
+-            })
+-            .collect();
+-        // Normalize to mole fractions in dual arithmetic (Σn carries a
+-        // dual part too, which is what makes the projective/intensive
+-        // correction happen automatically).
+-        let mut total = num_dual::Dual64::from(0.0);
+-        for m in &moles {
+-            total += *m;
++    if n == 0 {
++        return Ok(jac);
++    }
++
++    type Grad<const N: usize> = DualSVec64<N>;
++
++    let td = Grad::<W>::from(t);
++    let pd = Grad::<W>::from(p);
++
++    // Composition-independent: build once even if a large mixture is handled
++    // in several derivative blocks.
++    let pure = pure_params(spec.eos, spec.rule, td, pd, spec.components);
++
++    // Preserve the existing semantics exactly: x is interpreted as mole
++    // numbers, then normalized. Usually total == 1, but do not assume that.
++    let mut total = 0.0;
++    for &xi in x {
++        total += xi;
++    }
++    let total2 = total * total;
++
++    // Reused between derivative blocks. Up to eight components remain inline.
++    let mut xd: Buf<Grad<W>> = Buf::with_capacity(n);
++    let mut lnphi: Buf<Grad<W>> =
++        smallvec::smallvec![Grad::<W>::from(0.0); n];
++
++    for first_col in (0..n).step_by(W) {
++        let columns = (n - first_col).min(W);
++        xd.clear();
++
++        // Seed the normalized composition directly.
++        //
++        // For y_k = n_k / S:
++        //
++        //   dy_k/dn_j = (delta_kj S - n_k) / S²
++        //
++        // This is algebraically the same seed produced by constructing dual
++        // mole numbers, summing them, and dividing by the dual total.
++        for k in 0..n {
++            let mut eps = SVector::<f64, W>::zeros();
++
++            let off_diagonal = -x[k] / total2;
++            for lane in 0..columns {
++                eps[lane] = off_diagonal;
++            }
++
++            if k >= first_col && k < first_col + columns {
++                eps[k - first_col] = (total - x[k]) / total2;
++            }
++
++            xd.push(Grad::<W>::new(x[k] / total, num_dual::Derivative::some(eps)));
+         }
+-        let xd: Buf<num_dual::Dual64> = moles.iter().map(|&m| m / total).collect();
+-        // Composition carries the dual seed here; T and P are constants (real
+-        // dual parts) so only ∂/∂nⱼ is tracked.
+-        let (td, pd) = (num_dual::Dual64::from(t), num_dual::Dual64::from(p));
+-        let lnphi = ln_phi_all_generic(spec, td, pd, &xd, phase)?;
++
++        // This is the existing generic mixture path, not a second mixing
++        // implementation.
++        let pars = mixture_params_with(spec, td, &xd, &pure)?;
++        let z = z_mix_generic(&pars, phase)?;
++        ln_phi_from_params_generic(&pars, z, &mut lnphi);
++
+         for i in 0..n {
+-            jac[i][j] = lnphi[i].eps;
++            for lane in 0..columns {
++                jac[i][first_col + lane] = lnphi[i].eps.unwrap_generic(Const::<W>, U1)[lane];
++            }
+         }
+     }
++
+     Ok(jac)
+ }
+ 
++/// Exact composition Jacobian ∂ln φ̂ᵢ/∂nⱼ (per mole number, evaluated at the
++/// supplied mole-fraction point).
++///
++/// Classical/IVDW two-parameter EOS combinations retain the hand-derived
++/// analytic path. Other combinations use multidirectional forward AD through
++/// the existing generic mixture algebra.
++///
++/// Up to 32 components the complete Jacobian is obtained from one mixture
++/// evaluation. Larger mixtures use eight-column derivative blocks to bound
++/// scalar size and working-set growth.
++pub fn d_ln_phi_d_n(
++    spec: &MixtureSpec,
++    t: f64,
++    p: f64,
++    x: &[f64],
++    phase: PhaseId,
++) -> Result<Vec<Vec<f64>>, MixError> {
++    let analytic = matches!(
++        spec.rule,
++        MixingRule::Classical | MixingRule::IVDW
++    ) && !spec.eos.is_three_parameter();
++
++    if analytic {
++        return d_ln_phi_d_n_classical(spec, t, p, x, phase);
++    }
++
++    match x.len() {
++        // Small buckets avoid carrying many unused derivative lanes while
++        // limiting mixture-core monomorphization to four widths.
++        0..=4 => d_ln_phi_d_n_multidual::<4>(spec, t, p, x, phase),
++        5..=8 => d_ln_phi_d_n_multidual::<8>(spec, t, p, x, phase),
++        9..=16 => d_ln_phi_d_n_multidual::<16>(spec, t, p, x, phase),
++        17..=32 => d_ln_phi_d_n_multidual::<32>(spec, t, p, x, phase),
++
++        // At petroleum-mixture sizes, a full-width dual has a bad working
++        // set and makes every SmallVec inline area enormous. Eight-wide
++        // blocks map well to AVX2 and require ceil(n/8), not n, evaluations.
++        _ => d_ln_phi_d_n_multidual::<8>(spec, t, p, x, phase),
++    }
++}
++
+ /// Hand-derived analytic ∂ln φ̂ᵢ/∂nⱼ for classical mixing (Classical/IVDW)
+ /// with a 2-parameter EOS (§L).
+ ///

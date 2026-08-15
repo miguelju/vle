@@ -38,7 +38,9 @@ try:  # Prefer the installed distribution's version; fall back for source trees.
 
     __version__ = version("vle-thermo")
 except (ImportError, PackageNotFoundError):  # pragma: no cover
-    __version__ = "0.10.0"
+    # Only reached when importing straight from a source tree with no
+    # distribution installed. Keep in step with `python/pyproject.toml`.
+    __version__ = "0.13.0"
 
 __all__ = [
     "System",

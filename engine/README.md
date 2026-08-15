@@ -41,6 +41,15 @@ described in the modernization plan §J) is **not** implemented — it converges
 GDEM-accelerated successive substitution, which reaches the Chapter IV cases in
 7–14 iterations.
 
+`0.13.0` is a **`vle-steam` release** — the thermo engine itself is unchanged.
+The sibling steam crate gained **transport properties** (viscosity IAPWS
+R12-08, thermal conductivity R15-11 with the critical enhancement, surface
+tension R1-76(2014), plus derived Prandtl / kinematic viscosity / thermal
+diffusivity) and an **IF97 performance pass**: a power-table series evaluation
+making every forward region ~3.3× faster, a safeguarded-Newton region-3 density
+solve (−90 %), and region-2 backward `T(p,s)` (−87.5 % on `ps_vapor`). See
+[`vle-steam`](https://crates.io/crates/vle-steam).
+
 `0.12.0` is a **performance release**: the flash layer gained **allocation-free `*_into`
 kernels** — `mixture::ln_phi_mix_into`, `mixture::ln_phi_mix_min_gibbs_into`
 (both cubic roots from one shared mixture state), and
@@ -91,7 +100,7 @@ for the phase-by-phase technical detail.
 
 ```toml
 [dependencies]
-vle-thermo = "0.12"
+vle-thermo = "0.13"
 ```
 
 Or with `cargo add`:
