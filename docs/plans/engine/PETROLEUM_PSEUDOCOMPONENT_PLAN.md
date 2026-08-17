@@ -2,8 +2,8 @@
 
 *Planning document, 2026-07-25. Prepared by Claude Code using Claude Opus 5
 (1M context). **Status, 2026-08-16: §1.1 and §2's U1–U6 are all implemented
-— the upstream half of this plan is code complete (M18 released, M19 + M20
-unreleased in `main`).***
+— the upstream half of this plan is complete and released (M18 in v0.14.0,
+M19 + M20 in v0.15.0).***
 
 > **Update, 2026-08-15 — blocker B1 is fixed.** §1.1's k_ij = 0 collapse, the
 > sparse correction and the rank-1 derivative block shipped as **Milestone 18**

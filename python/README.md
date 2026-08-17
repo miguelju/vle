@@ -54,7 +54,8 @@ engine derives from — 21 executable notebooks reproduce them.
 Python surface has been stable across the last several releases, and the
 underlying Rust crate still reserves the right to change shape before 1.0. The
 numerical core is settled.
-`0.14.0` is an **engine performance release** — the Python API is unchanged.
+`0.15.0` is the **petroleum and refinery release** (Milestones 19 + 20): `vle.petroleum` turns a crude assay into pseudocomponents; `vle.refinery` and six new `System` methods add the free-water decant flash, Grayson–Streed / Braun K10 K-values (`liquid_model="grayson_streed"` / `"bk10"`), Lee–Kesler enthalpy and Peneloux volume translation. `Component` gains `solubility_param`, `watson_k`, `zra`. Nothing existing changed shape.
+`0.14.0` was an **engine performance release** — the Python API is unchanged.
 The mixture core now scales **linearly** with component count instead of
 quadratically: classical mixing with no binary interaction parameters takes an
 O(N) path, a sparse correction covers the handful of real non-zero pairs, the
@@ -226,11 +227,15 @@ P = Q_(3.5, "bar").to("kPa")      # 350 kPa
   (Rachford-Rice), adiabatic
 - **Parameter regression** — kij (binary interaction) and Aij (activity
   model)
-- **Petroleum characterization** (`vle.petroleum`, unreleased) — a crude assay
+- **Petroleum characterization** (`vle.petroleum`, 0.15.0) — a crude assay
   into pseudocomponents: D86 ↔ TBP ↔ D2887 ↔ EFV curve interconversion, TBP
   cutting by volume / boiling range / product boundary, four critical-property
   correlation families from boiling point and gravity, Kesler–Lee ideal-gas Cp°
   and Maxwell–Bonnell vapor pressure
+- **Refinery thermodynamics** (`vle.refinery` + `System` methods, 0.15.0) —
+  free-water (decant) flash for steam-stripped feeds, Grayson–Streed and
+  Braun K10 K-value methods, Lee–Kesler enthalpy departure, Peneloux volume
+  translation
 
 ## Use it in Jupyter
 

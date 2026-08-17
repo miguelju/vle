@@ -662,7 +662,7 @@ current user of classical mixing.
 - [x] Equivalence tests: `factorized_matches_general_path`, `sparse_matches_general_path` (including an asymmetric matrix), `rank1_apply_matches_formed_jacobian` (three probe vectors, both phases, N up to 70), `cached_and_uncached_agree_at_scale`
 - [x] Allocation-free N-component evaluation — `mixture_params_with` now **fills a caller-provided `MixtureParams`** (every mixing branch, `three_param_uw`, and the whole `quad_a` family write into caller slices), with the public **`MixtureWorkspace`** owning the buffers and `ln_phi_mix_cached_ws_into` reusing them. Buffers only grow, so a solve settles after its first evaluation and then allocates nothing. **1.23× at N = 300** (1081 → 876 ns, same build), matching the 145.7 ns allocation probe that sized the work beforehand. The algebra is still written once. One cost recorded rather than buried: a *fresh* workspace zero-fills buffers it then overwrites, so the compatibility wrapper pays it per call — but the flash is **18–24 % faster than the v0.12.0 baseline** end-to-end, so nothing regressed where it counts
 
-## Milestone 19: Petroleum Characterization — **code complete (unreleased)**
+## Milestone 19: Petroleum Characterization — **shipped in v0.15.0**
 
 *Phase 26 of MODERNIZATION_PLAN.md*
 *Executed by Claude Code using Claude Opus 5 (1M context)*
@@ -684,7 +684,7 @@ below.**
 - [x] **📓 Milestone notebook** — `notebooks/15_petroleum_characterization.ipynb`: reproduces Riazi Example 3.3, compares all four distillation bases, characterizes a 35 °API crude, plots the four correlation families against each other, cuts at refinery product boundaries, flashes 30 pseudocomponents, and shows why vacuum towers exist. Three exercises with hidden solutions
 - [x] **A limitation found by measurement, not assumed** — Edmister–Okamoto's 0–10 % row genuinely crosses its 10–30 % neighbour, so D86 → EFV on any feed narrower than ~250 K produces a *decreasing* curve. `DistillationCurve::new` rejects it rather than returning nonsense; the workaround (convert from 10 %) is documented and pinned by `efv_initial_point_row_crosses_its_neighbour_on_narrow_feeds`
 
-## Milestone 20: Refinery Thermodynamics — **code complete (unreleased)**
+## Milestone 20: Refinery Thermodynamics — **shipped in v0.15.0**
 
 *Phase 27 of MODERNIZATION_PLAN.md*
 *Executed by Claude Code using Claude Fable 5*

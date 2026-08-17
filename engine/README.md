@@ -25,7 +25,7 @@ critical point), tangent-plane stability analysis, the mixture critical point by
 Heidemann's method, and kij/Aij regression — all with **exact derivatives**
 (hand-derived analytic for the classical paths, `num-dual` dual-number AD for
 the GE-based mixing rules; finite differences survive only as test oracles).
-439 Rust tests back it, and the results are checked against the published
+477 Rust tests back it, and the results are checked against the published
 Chapter IV tables of the thesis this engine derives from, not merely against
 themselves.
 
@@ -93,7 +93,7 @@ virial path gains flat row-major `b_mix_matrix_flat` +
 −24…−28 %, tangent-plane stability −44…−51 %. Details in
 [`OPTIMIZATION_PLAN_PART2.md`](https://github.com/miguelju/vle/blob/main/docs/plans/engine/OPTIMIZATION_PLAN_PART2.md).
 
-Unreleased in `main`: **`vle_thermo::refinery`** (M20) — Lee–Kesler departure (pure + mixture), Peneloux volume translation, plus `LiquidModel::{GraysonStreed, BraunK10}` and `flash::free_water::flash_free_water` (the water-decant flash); and **`vle_thermo::petroleum`** — petroleum
+`0.15.0` — the **petroleum and refinery release** (Milestones 19 + 20). **`vle_thermo::refinery`** (M20): Lee–Kesler departure (pure + mixture, validated by thermodynamic identities), Peneloux volume translation, `LiquidModel::{GraysonStreed, BraunK10}` with their (T, P)-constant parts cached, `flash::free_water::flash_free_water` (the water-decant flash — the industry approximation, not a three-liquid stability search), and a closed-form Maxwell–Bonnell inversion; the legacy `ChaoSeader` path was found to carry the Grayson–Streed 1963 table without γ and is kept as is, documented. `Component` gains `watson_k`. And **`vle_thermo::petroleum`** (M19) — petroleum
 characterization, the layer that lets the engine run on crude oil. A
 distillation curve plus a gravity becomes a `Vec<Component>`: D86 ↔ TBP ↔ D2887
 (SimDist) ↔ EFV interconversion (Riazi–Daubert power laws and the API
@@ -137,7 +137,7 @@ for the phase-by-phase technical detail.
 
 ```toml
 [dependencies]
-vle-thermo = "0.14"
+vle-thermo = "0.15"
 ```
 
 Or with `cargo add`:

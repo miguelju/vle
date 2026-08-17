@@ -1188,7 +1188,7 @@ equivalence tests of the fast path against the general path.
 **Key source files (planned):** `engine/src/mixture.rs` (`quad_a`,
 `d_ln_phi_d_n_classical`), `engine/benches/`, `OPTIMIZATION_PLAN_PART2.md`
 
-### Phase 26: Petroleum Characterization *(Milestone 19)* — **code complete (unreleased)**
+### Phase 26: Petroleum Characterization *(Milestone 19)* — **shipped in v0.15.0**
 
 *Added 2026-07-25; implemented 2026-08-16. Full design record:
 [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U1, U2).*
@@ -1238,7 +1238,7 @@ implementing `CF` forces the documentation to be corrected.
 `python/tests/test_m19_petroleum.py`,
 `notebooks/15_petroleum_characterization.ipynb`
 
-### Phase 27: Refinery Thermodynamics *(Milestone 20)* — **code complete (unreleased)**
+### Phase 27: Refinery Thermodynamics *(Milestone 20)* — **shipped in v0.15.0**
 
 *Added 2026-07-25; executed 2026-08-16. Full design record:
 [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U4, U5).*

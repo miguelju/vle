@@ -48,13 +48,13 @@ thiserror = "1"
 # The `version` is required for `cargo publish` (path is local-only); we keep
 # it in sync with the workspace version by hand. Bump alongside the workspace
 # version in `Cargo.toml`.
-vle-units = { path = "../units", version = "0.14.0" }
+vle-units = { path = "../units", version = "0.15.0" }
 # Sibling steam-tables crate (M13, STEAM_TABLES_PLAN.md). OPTIONAL and pulled
 # in only by the `steam` feature, which the `python` feature turns on so the
 # wheel always ships `vle.steam`. `cargo add vle-thermo` stays lean (no steam)
 # unless `--features steam` is requested. Version kept in sync with the
 # workspace version by hand, as with `vle-units`.
-vle-steam = { path = "../steam", version = "0.14.0", optional = true }
+vle-steam = { path = "../steam", version = "0.15.0", optional = true }
 # `abi3-py310` builds against CPython's stable ABI starting at 3.10. One wheel
 # per (OS, arch) then loads cleanly on CPython 3.10, 3.11, 3.12, 3.13 and any
 # future 3.x — no rebuild per Python version. See docs/ci.md and
