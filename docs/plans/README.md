@@ -39,7 +39,7 @@ ROADMAP → TODO → PLAN trio described in `CLAUDE.md`'s synchronization rules.
 | [`OPTIMIZATION_PLAN_PART2.md`](engine/OPTIMIZATION_PLAN_PART2.md) | 2026-07-25 | plan | **High-value subset complete** — the mixture core's response to Part 2 | → v0.12.0 |
 | [`OPTIMIZATION_AUDIT_HISTORY.md`](engine/OPTIMIZATION_AUDIT_HISTORY.md) | 2026-07-25 | provenance | Living record of how the audit was produced and reviewed | — |
 | [`steam_audit.md`](engine/steam_audit.md) | 2026-07-25 | **audit** (external) | Delivered; two items adopted directly, the rest superseded by measuring the layer underneath | 13.8 |
-| [`PETROLEUM_PSEUDOCOMPONENT_PLAN.md`](engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) | 2026-07-25 | plan | **Partly executed.** §1.1 (blocker B1) shipped as Milestone 18 in **v0.14.0** — the N-scalable mixture core, measured linear to N = 300. §2 (M19/M20) not started | 18 – 20 |
+| [`PETROLEUM_PSEUDOCOMPONENT_PLAN.md`](engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) | 2026-07-25 | plan | **Upstream half executed (M18 released; M19 + M20 code complete, unreleased 2026-08-16).** §1.1 (blocker B1) shipped as Milestone 18 in **v0.14.0** — the N-scalable mixture core, measured linear to N = 300. §2's **U1 + U2 shipped as Milestone 19** (`engine/src/petroleum/`, unreleased) — assay → pseudocomponents, validated against Riazi (2005) Examples 3.2–3.5. §2's U4 + U5 (M20, refinery thermodynamics) not started | 18 – 20 |
 | [`SECOND_OPINION_TRIAL.md`](engine/SECOND_OPINION_TRIAL.md) | 2026-08-15 | **experiment** (external model) | **Run and graded.** Nothing merged — the engine is unchanged. Revises the *reason* `OPTIMIZATION_PLAN_PART2.md` §6 is deferred | — |
 
 ## Delivery & platforms
@@ -172,11 +172,25 @@ from 20.038 µs to 1.9679 µs — **10.18× faster**.
 ### The frontier — where the plans point now
 
 [`PETROLEUM_PSEUDOCOMPONENT_PLAN.md`](engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md)
-(2026-07-25) is the only *unstarted* plan in this folder. It targets an
-**atmospheric crude distillation column with hundreds of pseudocomponents** —
-the workload that stresses everything built so far — as Milestones 18–20. Its
-checkboxes in `ROADMAP.md` and `TODO.md` are all unchecked, and per this repo's
-rules they stay that way until the code exists and a test asserts its behaviour.
+(2026-07-25) is the plan still being executed. It targets an **atmospheric
+crude distillation column with hundreds of pseudocomponents** — the workload
+that stresses everything built so far — as Milestones 18–20. Two of the three
+have landed: **M18** (the N-scalable mixture core, v0.14.0) and **M19**
+(petroleum characterization, unreleased). **M20 — refinery thermodynamics**
+(free-water/three-phase handling, Grayson–Streed and BK10 K-values, Lee–Kesler
+enthalpy departure, Peneloux volume translation) is the remaining piece, and its
+checkboxes in `ROADMAP.md` and `TODO.md` stay unchecked until the code exists
+and a test asserts its behaviour.
+
+M19 is also a small case study in the rule this folder exists to enforce. Its
+plan asked for "ideal-gas Cp° for fractions (API 7D3.6)", and the base
+correlation shipped and is accurate to ~3 % on paraffins and aromatics — but
+the Kesler–Lee `CF` term that corrects ring compounds did **not**, because its
+published coefficients could not be verified against a primary source. The
+checkbox says so, the module docs say so, the measured cost (up to 15.9 % on
+naphthenes) is recorded, and the test asserts the gap *from both sides* so that
+implementing `CF` fails the test and forces the documentation to be corrected.
+That is what a partial completion is supposed to look like.
 
 ---
 

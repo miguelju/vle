@@ -145,7 +145,32 @@ pub enum LiquidModel {
     Activity(super::ActivityModel),
     /// Chao-Seader liquid fugacity correlation. Semi-empirical method with special
     /// handling for hydrogen and methane. Ref (4), legacy/pascal/TERMOII.PAS.
+    ///
+    /// **Legacy path**: `Kᵢ = νᵢ/φ̂ᵢⱽ` with the Grayson–Streed 1963 ν⁰ table
+    /// (see [`chao_seader_ln_phi`]) and **no** regular-solution activity
+    /// coefficient — exactly what the Pascal program computed. Prefer
+    /// [`LiquidModel::GraysonStreed`] for anything new.
     ChaoSeader,
+    /// Grayson–Streed (1963) refinery K-value method (Milestone 20):
+    /// `Kᵢ = νᵢ·γᵢ/φ̂ᵢⱽ` — the Grayson–Streed νᵢ
+    /// ([`regular_solution_ln_nu`]), the Scatchard–Hildebrand regular-solution
+    /// γᵢ built from each component's `solubility_param` and `liquid_volume`
+    /// (or the `SystemSpec`'s `delta` / `vl` overrides), and the vapor φ̂ᵢⱽ from
+    /// whatever `VaporModel` is configured (Redlich–Kwong classically).
+    /// Hydrogen and methane are recognised by name
+    /// ([`ChaoSeaderSpecies::for_component`]). Both νᵢ and the γ constants are
+    /// composition-independent, so the flash caches them per `(T, P)`.
+    GraysonStreed,
+    /// Braun K10 (BK10) refinery K-value method (Milestone 20): the K-value of
+    /// a heavy fraction from its Maxwell–Bonnell vapor pressure,
+    /// `Kᵢ = Pᵢᴹᴮ(T; Tb,ᵢ)/P`, corrected by the vapor φ̂ᵢⱽ of the configured
+    /// `VaporModel` (ideal gas for the textbook method). Needs `Component::tb`
+    /// for every component; the Watson-K correction uses `Component::watson_k`
+    /// when it is set. Braun's pressure-correction charts are **not**
+    /// implemented — this is the K10 value scaled Raoult-style to the system
+    /// pressure, which is what the method's low-pressure (< ~10 bar) validity
+    /// range assumes anyway.
+    BraunK10,
 }
 
 /// Phase identifier used to select liquid or vapor root from the cubic solver.
@@ -1283,14 +1308,138 @@ pub enum ChaoSeaderSpecies {
     Methane = 2,
 }
 
+impl ChaoSeaderSpecies {
+    /// Pick the coefficient set for a component from its name — `"hydrogen"`
+    /// / `"h2"` and `"methane"` / `"ch4"` (case-insensitive) get their special
+    /// sets, everything else is a normal fluid. This is what the
+    /// [`LiquidModel::GraysonStreed`] K-value path uses, once per `(T, P)`, so
+    /// callers never have to build a species vector by hand.
+    pub fn for_component(comp: &Component) -> Self {
+        let name = comp.name.trim().to_ascii_lowercase();
+        match name.as_str() {
+            "hydrogen" | "h2" => ChaoSeaderSpecies::Hydrogen,
+            "methane" | "ch4" => ChaoSeaderSpecies::Methane,
+            _ => ChaoSeaderSpecies::Normal,
+        }
+    }
+}
+
+/// Which published coefficient set the regular-solution liquid fugacity
+/// correlation `log₁₀ ν = ν⁰ + ω·ν¹` uses (Milestone 20).
+///
+/// Both sets share the functional form and the ν¹ acentric correction; they
+/// differ in the ν⁰ table. Grayson & Streed refitted Chao & Seader's ν⁰ to
+/// extend the correlation to hydrogen-rich, high-temperature refinery service
+/// (up to ~800 °F and 3000 psia), which is why every refinery simulator lists
+/// "Grayson–Streed" as its own method.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "python", pyo3::pyclass(eq, eq_int))]
+#[repr(i32)]
+pub enum RegularSolutionSet {
+    /// Chao & Seader (1961), *AIChE J.* **7**, 598 — the original table.
+    ChaoSeader1961 = 0,
+    /// Grayson & Streed (1963), *6th World Pet. Congr.* Sect. VII, 233 — the
+    /// refit that the legacy Pascal (Ref (4)) and every refinery package use.
+    GraysonStreed1963 = 1,
+}
+
+/// ν⁰ coefficient table `A0..A9` for one `(set, species)`.
+///
+/// Sources, each verified against two independent transcriptions before being
+/// typed here (a coefficient table is exactly the kind of place a single-source
+/// typo hides): Grayson–Streed from Ref (4) `TERMOII.PAS:386` and the COMSOL
+/// Liquid & Gas Properties manual Table 2-2; Chao–Seader 1961 from the FOSSEE
+/// OpenModelica thermodynamics report (IIT Bombay, 2018) and DWSIM's
+/// `ChaoSeader.vb`.
+fn nu0_coefficients(set: RegularSolutionSet, species: ChaoSeaderSpecies) -> [f64; 10] {
+    match (set, species) {
+        (RegularSolutionSet::GraysonStreed1963, ChaoSeaderSpecies::Normal) => [
+            2.05135, -2.10899, 0.0, -0.19396, 0.02282, 0.08852, 0.0, -0.00872, -0.00353, 0.00203,
+        ],
+        (RegularSolutionSet::GraysonStreed1963, ChaoSeaderSpecies::Hydrogen) => [
+            1.50709, 2.74283, -0.02110, 0.00011, 0.0, 0.008585, 0.0, 0.0, 0.0, 0.0,
+        ],
+        (RegularSolutionSet::GraysonStreed1963, ChaoSeaderSpecies::Methane) => [
+            1.36822, -1.54831, 0.0, 0.02889, -0.01076, 0.10486, -0.02529, 0.0, 0.0, 0.0,
+        ],
+        (RegularSolutionSet::ChaoSeader1961, ChaoSeaderSpecies::Normal) => [
+            5.75748, -3.01761, -4.98500, 2.02299, 0.0, 0.08427, 0.26667, -0.31138, -0.02655,
+            0.02883,
+        ],
+        (RegularSolutionSet::ChaoSeader1961, ChaoSeaderSpecies::Hydrogen) => [
+            1.96718, 1.02972, -0.054009, 0.0005288, 0.0, 0.008585, 0.0, 0.0, 0.0, 0.0,
+        ],
+        (RegularSolutionSet::ChaoSeader1961, ChaoSeaderSpecies::Methane) => [
+            2.43840, -2.24550, -0.34084, 0.00212, -0.00223, 0.10486, -0.03691, 0.0, 0.0, 0.0,
+        ],
+    }
+}
+
+/// Regular-solution pure-liquid fugacity coefficient, returned as **ln(ν)**
+/// (ν = fᵢᴸ/(xᵢP) at the mixture's T and P), for either coefficient set.
+///
+/// The Chao–Seader framework writes `Kᵢ = νᵢ·γᵢ/φ̂ᵢⱽ`, with γᵢ from
+/// Scatchard–Hildebrand regular-solution theory and φ̂ᵢⱽ from an EOS
+/// (classically Redlich–Kwong). This function is the νᵢ factor only; the
+/// [`crate::flash::system`] K-value path assembles the three.
+///
+/// ```text
+///   log₁₀ ν = ν⁰ + ω·ν¹
+///   ν⁰ = A0 + A1/Tr + A2·Tr + A3·Tr² + A4·Tr³ + (A5 + A6·Tr + A7·Tr²)·Pr
+///        + (A8 + A9·Tr)·Pr² − log₁₀ Pr
+///   ν¹ = −4.23893 + 8.65808·Tr − 1.22060/Tr − 3.15224·Tr³ − 0.025·(Pr − 0.6)
+/// ```
+///
+/// # Arguments
+/// * `set` — which ν⁰ table ([`RegularSolutionSet`]).
+/// * `t` — Temperature in **K**.
+/// * `p` — Pressure in **kPa absolute**.
+/// * `comp` — Component (uses `tc`, `pc`, `omega`).
+/// * `species` — coefficient set selector (normal / hydrogen / methane).
+///
+/// # Returns
+/// ln νᵢ, **dimensionless**.
+pub fn regular_solution_ln_nu(
+    set: RegularSolutionSet,
+    t: f64,
+    p: f64,
+    comp: &Component,
+    species: ChaoSeaderSpecies,
+) -> f64 {
+    let tr = t / comp.tc;
+    let pr = p / comp.pc;
+    let a = nu0_coefficients(set, species);
+    // ν¹ acentric-correction coefficients A10..A14 (shared by both sets and
+    // all species).
+    let q = [-4.23893, 8.65808, -1.22060, -3.15224, -0.025];
+    let tr2 = tr * tr;
+    let nu0 = a[0]
+        + a[1] / tr
+        + a[2] * tr
+        + a[3] * tr2
+        + a[4] * tr2 * tr
+        + (a[5] + a[6] * tr + a[7] * tr2) * pr
+        + (a[8] + a[9] * tr) * pr * pr
+        - pr.log10();
+    let nu1 = q[0] + q[1] * tr + q[2] / tr + q[3] * tr2 * tr + q[4] * (pr - 0.6);
+    // log10(ν) = ν⁰ + ω·ν¹ → ln(ν) = ln(10)·log10(ν).
+    (nu0 + comp.omega * nu1) * std::f64::consts::LN_10
+}
+
 /// Chao-Seader pure-liquid fugacity coefficient, returned as **ln(ν)** (the
 /// natural log of the liquid fugacity coefficient ν = f_L/(xP)).
 ///
 /// Ref (4): Da Silva & Báez (1989), legacy/pascal/TERMOII.PAS:386-405. The
 /// legacy returns ν = 10^(ν⁰ + ω·ν¹); we return the natural log to match
-/// [`ln_phi_pure`]. ν⁰ is the regular-solution + reduced-pressure polynomial;
-/// ν¹ is the acentric correction. Hydrogen and methane use special
-/// coefficient sets (`ChaoSeaderSpecies`).
+/// [`ln_phi_pure`].
+///
+/// **Coefficient provenance (corrected in Milestone 20):** the table the legacy
+/// Pascal carries — and therefore this function — is Grayson & Streed's 1963
+/// refit, not Chao & Seader's 1961 original. The name is kept for
+/// compatibility; this is exactly
+/// [`regular_solution_ln_nu`]`(`[`RegularSolutionSet::GraysonStreed1963`]`, …)`.
+/// For the 1961 table call that function with
+/// [`RegularSolutionSet::ChaoSeader1961`].
 ///
 /// # Arguments
 /// * `t` — Temperature in **K**.
@@ -1299,38 +1448,9 @@ pub enum ChaoSeaderSpecies {
 /// * `species` — coefficient set selector.
 ///
 /// # Returns
-/// ln of the Chao-Seader liquid fugacity coefficient, **dimensionless**.
+/// ln of the liquid fugacity coefficient, **dimensionless**.
 pub fn chao_seader_ln_phi(t: f64, p: f64, comp: &Component, species: ChaoSeaderSpecies) -> f64 {
-    let tr = t / comp.tc;
-    let pr = p / comp.pc;
-    // ν⁰ coefficients A0..A9 (regular-solution + reduced-pressure polynomial).
-    let a: [f64; 10] = match species {
-        ChaoSeaderSpecies::Normal => [
-            2.05135, -2.10899, 0.0, -0.19396, 0.02282, 0.08852, 0.0, -0.00872, -0.00353, 0.00203,
-        ],
-        ChaoSeaderSpecies::Hydrogen => [
-            1.50709, 2.74283, -0.02110, 0.00011, 0.0, 0.008585, 0.0, 0.0, 0.0, 0.0,
-        ],
-        ChaoSeaderSpecies::Methane => [
-            1.36822, -1.54831, 0.0, 0.02889, -0.01076, 0.10486, -0.02529, 0.0, 0.0, 0.0,
-        ],
-    };
-    // ν¹ acentric-correction coefficients A10..A14 (shared by all species).
-    let q = [-4.23893, 8.65808, -1.22060, -3.15224, -0.025];
-    // ν⁰ = A0 + A1/Tr + A2·Tr + A3·Tr² + A4·Tr³
-    //      + (A5 + A6·Tr + A7·Tr²)·Pr + (A8 + A9·Tr)·Pr² − log10(Pr).
-    let nu0 = a[0]
-        + a[1] / tr
-        + a[2] * tr
-        + a[3] * tr * tr
-        + a[4] * tr * tr * tr
-        + (a[5] + a[6] * tr + a[7] * tr * tr) * pr
-        + (a[8] + a[9] * tr) * pr * pr
-        - pr.log10();
-    // ν¹ = A10 + A11·Tr + A12/Tr + A13·Tr³ + A14·(Pr − 0.6).
-    let nu1 = q[0] + q[1] * tr + q[2] / tr + q[3] * tr * tr * tr + q[4] * (pr - 0.6);
-    // log10(ν) = ν⁰ + ω·ν¹ → ln(ν) = ln(10)·log10(ν).
-    (nu0 + comp.omega * nu1) * std::f64::consts::LN_10
+    regular_solution_ln_nu(RegularSolutionSet::GraysonStreed1963, t, p, comp, species)
 }
 
 // #[cfg(test)] is a conditional compilation attribute. It tells the Rust
@@ -2034,5 +2154,76 @@ mod tests {
             assert!((u - st.u).abs() <= tol * st.u.abs().max(1.0), "{eos:?} U");
             assert!((w - st.w).abs() <= tol * st.w.abs().max(1.0), "{eos:?} W");
         }
+    }
+
+    #[test]
+    fn grayson_streed_set_is_the_legacy_chao_seader_table_and_1961_differs() {
+        // M20: `chao_seader_ln_phi` carries the Grayson-Streed 1963 table.
+        let c = n_pentane();
+        for species in [
+            ChaoSeaderSpecies::Normal,
+            ChaoSeaderSpecies::Hydrogen,
+            ChaoSeaderSpecies::Methane,
+        ] {
+            let legacy = chao_seader_ln_phi(400.0, 1500.0, &c, species);
+            let gs = regular_solution_ln_nu(
+                RegularSolutionSet::GraysonStreed1963,
+                400.0,
+                1500.0,
+                &c,
+                species,
+            );
+            let cs = regular_solution_ln_nu(
+                RegularSolutionSet::ChaoSeader1961,
+                400.0,
+                1500.0,
+                &c,
+                species,
+            );
+            assert_eq!(legacy, gs);
+            assert!((cs - gs).abs() > 1e-3, "{species:?}: {cs} vs {gs}");
+            // For a normal fluid at moderate conditions the two tables agree to
+            // within a few tenths in log10 ν — they were fitted to the same
+            // data. (The H2/CH4 sets applied to pentane's Tc/Pc are not
+            // physically meaningful and are only checked for being distinct.)
+            if species == ChaoSeaderSpecies::Normal {
+                assert!(
+                    (cs - gs).abs() < 0.5 * std::f64::consts::LN_10,
+                    "{species:?}: {cs} vs {gs}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn species_selection_by_name() {
+        let mk = |n: &str| Component {
+            name: n.into(),
+            ..Component::default()
+        };
+        assert_eq!(
+            ChaoSeaderSpecies::for_component(&mk("Hydrogen")),
+            ChaoSeaderSpecies::Hydrogen
+        );
+        assert_eq!(
+            ChaoSeaderSpecies::for_component(&mk("H2")),
+            ChaoSeaderSpecies::Hydrogen
+        );
+        assert_eq!(
+            ChaoSeaderSpecies::for_component(&mk("methane")),
+            ChaoSeaderSpecies::Methane
+        );
+        assert_eq!(
+            ChaoSeaderSpecies::for_component(&mk("CH4")),
+            ChaoSeaderSpecies::Methane
+        );
+        assert_eq!(
+            ChaoSeaderSpecies::for_component(&mk("n-decane")),
+            ChaoSeaderSpecies::Normal
+        );
+        assert_eq!(
+            ChaoSeaderSpecies::for_component(&mk("PC-12")),
+            ChaoSeaderSpecies::Normal
+        );
     }
 }

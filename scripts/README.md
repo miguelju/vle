@@ -1,6 +1,15 @@
-# Data Extraction Scripts
+# Scripts
 
-Utility scripts for extracting and validating thermodynamic component properties from public data sources. These scripts were used to generate the static seed data in `python/src/vle/db/sql/seed_chapter4.sql` (shipped inside the wheel) and can be re-run to update or extend the dataset.
+Utility scripts that support the repo but are not part of the shipped library.
+Two families live here: the **data-extraction** scripts that generated the
+component database, and the **external-model** scripts that call the OpenAI API
+for a second opinion or an illustration.
+
+The data-extraction scripts pull and validate thermodynamic component properties from public data sources. They were used to generate the static seed data in `python/src/vle/db/sql/seed_chapter4.sql` (shipped inside the wheel) and can be re-run to update or extend the dataset.
+
+*(The `build_notebook_*.py` and `build_index.py` scripts, which generate the
+notebooks under `notebooks/`, are not documented individually — each carries its
+own module docstring.)*
 
 ## Prerequisites
 
@@ -99,6 +108,56 @@ Results: 12 passed, 0 failed, 3 skipped
 ```
 
 Compounds are skipped if they are not available in CoolProp (e.g., methylcyclohexane).
+
+## External-model scripts
+
+Two scripts call the OpenAI API. Both are **stdlib-only** — plain `urllib`, no
+`openai` package — so neither installs anything into the `vle` conda
+environment, and both read the API key from 1Password *at call time* through the
+shared helper `_openai_key.py`. The key is never written to disk, echoed, or
+exported into a long-lived environment variable.
+
+Both write down what the external model actually produced. That is the point of
+them: a record you can go back to, including where the model was wrong.
+
+### `second_opinion.py`
+
+Sends a prompt file to a reasoning model and records the answer verbatim, with a
+provenance header carrying the model, the reasoning effort, the token counts and
+the cost. Used for the external audit of the optimization plans — see
+[`SECOND_OPINION_TRIAL.md`](../docs/plans/engine/SECOND_OPINION_TRIAL.md) and the
+lessons in
+[`OPTIMIZATION_AUDIT_HISTORY.md`](../docs/plans/engine/OPTIMIZATION_AUDIT_HISTORY.md).
+
+```bash
+~/miniconda3/envs/vle/bin/python scripts/second_opinion.py PROMPT.md \
+    --model gpt-5.6-sol --effort xhigh --out RESPONSE.md
+```
+
+### `generate_image.py`
+
+Generates a conceptual illustration with `gpt-image-2` and writes a sidecar
+`<out>.json` recording the model, size, quality, the exact prompt, the token
+usage, the cost, and any prompt revision the API reports.
+
+```bash
+~/miniconda3/envs/vle/bin/python scripts/generate_image.py \
+    scripts/prompts/distillation-bases.md \
+    --out docs/assets/distillation-bases.png \
+    --size 2048x1024 --quality high
+```
+
+**Use it only for figures that carry no data.** An image model does not compute;
+it draws something that looks like a computation. Every figure in this repo that
+shows numbers is produced by matplotlib or plotly from the engine's own output,
+and must stay that way. The one generated illustration currently in the docs —
+the four distillation methods in
+[`docs/en/petroleum/`](../docs/en/petroleum/README.md#a-note-on-the-illustration)
+— is schematic, and that section explains what it took and what is still wrong
+with it.
+
+Prompts live in `scripts/prompts/`. Cost is token-based: roughly \$0.01 per
+1536x1024 render at `--quality low`, \$0.08 at `medium`, \$0.15–0.32 at `high`.
 
 ## How the seed data was generated
 

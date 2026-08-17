@@ -95,6 +95,12 @@ pub mod liquid_volume;
 pub mod mixing;
 pub mod mixture;
 pub mod numerics;
+// Petroleum characterization: assay -> pseudocomponents (M19, Phase 26).
+// See docs/plans/engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md §2 (U1, U2).
+pub mod petroleum;
+// Refinery thermodynamics: Grayson-Streed / BK10 (via flash::system), Lee-Kesler
+// departure, Peneloux translation, free-water flash (M20, Phase 27).
+pub mod refinery;
 pub mod saturation;
 pub mod types;
 pub mod virial;
@@ -128,6 +134,18 @@ pub use vle_steam as steam;
 // `python` (which implies `steam`); registered into `_engine` by py_bindings.rs.
 #[cfg(feature = "python")]
 mod py_steam;
+
+// PyO3 bindings for petroleum characterization (M19) — the `Assay` pyclass and
+// the `petro_*` correlation functions, surfaced as part of `vle._engine`.
+// Registered into the same module by py_bindings.rs.
+#[cfg(feature = "python")]
+mod py_petroleum;
+
+// PyO3 bindings for refinery thermodynamics (M20) — reduced Lee-Kesler,
+// regular-solution ν, Peneloux shift as free functions; the mixture-level
+// methods live on `System` in py_system.rs. Registered by py_bindings.rs.
+#[cfg(feature = "python")]
+mod py_refinery;
 
 // `pub use` re-exports an item from a sub-module, making it available
 // directly at this crate's top level. Without these lines, users would

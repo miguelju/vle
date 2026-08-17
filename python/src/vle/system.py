@@ -41,6 +41,8 @@ from vle.results import (
     CriticalResult,
     DewResult,
     FlashResult,
+    FreeWaterFlashResult,
+    LeeKeslerDeparture,
 )
 from vle.units import to_canonical
 
@@ -178,8 +180,11 @@ class System:
             override it. Alias ("PR", "RKS", …), exact variant name, or a
             :class:`~vle._engine.CubicEos` instance.
         vapor_model: ``"cubic"`` (default), ``"ideal"``, or ``"virial"``.
-        liquid_model: ``"cubic"`` (default), ``"activity"``, ``"ideal"``, or
-            ``"chao_seader"``.
+        liquid_model: ``"cubic"`` (default), ``"activity"``, ``"ideal"``,
+            ``"chao_seader"``, or the M20 refinery methods ``"grayson_streed"``
+            (``Kᵢ = νᵢγᵢ/φ̂ᵢⱽ``; needs ``solubility_param`` + ``liquid_volume``
+            on the components for γ ≠ 1) and ``"bk10"`` (Braun K10 from
+            Maxwell–Bonnell; needs ``tb`` on every component).
         activity: Activity model when ``liquid_model="activity"``; alias
             ("wilson", "van_laar", "nrtl", …) or an ``ActivityModel`` instance.
         mixing_rule: Mixing rule; alias ("classical", "wong-sandler", …) or a
@@ -254,6 +259,12 @@ class System:
             ge_model=act,
             t_ref=t_ref,
             p_ref=p_ref,
+            # M20: regular-solution δ (Grayson-Streed), molecular weight
+            # (Peneloux mass density), Watson K (Braun K10), Rackett Z_RA.
+            delta=[c.solubility_param for c in comps],
+            mws=[c.mw for c in comps],
+            watson_ks=[c.watson_k for c in comps],
+            zras=[c.zra for c in comps],
         )
 
     # ── Construction helpers ──────────────────────────────────────────────
@@ -479,6 +490,84 @@ class System:
         erroring for lack of a cubic liquid EOS.
         """
         return self._engine.enthalpy_entropy(_as_temperature(t), _as_pressure(p), list(x), phase)
+
+
+    # ── Refinery thermodynamics (M20) ─────────────────────────────────────
+
+    def flash_free_water(
+        self,
+        t: Scalar,
+        p: Scalar,
+        z: Sequence[float],
+        *,
+        water: Union[int, str] = "water",
+        psat_water: Scalar | None = None,
+        tol: float = 1e-10,
+        max_iter: int = 200,
+    ) -> FreeWaterFlashResult:
+        """Free-water (water-decant) flash of a steam-stripped feed (M20).
+
+        Water is treated as immiscible with the hydrocarbon liquid: the vapor is
+        saturated with water at ``Pˢᵃᵗ_w(T)`` whenever a free-water phase exists,
+        and the hydrocarbons flash at their partial pressure ``P − y_w·P`` with
+        this System's models. ``water`` is the water component's index or
+        name; ``psat_water`` (kPa or unit-aware) overrides the water
+        component's saturation model — pass an IF97 value from
+        :mod:`vle.steam` when accuracy matters. Returns a
+        :class:`~vle.results.FreeWaterFlashResult`.
+        """
+        idx = water if isinstance(water, int) else self.names.index(water)
+        pw = None if psat_water is None else _as_pressure(psat_water)
+        tk, pk = _as_temperature(t), _as_pressure(p)
+        d = self._engine.flash_free_water(tk, pk, list(z), idx, pw, tol, max_iter)
+        return FreeWaterFlashResult(t=tk, p=pk, water_index=idx, **d)
+
+    def lee_kesler_pseudocritical(self, x: Sequence[float], *, eta: float = 0.25) -> tuple[float, float, float]:
+        """Lee–Kesler pseudo-critical ``(Tc [K], Pc [kPa], ω)`` of composition ``x`` (M20).
+
+        ``eta=1.0`` is Lee & Kesler's own mixing rule, ``0.25`` (default)
+        Plöcker–Knapp–Prausnitz's, which most refinery packages run.
+        """
+        return self._engine.lee_kesler_pseudocritical(list(x), eta)
+
+    def lee_kesler_departure(
+        self, t: Scalar, p: Scalar, x: Sequence[float], phase: str, *, eta: float = 0.25
+    ) -> LeeKeslerDeparture:
+        """Lee–Kesler reduced departure functions of ``phase`` at ``(t, p, x)`` (M20):
+        ``Z``, ``(H−H°)/(RT)``, ``(S−S°)/R`` and ``ln(f/P)``, all dimensionless.
+        """
+        z, h, s_, lnphi = self._engine.lee_kesler_departure(
+            _as_temperature(t), _as_pressure(p), list(x), phase, eta
+        )
+        return LeeKeslerDeparture(z=z, h_dep_rt=h, s_dep_r=s_, ln_phi=lnphi)
+
+    def enthalpy_entropy_lee_kesler(
+        self, t: Scalar, p: Scalar, x: Sequence[float], phase: str, *, eta: float = 0.25
+    ) -> tuple[float, float]:
+        """Molar (H [kJ/kmol], S [kJ/(kmol·K)]) of ``phase`` with the **Lee–Kesler**
+        residual in place of the EOS departure (M20). Same reference state as
+        :meth:`enthalpy_entropy`, so the two routes are directly comparable —
+        which is the point: it is the refinery-standard enthalpy method.
+        """
+        return self._engine.enthalpy_entropy_lee_kesler(
+            _as_temperature(t), _as_pressure(p), list(x), phase, eta
+        )
+
+    def peneloux_shifts(self) -> list[float]:
+        """Peneloux volume shifts ``cᵢ`` in **cm³/mol** under the liquid cubic EOS (M20)."""
+        return list(self._engine.peneloux_shifts())
+
+    def translated_molar_volume(self, t: Scalar, p: Scalar, x: Sequence[float], phase: str) -> float:
+        """Volume-translated (Peneloux) molar volume of ``phase`` in **cm³/mol** (M20).
+
+        ``V = Z_EOS·R·T/P − Σxᵢcᵢ``; the shift leaves every K-value untouched
+        and fixes the heavy-liquid density a bare SRK/PR gets ~10 % light.
+        """
+        return self._engine.translated_molar_volume(_as_temperature(t), _as_pressure(p), list(x), phase)
+
+    def translated_density(self, t: Scalar, p: Scalar, x: Sequence[float], phase: str) -> float:
+        """Volume-translated mass density of ``phase`` in **kg/m³** (M20). Needs ``mw``."""
+        return self._engine.translated_density(_as_temperature(t), _as_pressure(p), list(x), phase)
 
     def partial_molar_enthalpy(
         self, t: Scalar, p: Scalar, x: Sequence[float], phase: str

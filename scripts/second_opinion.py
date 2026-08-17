@@ -17,6 +17,9 @@ the reasoning effort, the token counts and the computed cost. Nothing is
 edited: the point of the exercise is a record of what the model actually said,
 including where it was wrong.
 
+The 1Password credential path is shared with ``generate_image.py`` and lives
+in ``scripts/_openai_key.py``.
+
 See ``docs/plans/engine/SECOND_OPINION_TRIAL.md``.
 """
 
@@ -24,13 +27,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
 
-OP_REF = "op://Homelab/photo-platform-openai/credential"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _openai_key import read_key  # noqa: E402
+
 ENDPOINT = "https://api.openai.com/v1/responses"
 
 # USD per million tokens, from OpenAI's published pricing.
@@ -39,22 +44,6 @@ PRICING = {
     "gpt-5.6-terra": (2.00, 12.00),
     "gpt-5.6-luna": (0.20, 1.20),
 }
-
-
-def read_key() -> str:
-    """Fetch the API key from 1Password. Never printed, never persisted."""
-    try:
-        key = subprocess.run(
-            ["op", "read", OP_REF],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-    except subprocess.CalledProcessError as exc:
-        sys.exit(f"1Password read failed: {exc.stderr.strip()}")
-    if not key.startswith("sk-"):
-        sys.exit("1Password returned something that is not an API key")
-    return key
 
 
 def ask(key: str, model: str, effort: str, prompt: str, max_output: int) -> dict:

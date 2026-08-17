@@ -1,0 +1,29 @@
+{
+  "generated_by": "scripts/generate_image.py",
+  "generated_at": "2026-08-16T22:40:37Z",
+  "model": "gpt-image-2",
+  "size": "2048x1024",
+  "quality": "high",
+  "background": "auto",
+  "images": [
+    "docs/assets/distillation-bases.png"
+  ],
+  "prompt_file": "scripts/prompts/distillation-bases.md",
+  "prompt": "A wide technical illustration for a chemical-engineering textbook, drawn in a clean, modern, flat editorial-infographic style. Vector-like: crisp thin strokes, flat fills, no photorealism, no 3-D rendering, no shadows, no texture, no gradients.\n\nBACKGROUND: a single flat very dark near-black navy, hex #0E1117, edge to edge. All linework and text is light: off-white #E6E6E6 for structure, with one warm amber accent #E8A33D used only for the four graph curves.\n\nOVERALL LAYOUT: four equal-width vertical panels in a single row, left to right, separated by thin faint vertical divider lines. Every panel has the same internal structure: a piece of equipment drawn in the upper two thirds, and a small simple line graph directly beneath it in the lower third. A short bold caption sits at the very top of each panel.\n\nTHE STORY THE PICTURE MUST TELL: from left to right the equipment gets better at separating a mixture, and the curve beneath it therefore covers a GREATER VERTICAL RANGE. All four graphs share the same axis height and the same curve shape; the only thing that changes is how much of that vertical range the curve climbs through. This progression is the single most important thing in the image and must be unmistakable.\n\nCURVE SHAPE \u2014 read this carefully, it is the most common way to draw this wrong: every curve is a gentle, almost straight, slightly S-shaped rise \u2014 starting low on the left, climbing steadily across the middle, and easing off slightly near the right. NONE of the curves may be exponential, accelerating, or hockey-stick shaped. A real distillation curve is close to a straight diagonal line with softened ends. Draw all four with that same gentle S-profile and vary only how tall each one climbs.\n\nPANEL 1 (leftmost), caption \"EFV \u2014 0 plates\":\nEquipment: a single plain vertical cylindrical vessel, empty inside, with one pipe entering its left side, one pipe leaving the top, and one pipe leaving the bottom. No internal structure of any kind.\nGraph: the gentle S-curve, but very compressed vertically \u2014 it climbs only about one fifth of the axis height and stays near the bottom.\n\nPANEL 2, caption \"ASTM D86 \u2014 1 plate\":\nEquipment: a classic round-bottomed glass laboratory distillation flask with a long slanted side-arm tube leading down to the right into a small collecting cylinder, and a thermometer inserted in the neck. Simple glassware outline only.\nGraph: the same gentle S-curve, climbing about two fifths of the axis height \u2014 clearly taller than panel 1.\n\nPANEL 3, caption \"TBP \u2014 15 plates\":\nEquipment: a tall slender vertical distillation column containing exactly fifteen evenly spaced horizontal internal trays, drawn as fifteen short horizontal lines inside it \u2014 count them and draw fifteen, a condenser at the top with a reflux pipe curving back down into the column, and a reboiler at the base.\nGraph: the same gentle S-curve, climbing about three quarters of the axis height \u2014 clearly taller than panel 2.\n\nPANEL 4 (rightmost), caption \"D2887 \u2014 chromatography\":\nEquipment: a rectangular benchtop gas-chromatograph instrument with a small square door on the front, and inside it a neatly coiled circular capillary column drawn as a spiral.\nGraph: the same gentle S-curve, climbing the full axis height \u2014 the tallest of the four.\n\nAXES: only the first panel's graph carries axis labels \u2014 a short vertical arrow labelled \"temperature\" and a short horizontal arrow labelled \"% distilled\", both in small light type. The other three graphs show bare axis lines with no labels.\n\nTEXT: render every word exactly as written above and spell it correctly. Use a clean geometric sans-serif. There must be no other text anywhere in the image \u2014 no numbers on the axes, no tick labels, no watermark, no signature, no extra annotations, and absolutely no invented or garbled lettering.\n\nCOMPOSITION: generous margins, plenty of dark space, calm and uncluttered, everything aligned on a strict grid. The four panels are visually identical in size and weight so the only thing that changes across the image is the equipment and the steepness of the curve.",
+  "revised_prompt": null,
+  "usage": {
+    "input_tokens": 891,
+    "input_tokens_details": {
+      "image_tokens": 0,
+      "text_tokens": 891
+    },
+    "output_tokens": 4720,
+    "output_tokens_details": {
+      "image_tokens": 4720,
+      "text_tokens": 0
+    },
+    "total_tokens": 5611
+  },
+  "estimated_cost_usd": 0.1461,
+  "note": "Second attempt. The first render drew all four curves as accelerating exponentials and varied their slope; a real distillation curve is a gentle S, and the quantity that actually differs between the four methods is the total vertical SPAN, not the slope. The prompt was rewritten to say so explicitly and this is the result."
+}

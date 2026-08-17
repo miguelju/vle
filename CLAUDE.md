@@ -264,13 +264,19 @@ The target architecture is documented in `docs/plans/MODERNIZATION_PLAN.md` and 
 
 ```
 engine/     — Rust crate (core computation), PyO3 bindings via maturin
+  src/petroleum/ — crude assay → pseudocomponents (M19): distillation-curve
+              interconversion, TBP cutting, Tb+SG property correlations,
+              fraction Cp°, Maxwell-Bonnell (closed-form inversion since M20)
+  src/refinery/  — refinery thermodynamics (M20): Lee-Kesler departure,
+              Peneloux translation; Grayson-Streed / Braun K10 live in
+              flash/system.rs as LiquidModels, free water in flash/free_water.rs
 units/      — Rust crate `vle-units` (dimensional analysis, gauge pressure)
 steam/      — Rust crate `vle-steam` (IAPWS-IF97 steam tables; M13)
 ffi/        — Rust crate `vle-ffi` (UniFFI wrapper, Swift + Kotlin; publish = false; M15/M16)
 wasm/       — Rust crate `vle-wasm` (wasm-bindgen wrapper, JavaScript/TypeScript; publish = false; M17)
 swift/      — Local Swift package `VleThermo` (binaryTarget + XCTests; M15)
 kotlin/     — Local Android/Kotlin library module `VleThermo` (Gradle + smoke tests; M16)
-python/     — Python wrapper package (high-level API, plotting, component DB, steam)
+python/     — Python wrapper package (high-level API, plotting, component DB, steam, petroleum, refinery)
 notebooks/  — Jupyter notebooks reproducing research paper results
 docs/       — English translations and parameter reference
 docs/plans/ — every plan and audit document, split engine/ (calculations) vs

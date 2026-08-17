@@ -46,9 +46,9 @@ derivatives throughout — exposed via a unit-aware Python facade (`vle.System`)
 and a vectorized numpy **batch API** that releases the GIL (a 200 000-point
 isothermal flash sweep runs in ~60 ms). The bundled component database (25
 compounds with ideal-gas Cp°/R coefficients), IAPWS-IF97 steam tables, CLI and
-units layer round it out. 457 Python tests and 318 Rust tests back it, and the
+units layer round it out. 494 Python tests and 439 Rust tests back it, and the
 numbers are checked against the published Chapter IV tables of the thesis this
-engine derives from — 19 executable notebooks reproduce them.
+engine derives from — 21 executable notebooks reproduce them.
 
 **What `0.x` means here.** It describes the **API**, not the numerics. The
 Python surface has been stable across the last several releases, and the
@@ -130,6 +130,37 @@ print(bub.value)  # ≈ 127.8 kPa
 `flash_ph` (adiabatic), `critical_point`, `phase_envelope`, `stability`,
 `k_values`, `ln_phi`, `z_factor`, and `enthalpy_entropy`.
 
+### Crude oil, where there are no component names
+
+`vle.petroleum` turns a distillation curve and a gravity into pseudocomponents
+that behave like any other component:
+
+```python
+from vle.petroleum import Assay
+
+assay = Assay(
+    fractions=[0.0, 0.1, 0.3, 0.5, 0.7, 0.9, 0.95],       # volume fraction
+    temperatures=[310.0, 380.0, 460.0, 540.0, 620.0, 730.0, 790.0],  # K, TBP
+    basis="tbp",
+    api_gravity=35.0,
+)
+
+cuts = assay.cuts(n=5)
+print(round(cuts[0]["tb"], 1), round(cuts[0]["tc"], 1))   # 370.1 557.1  (K)
+print(round(assay.watson_k(), 2))                          # 11.4 -- naphthenic
+
+# ... and straight into a flash, with no special casing anywhere
+system, z = assay.to_system(n=30, eos="PR")
+res = system.flash_pt(500.0, 200.0, z)
+print(round(res.beta, 3))                                  # 0.426
+```
+
+Cut at explicit product boundaries instead (`assay.cuts(boundaries=["175 degC",
+"340 degC"])`) to reproduce a refinery's own naphtha/kerosene/diesel split.
+Full background — the four distillation bases, the Watson factor, every
+correlation with its published units and accuracy — is in the
+[petroleum learning guide](https://github.com/miguelju/vle/blob/main/docs/en/petroleum/README.md).
+
 ### Vectorized numpy batch API
 
 Every calculation has a `_batch` sibling that takes numpy arrays and releases
@@ -195,6 +226,11 @@ P = Q_(3.5, "bar").to("kPa")      # 350 kPa
   (Rachford-Rice), adiabatic
 - **Parameter regression** — kij (binary interaction) and Aij (activity
   model)
+- **Petroleum characterization** (`vle.petroleum`, unreleased) — a crude assay
+  into pseudocomponents: D86 ↔ TBP ↔ D2887 ↔ EFV curve interconversion, TBP
+  cutting by volume / boiling range / product boundary, four critical-property
+  correlation families from boiling point and gravity, Kesler–Lee ideal-gas Cp°
+  and Maxwell–Bonnell vapor pressure
 
 ## Use it in Jupyter
 

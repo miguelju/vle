@@ -1,7 +1,9 @@
 # Petroleum Pseudocomponent & Crude-Column Plan
 
 *Planning document, 2026-07-25. Prepared by Claude Code using Claude Opus 5
-(1M context). **Status, 2026-08-15: §1.1 is implemented; §2 is not.***
+(1M context). **Status, 2026-08-16: §1.1 and §2's U1–U6 are all implemented
+— the upstream half of this plan is code complete (M18 released, M19 + M20
+unreleased in `main`).***
 
 > **Update, 2026-08-15 — blocker B1 is fixed.** §1.1's k_ij = 0 collapse, the
 > sparse correction and the rank-1 derivative block shipped as **Milestone 18**
@@ -9,10 +11,37 @@
 > composition Jacobian 50.4×). Numbers, the threshold a sweep corrected, and
 > the one sub-item that is only partial live in
 > [`OPTIMIZATION_PLAN_PART2.md`](OPTIMIZATION_PLAN_PART2.md) §7.
-> **Everything else in this document — §2's U1, U2, U4, U5, the whole of
-> M19 and M20 — remains unimplemented**, and its checkboxes must stay
-> unchecked until the code exists and a test asserts its behaviour
-> (CLAUDE.md, *Completion Claims Must Be Verified Against the Code*).
+>
+> **Update, 2026-08-16 — U1 and U2 shipped as Milestone 19.**
+> `engine/src/petroleum/` (7 submodules, 121 unit tests) + `vle.petroleum`
+> (37 wheel-level tests) + `notebooks/15_petroleum_characterization.ipynb`.
+> Distillation-curve interconversion covers all four bases by both method
+> families and matches Riazi (2005) Examples 3.2–3.5 and two API *Technical
+> Data Book* worked examples to \< 0.15 °C; cutting supports equal-volume,
+> equal-boiling-range and explicit product boundaries; the four
+> critical-property families plus Lee–Kesler ω and four Zc correlations
+> reproduce measured Tc/Pc/ω/M/Vc for ten pure hydrocarbons (worst case for
+> the default family: Tc 1.3 %, Pc 5.1 %, M 6.0 %); Maxwell–Bonnell recovers
+> normal boiling points from this crate's own Antoine equations to a 0.19 %
+> mean (1.09 % worst). **Two gaps are recorded rather than glossed:** the Kesler–Lee `CF`
+> naphthene correction is not implemented (ideal-gas Cp° up to 15.9 % low on
+> ring compounds), and Edmister–Okamoto's 0–10 % EFV row genuinely crosses its
+> neighbour, so D86 → EFV is rejected on feeds narrower than ~250 K.
+>
+> **Update, 2026-08-16 (later the same day) — U4 and U5 shipped as Milestone 20.**
+> `engine/src/refinery/` (Lee–Kesler departure pure + mixture, Peneloux
+> translation), `flash/free_water.rs` (the water-decant flash),
+> `LiquidModel::{GraysonStreed, BraunK10}` with their (T, P)-constant parts
+> cached, and a closed-form Maxwell–Bonnell inversion so BK10 costs an
+> Antoine evaluation per component. 37 Rust + 13 Python tests, notebook 16.
+> **Two scope decisions are recorded, not glossed:** the free-water model is
+> the decant approximation (no three-liquid stability search — cannot find a
+> second hydrocarbon liquid, neglects dissolved water); Braun's
+> pressure-correction charts are not implemented (K10 scaled Raoult-style).
+> Measured: 0.10 ms per Lee–Kesler mixture enthalpy at N = 300 from Python.
+> A finding on the way: the legacy "Chao–Seader" table is Grayson–Streed's
+> 1963 refit and never carried the regular-solution γ — kept as is, documented,
+> the 1961 table added alongside.
 
 **Target capability.** Simulate an **atmospheric crude distillation column**
 with **hundreds of pseudocomponents** — the canonical refinery unit, and the
@@ -126,12 +155,12 @@ coding; line numbers drift.
 
 | # | Capability | State today | Why the crude tower needs it |
 |---|---|---|---|
-| **U1** | **Petroleum characterization** — D86 ↔ TBP ↔ D2887 ↔ EFV interconversion; cutting a TBP curve into N pseudocomponents; T_b + SG → MW, T_c, P_c, ω, Z_c, V_c (Lee–Kesler, Twu, Riazi–Daubert, Kesler–Lee); Watson K | **absent entirely** | This *is* where "hundreds of pseudocomponents" come from. Nothing downstream can start without it |
-| **U2** | **Fraction property correlations** — ideal-gas C_p° for petroleum fractions (API 7D3.6 from Watson K + gravity); Maxwell–Bonnell vapor pressure | absent. `Component.cp_coeffs` exists and the DB carries values for *named* compounds, but there is no correlation to *generate* them for a cut | Enthalpy balances and K-values per pseudocomponent |
-| **U3** | **N-scalable mixture core** — the k_ij = 0 fast path and sparse-k_ij correction of §1.1, the matching rank-1 derivative block, plus an N-sweep benchmark (N = 10/50/100/300) guarding the scaling | **O(N²) unconditionally** | Without it every outer-loop thermo call is quadratic in assay size |
-| **U4** | **Free-water / three-phase** — VLLE stability + flash, or at minimum a water-decant model | absent | Atmospheric towers run **stripping steam**. Water forms a second liquid phase in the overhead drum and every side stripper. Unavoidable, not an edge case |
-| **U5** | **Refinery methods** — Grayson–Streed (a Chao–Seader extension), BK10, Lee–Kesler enthalpy departure, Peneloux volume translation | partial: `LiquidModel::ChaoSeader` exists as the foundation | These are what refinery cases are *validated against*; a bare cubic EOS gives heavy-cut densities and enthalpies too far off |
-| **U6** | **Allocation-free N-component evaluation** — SoA buffers, arena reuse across stages, `TpCache` hoisted across a whole column solve | `TpCache` exists and already hoists the pure-component parameters (audit Part 2 §1) | At 50 stages × 300 components × Newton iterations, per-call `Vec`s dominate |
+| **U1** | **Petroleum characterization** — D86 ↔ TBP ↔ D2887 ↔ EFV interconversion; cutting a TBP curve into N pseudocomponents; T_b + SG → MW, T_c, P_c, ω, Z_c, V_c (Lee–Kesler, Twu, Riazi–Daubert, Kesler–Lee); Watson K | **shipped, M19** — `petroleum/{distillation,cuts,properties,gravity}.rs` | This *is* where "hundreds of pseudocomponents" come from. Nothing downstream can start without it |
+| **U2** | **Fraction property correlations** — ideal-gas C_p° for petroleum fractions (API 7D3.6 from Watson K + gravity); Maxwell–Bonnell vapor pressure | **shipped, M19** — `petroleum/{cp,vapor_pressure}.rs`; `cp` emits the `Component.cp_coeffs` polynomial directly. **Partial:** the Kesler–Lee `CF` ring correction is absent (naphthene C_p° up to 15.9 % low) | Enthalpy balances and K-values per pseudocomponent |
+| **U3** | **N-scalable mixture core** — the k_ij = 0 fast path and sparse-k_ij correction of §1.1, the matching rank-1 derivative block, plus an N-sweep benchmark (N = 10/50/100/300) guarding the scaling | **shipped, M18 (v0.14.0)** — linear to N = 300 | Without it every outer-loop thermo call is quadratic in assay size |
+| **U4** | **Free-water / three-phase** — VLLE stability + flash, or at minimum a water-decant model | **shipped, M20 — the water-decant model** (`flash/free_water.rs`). Not a three-liquid stability search: cannot find a second hydrocarbon liquid, neglects dissolved water; the column side (D6) is downstream | Atmospheric towers run **stripping steam**. Water forms a second liquid phase in the overhead drum and every side stripper. Unavoidable, not an edge case |
+| **U5** | **Refinery methods** — Grayson–Streed (a Chao–Seader extension), BK10, Lee–Kesler enthalpy departure, Peneloux volume translation | **shipped, M20** — `LiquidModel::{GraysonStreed, BraunK10}` (`flash/system.rs`, cached per (T, P)), `refinery/{lee_kesler,volume_translation}.rs`. **Partial:** BK10 without Braun's pressure-correction charts (stated); the legacy `ChaoSeader` found to carry the GS 1963 table without γ — kept, documented | These are what refinery cases are *validated against*; a bare cubic EOS gives heavy-cut densities and enthalpies too far off |
+| **U6** | **Allocation-free N-component evaluation** — SoA buffers, arena reuse across stages, `TpCache` hoisted across a whole column solve | **shipped, M18** — `MixtureWorkspace` + `TpCache`; the M20 methods hoist their (T, P) constants into `SystemTpCache` too | At 50 stages × 300 components × Newton iterations, per-call `Vec`s dominate |
 
 ### Milestone mapping
 
@@ -139,9 +168,11 @@ coding; line numbers drift.
   everything else and independently valuable; do it first so the core is
   proven to scale before anything is built on top.*
 - **Milestone 19 — Petroleum Characterization** (U1 + U2). The largest new
-  module; gated by nothing.
+  module; gated by nothing. **Shipped 2026-08-16** as `engine/src/petroleum/`
+  + `vle.petroleum` + notebook 15.
 - **Milestone 20 — Refinery Thermodynamics** (U4 + U5). Depends on 19 for the
-  fractions it applies to.
+  fractions it applies to. **Shipped 2026-08-16** as `engine/src/refinery/` +
+  `flash/free_water.rs` + the two new liquid models + `vle.refinery` + notebook 16.
 
 ---
 
@@ -165,9 +196,9 @@ of 2026-07-26.*
 
 | Phase | Repo | Content | Gated by |
 |---|---|---|---|
-| **A** | vle | **M18** — N-scalable core + N-sweep benches | — |
-| **B** | vle | **M19** — characterization + fraction correlations | — (parallel with A) |
-| **C** | vle | **M20** — free water + refinery methods | B |
+| ~~**A**~~ | vle | ~~**M18** — N-scalable core + N-sweep benches~~ **done, v0.14.0** | — |
+| ~~**B**~~ | vle | ~~**M19** — characterization + fraction correlations~~ **done 2026-08-16** | — (parallel with A) |
+| ~~**C**~~ | vle | ~~**M20** — free water + refinery methods~~ **done 2026-08-16** | B |
 | **D** | stages-thermo | **M11** inside-out solver (D1) | their M9 — **not A** |
 | **E** | stages-thermo | **M13** petroleum feed path (D4) | B, D |
 | **F** | stages-thermo | **M14** topology + steam + three-phase (D2, D5, D6) | C, E |
@@ -188,6 +219,18 @@ A capability this large is only real if it reproduces a published case:
 
 1. **Characterization** — reproduce a published assay's cut properties (API
    Technical Data Book worked examples) per pseudocomponent.
+   *Met, with one substitution worth recording (2026-08-16).* The
+   **interconversions** are validated exactly as planned, against Riazi (2005)
+   Examples 3.2, 3.3, 3.4 and 3.5 and two API *Technical Data Book* worked
+   examples, all to \< 0.15 °C. For the **property correlations** no per-cut
+   API worked example was obtainable, so they are validated instead against
+   *measured* Tc/Pc/ω/M/Vc for ten pure hydrocarbons from this repo's own
+   component database (n-C5…n-C10, benzene, toluene, cyclohexane,
+   methylcyclohexane). That substitution is arguably the stronger test: these
+   correlations are *fitted* to pure-hydrocarbon data, so a mistyped
+   coefficient cannot match across ten compounds spanning three hydrocarbon
+   families by accident — which is exactly how two transcription errors (an ω
+   sign and a Twu pressure unit) were caught during implementation.
 2. **N-scaling** — the criterion N-sweep must show the mixing-rule cost growing
    **linearly**, not quadratically, from N = 10 to N = 300 with empty k_ij.
    This is the measurement that decides whether §1.1 actually worked; an

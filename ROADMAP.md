@@ -662,36 +662,54 @@ current user of classical mixing.
 - [x] Equivalence tests: `factorized_matches_general_path`, `sparse_matches_general_path` (including an asymmetric matrix), `rank1_apply_matches_formed_jacobian` (three probe vectors, both phases, N up to 70), `cached_and_uncached_agree_at_scale`
 - [x] Allocation-free N-component evaluation — `mixture_params_with` now **fills a caller-provided `MixtureParams`** (every mixing branch, `three_param_uw`, and the whole `quad_a` family write into caller slices), with the public **`MixtureWorkspace`** owning the buffers and `ln_phi_mix_cached_ws_into` reusing them. Buffers only grow, so a solve settles after its first evaluation and then allocates nothing. **1.23× at N = 300** (1081 → 876 ns, same build), matching the 145.7 ns allocation probe that sized the work beforehand. The algebra is still written once. One cost recorded rather than buried: a *fresh* workspace zero-fills buffers it then overwrites, so the compatibility wrapper pays it per call — but the flash is **18–24 % faster than the v0.12.0 baseline** end-to-end, so nothing regressed where it counts
 
-## Milestone 19: Petroleum Characterization — **not started**
+## Milestone 19: Petroleum Characterization — **code complete (unreleased)**
 
 *Phase 26 of MODERNIZATION_PLAN.md*
+*Executed by Claude Code using Claude Opus 5 (1M context)*
 
 **Goal**: Turn a crude assay into hundreds of pseudocomponents with full EOS
 parameter sets — the input every downstream crude-column calculation needs.
 Design record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](docs/plans/engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U1, U2).
 
-- [ ] Distillation-curve interconversion — ASTM D86 ↔ TBP ↔ D2887 (SimDist) ↔ EFV
-- [ ] TBP cutting into N pseudocomponents (equal-volume / equal-temperature cuts)
-- [ ] Per-cut property estimation — MW, Tc, Pc, ω, Zc, Vc from Tb + SG (Lee–Kesler, Twu, Riazi–Daubert, Kesler–Lee); Watson K
-- [ ] Ideal-gas Cp° for fractions (API 7D3.6) feeding the existing `Component.cp_coeffs`; Maxwell–Bonnell vapor pressure
-- [ ] PyO3 bindings + Python wrapper + tests (M5+ rule); validation against published API Technical Data Book worked examples
-- [ ] Milestone notebook — building an assay and inspecting the cut property table
+Shipped as `engine/src/petroleum/` (7 submodules, **121 unit tests**) +
+`vle.petroleum` (**37 wheel-level tests**) + notebook 15. **One sub-item is partial and says so
+below.**
 
-## Milestone 20: Refinery Thermodynamics — **not started**
+- [x] **Distillation-curve interconversion** — ASTM D86 ↔ TBP ↔ D2887 (SimDist) ↔ EFV, routed through TBP as the hub (`petroleum/distillation.rs`). Two method families: point-wise power laws (Riazi–Daubert 1986 for D86↔TBP, Edmister–Okamoto for D86↔EFV) and the API difference procedures 3A1.1 / 3A3.1 / 3A3.2, which convert the 50 % point and each adjacent temperature *difference* separately. Every leg is exactly invertible and round-trips to 1e-8
+- [x] **TBP cutting into N pseudocomponents** — `petroleum/cuts.rs`, with a third mode the plan did not ask for: **explicit product boundaries** (naphtha / kerosene / diesel / AGO), which is what a refinery actually controls. Each cut's `tb` is the volume-*average* of the curve across the slice, integrated exactly rather than sampled at the midpoint
+- [x] **Per-cut property estimation** — `petroleum/properties.rs`: four correlation families (Riazi–Daubert 1980, API/Riazi–Daubert 1987, Kesler–Lee, Twu) for M, Tc, Pc, Vc; Lee–Kesler/Kesler–Lee for ω (both `Tbr` branches); four corresponding-states Zc correlations; Watson K and the five average boiling points in `petroleum/gravity.rs`. Zc and Vc are kept mutually consistent through `Zc = Pc·Vc/(R·Tc)`
+- [x] **Maxwell–Bonnell vapor pressure** — `petroleum/vapor_pressure.rs`, both directions plus an inversion for `Psat(T)` (Brent in M19; **closed-form per `Q` branch since M20**, Brent kept as fallback and oracle). Reproduces normal boiling points from this crate's own Antoine equations to a **0.19 % mean / 1.09 % worst** over seven hydrocarbons — an independent oracle, since nothing here was fitted to it
+- [x] **Ideal-gas Cp° for fractions** feeding `Component.cp_coeffs` — `petroleum/cp.rs`, Kesler–Lee / API 7D3.6. Verified against measured Cp° polynomials over 300–1000 K: **2.9 % on paraffins, 3.1 % on aromatics** — *but* — **[ ] the `CF` non-paraffinic correction is NOT implemented**, because its published coefficients could not be verified against a primary source while this was written. The measured cost is **up to 15.9 % low on naphthenes**, stated in the module docs and asserted in `naphthenes_are_the_documented_weak_spot`. Adding `CF` is a well-defined follow-on
+- [x] **PyO3 bindings + Python wrapper + tests (M5+ rule)** — an `Assay` pyclass plus 14 `petro_*` correlation functions (`engine/src/py_petroleum.rs`), wrapped as `vle.petroleum` with unit-string support and `Assay.to_system()`. Validation against **published worked examples**: Riazi (2005) Examples 3.2, 3.3, 3.4 and 3.5 plus two API *Technical Data Book* examples for the interconversions, all to \< 0.15 °C; the property correlations against measured Tc/Pc/ω/M/Vc for ten pure hydrocarbons from the bundled database (worst case: Tc 1.3 %, Pc 5.1 %, M 6.0 % for the default family)
+- [x] **📓 Milestone notebook** — `notebooks/15_petroleum_characterization.ipynb`: reproduces Riazi Example 3.3, compares all four distillation bases, characterizes a 35 °API crude, plots the four correlation families against each other, cuts at refinery product boundaries, flashes 30 pseudocomponents, and shows why vacuum towers exist. Three exercises with hidden solutions
+- [x] **A limitation found by measurement, not assumed** — Edmister–Okamoto's 0–10 % row genuinely crosses its 10–30 % neighbour, so D86 → EFV on any feed narrower than ~250 K produces a *decreasing* curve. `DistillationCurve::new` rejects it rather than returning nonsense; the workaround (convert from 10 %) is documented and pinned by `efv_initial_point_row_crosses_its_neighbour_on_narrow_feeds`
+
+## Milestone 20: Refinery Thermodynamics — **code complete (unreleased)**
 
 *Phase 27 of MODERNIZATION_PLAN.md*
+*Executed by Claude Code using Claude Fable 5*
 
 **Goal**: The thermodynamic methods a refinery column is actually validated
-against, plus the free-water handling that stripping steam makes unavoidable.
+against, plus the free-water handling that stripping steam makes unavoidable —
+built for the outer loop of an inside-out column solver (O(N) per stage for
+the K-value methods, one O(N²) pass for Lee–Kesler, nothing allocated inside
+an iteration).
 Design record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](docs/plans/engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U4, U5).
 
-- [ ] Free-water / three-phase handling — VLLE stability + flash, or at minimum a water-decant model
-- [ ] Grayson–Streed (extending the existing `LiquidModel::ChaoSeader`) and BK10 K-value methods
-- [ ] Lee–Kesler enthalpy departure as an alternative to the EOS departure route
-- [ ] Peneloux volume translation for heavy-cut liquid density
-- [ ] PyO3 bindings + Python wrapper + tests; milestone notebook
+Shipped as `engine/src/refinery/` (Lee–Kesler, Peneloux) + `flash/free_water.rs`
++ two new `LiquidModel`s in `flash/system.rs` (**37 new Rust unit tests**), and
+`vle.refinery` + six `System` methods (**13 wheel-level tests**) + notebook 16.
+**Two scope decisions are stated, not rounded up — see the first and second
+checkboxes.**
 
----
+- [x] **Free water — the water-decant model, not a general VLLE search** — `flash/free_water.rs::flash_free_water`. Hydrocarbons flash (with whatever the `SystemSpec` says — cubic, γ-φ, Grayson–Streed, BK10) at their partial pressure `P − y_w·P`, the vapor is saturated with water at `Pˢᵃᵗ_w(T)` whenever a free phase exists, free water by balance; if the balance goes negative, all water is vapor and a short fixed point on `y_w` closes it. Water's `Pˢᵃᵗ` from its own saturation model or an IF97 value passed in. **What it is not**: a three-liquid stability analysis — it cannot find a second *hydrocarbon* liquid and neglects water dissolved in the oil (~10⁻⁴). That is the ROADMAP's "at minimum" option, chosen because it is what refinery simulators actually run and it costs one dry flash. Balances asserted to 1e-12 in the drum, hot-stripper, undersaturated and all-liquid cases
+- [x] **Grayson–Streed** — `LiquidModel::GraysonStreed`: `Kᵢ = νᵢ·γᵢ/φ̂ᵢⱽ` with νᵢ from `eos::regular_solution_ln_nu` and the Scatchard–Hildebrand γ from each component's `solubility_param`/`liquid_volume` (γ ≡ 1, documented, when they are absent). νᵢ and the γ constants are hoisted into `SystemTpCache`, so an iteration pays only the vapor φ̂ and an O(N) γ. **A finding corrected on the way**: the coefficient table the legacy Pascal (and `chao_seader_ln_phi`) carries is *Grayson & Streed's 1963 refit*, verified against two independent sources — the legacy path never applied γ. It is kept unchanged as `LiquidModel::ChaoSeader` and documented for what it is; the 1961 Chao–Seader table is available as `RegularSolutionSet::ChaoSeader1961` (verified against two independent transcriptions). Hydrogen/methane recognised by name (`ChaoSeaderSpecies::for_component`)
+- [x] **Braun K10** — `LiquidModel::BraunK10`: `Kᵢ = Pᵢᴹᴮ(T; Tb,ᵢ, K_W,ᵢ)/(φ̂ᵢⱽ·P)` from Maxwell–Bonnell, the constant part cached per `(T, P)`. **Braun's pressure-correction charts are not implemented** — this is the K10 value scaled Raoult-style, which the method's low-pressure validity assumes. To make it affordable per component per stage, `petroleum::vapor_pressure` now inverts Maxwell–Bonnell **in closed form** (a quadratic in `log₁₀ P` per `Q` branch; the Brent solve survives as fallback and oracle, agreement < 1e-7 over 500+ points), and `ln_vapor_pressure` extrapolates the outer branches so a light end far above its critical point yields "K ≫ 1" instead of an error. Pseudocomponents now carry `Component::watson_k`
+- [x] **Lee–Kesler departure** — `refinery/lee_kesler.rs`: the 1975 simple/reference reduced BWR fluids, `Z`, `(H−H°)/RT`, `(S−S°)/R`, `ln(f/P)`, pure and mixture (Lee–Kesler `η = 1` and Plöcker `η = 0.25` pseudo-critical rules). Root selection by log-grid sign scan + Brent + Newton polish, smallest bracket = liquid, largest = vapor. **Validated by identity, not by assertion**: `(H−H°)/RTc = −Tr²·∂ln φ/∂Tr|Pr` numerically to 2e-5 and `(S−S°)/R = (H−H°)/RT − ln φ` to 1e-10 at six states on both fluids, `B(Tr)` against Pitzer's B⁰/B¹, methane vapor against PR to 10–20 % (its known level). **Measured at N = 300: 0.10 ms per mixture enthalpy** in Python (0.31 ms in the first draft — a `powf` in the O(N²) loop, replaced by two square roots for η = 0.25, 3.4×). Surfaced as `System.lee_kesler_departure` / `enthalpy_entropy_lee_kesler`, same reference state as the EOS route
+- [x] **Peneloux volume translation** — `refinery/volume_translation.rs`: `cᵢ` from Z_RA for the SRK family (Peneloux 1982) and the PR family (the standard adaptation), mixture shift, translated molar volume and mass density; the shift never enters the fugacity path, so every K-value is untouched by construction. Translated SRK density within 3 % of measured for n-C5/n-C7/n-C10 at 25 °C (raw SRK is 10–15 % light)
+- [x] **PyO3 bindings + Python wrapper + tests (M5+ rule)** — `engine/src/py_refinery.rs` (`RegularSolutionSet` class + `refinery_lee_kesler_reduced`, `regular_solution_ln_nu`, `refinery_peneloux_shift`), six methods on `System` (`flash_free_water`, `lee_kesler_pseudocritical`, `lee_kesler_departure`, `enthalpy_entropy_lee_kesler`, `peneloux_shifts`, `translated_molar_volume`, `translated_density`), `liquid_kind` `"grayson_streed"` / `"bk10"`, `Component.{solubility_param, watson_k, zra}` threaded end-to-end from the assay. `vle.refinery` module + `FreeWaterFlashResult` / `LeeKeslerDeparture` dataclasses. **13 wheel-level tests** in `python/tests/test_m20_refinery.py`
+- [x] **📓 Milestone notebook** — `notebooks/16_refinery_thermodynamics.ipynb`: three K-value methods on the M19 assay (with the Grayson–Streed K rebuilt by hand from ν, γ, φ̂), Lee–Kesler vs PR enthalpy with the N = 300 timing, Peneloux against measured densities and along the assay, the free-water drum vs a hot side stripper with IF97 water. Three exercises with hidden solutions
+- [x] **The known-gaps section re-examined** — [`docs/en/petroleum/README.md`](docs/en/petroleum/README.md) §8: 8.3 narrowed (the inversion is now closed-form and deterministic at the step; the step itself remains), 8.4 kept open with new evidence recorded — two secondary sources for the Kesler–Lee `CF` term were found, they disagree on one exponent, and neither reduces the naphthene error on measured data, so it is still not shipped
 
 ## Performance Track: External Audit Response — **Parts 1 & 2 done**
 **Goal**: Act on the 2026-07 external performance audit

@@ -1387,8 +1387,11 @@ fn liquid_model(
             .map(LiquidModel::Activity)
             .ok_or_else(|| PyValueError::new_err("liquid_kind='activity' needs liquid_activity")),
         "chao_seader" | "chaoseader" => Ok(LiquidModel::ChaoSeader),
+        "grayson_streed" | "graysonstreed" | "gs" => Ok(LiquidModel::GraysonStreed),
+        "bk10" | "braun_k10" | "braunk10" => Ok(LiquidModel::BraunK10),
         other => Err(PyValueError::new_err(format!(
-            "liquid_kind must be 'ideal', 'cubic', 'activity', or 'chao_seader' (got {other:?})"
+            "liquid_kind must be 'ideal', 'cubic', 'activity', 'chao_seader', \
+             'grayson_streed', or 'bk10' (got {other:?})"
         ))),
     }
 }
@@ -1963,6 +1966,11 @@ fn _engine(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::saturation::SatPressureModel>()?;
     m.add_class::<crate::eos::PhaseId>()?;
     m.add_class::<crate::eos::ChaoSeaderSpecies>()?;
+
+    // M19 petroleum characterization — the `Assay` class plus the `petro_*`
+    // correlation functions (see engine/src/py_petroleum.rs).
+    crate::py_petroleum::register(m)?;
+    crate::py_refinery::register(m)?;
 
     // M7.1 cubic-EOS bindings.
     m.add_function(wrap_pyfunction!(eos_alpha, m)?)?;

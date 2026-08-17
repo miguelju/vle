@@ -34,6 +34,9 @@
 //! - **γ-φ** — an activity model for the liquid, an EOS/virial/ideal vapor;
 //!   `Kᵢ = γᵢ·Psat,ᵢ·φᵢˢᵃᵗ / (φ̂ᵢⱽ·P)` (modified Raoult; Chapter IV cases
 //!   3–6). With an ideal vapor this collapses to `Kᵢ = γᵢ·Psat,ᵢ/P`.
+//! - **Refinery methods (M20)** — `LiquidModel::GraysonStreed`
+//!   (`Kᵢ = νᵢγᵢ/φ̂ᵢⱽ`) and `LiquidModel::BraunK10` (`Kᵢ = Pᵢᴹᴮ/(φ̂ᵢⱽP)`),
+//!   plus [`free_water::flash_free_water`] for steam-stripped feeds.
 
 use thiserror::Error;
 
@@ -43,6 +46,7 @@ pub mod bubble;
 pub mod critical;
 pub mod dew;
 pub mod envelope;
+pub mod free_water;
 pub mod init;
 pub mod isothermal;
 pub mod kij_regression;

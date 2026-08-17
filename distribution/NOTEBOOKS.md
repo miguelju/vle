@@ -80,8 +80,10 @@ of the research paper's Chapter IV validation cases.
 | `12_steam_tables.ipynb`                             | 13        | IAPWS-IF97 steam tables (`vle.steam`): saturation-table page, T–s dome, isentropic turbine expansion, flash-steam & reboiler-duty exercises (v0.10.0) |
 | `13_nrtl_ammonia.ipynb`                             | 14        | NRTL activity model + ammonia: NH₃–H₂O activity coefficients, exothermic excess enthalpy, bubble-P curve; van Laar-vs-NRTL methanol–water comparison (Table 4.6 refit); α-sensitivity, Aij-regression & α-identifiability exercises (v0.11.0) |
 | `14_pvt_surface.ipynb`                              | —         | The water P–v–T surface in 3-D (36k+ IAPWS-IF97 points via the batch `vle.steam` API): liquid wall, ruled two-phase dome, superheat sheet; isobaric-heating-path & ideal-gas-envelope exercises. Showcase of Milestone 13's steam tables; static version: `docs/assets/pvt_surface_hero.png` |
+| `15_petroleum_characterization.ipynb`               | 19        | Petroleum characterization (`vle.petroleum`): reproduces Riazi (2005) Example 3.3 for the D86 → TBP conversion, compares all four distillation bases, characterizes a 35 °API crude into pseudocomponents, plots the four critical-property correlation families against each other, cuts at refinery product boundaries, flashes 30 pseudocomponents, and shows why vacuum towers exist. Correlation-choice, heavy-crude and SimDist-conversion exercises |
+| `16_refinery_thermodynamics.ipynb`                  | 20        | Refinery thermodynamics (`vle.refinery` + M20 `System` methods): three K-value methods (PR, Grayson–Streed, Braun K10) on the M19 assay with a Grayson–Streed K rebuilt by hand, Lee–Kesler vs PR enthalpy with the N = 300 timing, Peneloux translation against measured densities and along the assay, the free-water drum vs a hot side stripper with IF97 water. Hydrogen-service, closed-form Maxwell–Bonnell timing and dissolved-water exercises |
 
-The collection is **complete** — all 19 notebooks above ship with the
+The collection is **complete** — all 21 notebooks above ship with the
 repository and execute top-to-bottom in a fresh kernel.
 
 ## Data

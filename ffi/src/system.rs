@@ -703,6 +703,7 @@ mod tests {
             n_polar: 0.0,
             g_polar: 0.0,
             prsv_k1: 0.0,
+            watson_k: 0.0,
             sat_model: crate::component::SatModel::Antoine,
         }
     }

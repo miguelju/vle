@@ -25,7 +25,7 @@ critical point), tangent-plane stability analysis, the mixture critical point by
 Heidemann's method, and kij/Aij regression — all with **exact derivatives**
 (hand-derived analytic for the classical paths, `num-dual` dual-number AD for
 the GE-based mixing rules; finite differences survive only as test oracles).
-318 Rust tests back it, and the results are checked against the published
+439 Rust tests back it, and the results are checked against the published
 Chapter IV tables of the thesis this engine derives from, not merely against
 themselves.
 
@@ -92,6 +92,25 @@ virial path gains flat row-major `b_mix_matrix_flat` +
 `ln_phi_mix_virial_flat_into`. Cumulative measured effect: isothermal flash
 −24…−28 %, tangent-plane stability −44…−51 %. Details in
 [`OPTIMIZATION_PLAN_PART2.md`](https://github.com/miguelju/vle/blob/main/docs/plans/engine/OPTIMIZATION_PLAN_PART2.md).
+
+Unreleased in `main`: **`vle_thermo::refinery`** (M20) — Lee–Kesler departure (pure + mixture), Peneloux volume translation, plus `LiquidModel::{GraysonStreed, BraunK10}` and `flash::free_water::flash_free_water` (the water-decant flash); and **`vle_thermo::petroleum`** — petroleum
+characterization, the layer that lets the engine run on crude oil. A
+distillation curve plus a gravity becomes a `Vec<Component>`: D86 ↔ TBP ↔ D2887
+(SimDist) ↔ EFV interconversion (Riazi–Daubert power laws and the API
+difference procedures 3A1.1 / 3A3.1 / 3A3.2), cutting a TBP curve into N
+pseudocomponents by volume / boiling range / product boundary, four
+critical-property correlation families (Riazi–Daubert 1980, API 1987,
+Kesler–Lee, Twu) plus Lee–Kesler ω and four Zc correlations, Kesler–Lee
+ideal-gas Cp° emitted straight into `Component::cp_coeffs`, and Maxwell–Bonnell
+vapor pressure. The design constraint was that a pseudocomponent must be an
+*ordinary* `Component`, so nothing in `flash`, `mixture` or `energy` needs a
+special case. Interconversions are validated against Riazi (2005) Examples
+3.2–3.5 and two API *Technical Data Book* worked examples; the property
+correlations against measured Tc/Pc/ω/M for ten pure hydrocarbons. One
+documented gap: the Kesler–Lee `CF` naphthene correction is not implemented
+(measured cost up to 15.9 % on ring compounds' Cp°). Learning guide, with every
+correlation written out in its published units:
+[`docs/en/petroleum/`](https://github.com/miguelju/vle/blob/main/docs/en/petroleum/README.md).
 
 `0.10.0` adds **IAPWS-IF97 steam
 tables** via the new sibling crate [`vle-steam`](https://crates.io/crates/vle-steam),

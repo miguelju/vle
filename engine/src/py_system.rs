@@ -42,6 +42,7 @@ use numpy::{
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use rayon::prelude::*;
 
 use crate::activity::ActivityModel;
@@ -79,6 +80,14 @@ fn mix_err(e: crate::mixture::MixError) -> PyErr {
             PyValueError::new_err(e.to_string())
         }
         _ => PyRuntimeError::new_err(e.to_string()),
+    }
+}
+
+fn refinery_err(e: crate::refinery::RefineryError) -> PyErr {
+    if crate::refinery::refinery_error_is_input(&e) {
+        PyValueError::new_err(e.to_string())
+    } else {
+        PyRuntimeError::new_err(e.to_string())
     }
 }
 
@@ -294,7 +303,8 @@ impl System {
         vapor_eos=None, liquid_eos=None, liquid_activity=None,
         mixing_rule=MixingRule::Classical, kij=vec![], aij=vec![], alpha=vec![],
         vl=vec![], delta=vec![], psat_coeffs=vec![], cp_coeffs=vec![], tbs=vec![],
-        names=vec![], ge_model=None, t_ref=298.15, p_ref=101.325))]
+        names=vec![], ge_model=None, t_ref=298.15, p_ref=101.325,
+        mws=vec![], watson_ks=vec![], zras=vec![]))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         tcs: Vec<f64>,
@@ -318,6 +328,9 @@ impl System {
         ge_model: Option<ActivityModel>,
         t_ref: f64,
         p_ref: f64,
+        mws: Vec<f64>,
+        watson_ks: Vec<f64>,
+        zras: Vec<f64>,
     ) -> PyResult<Self> {
         let n = tcs.len();
         if pcs.len() != n || omegas.len() != n {
@@ -332,6 +345,9 @@ impl System {
             ("cp_coeffs", cp_coeffs.len()),
             ("tbs", tbs.len()),
             ("names", names.len()),
+            ("mws", mws.len()),
+            ("watson_ks", watson_ks.len()),
+            ("zras", zras.len()),
         ] {
             if len != 0 && len != n {
                 return Err(PyValueError::new_err(format!(
@@ -350,6 +366,12 @@ impl System {
                     psat_coeffs: psat_coeffs.get(i).cloned().unwrap_or_default(),
                     liquid_volume: vl.get(i).copied().unwrap_or(0.0),
                     solubility_param: delta.get(i).copied().unwrap_or(0.0),
+                    // M20: mass basis for Peneloux densities, the Watson K
+                    // for Braun K10's Maxwell-Bonnell correction, a measured
+                    // Rackett Z_RA for the Peneloux shift.
+                    mw: mws.get(i).copied().unwrap_or(0.0),
+                    watson_k: watson_ks.get(i).copied().unwrap_or(0.0),
+                    zra: zras.get(i).copied().unwrap_or(0.0),
                     ..Component::default()
                 };
                 if let Some(row) = cp_coeffs.get(i) {
@@ -389,10 +411,12 @@ impl System {
                 PyValueError::new_err("liquid_kind='activity' needs liquid_activity")
             })?),
             "chao_seader" | "chaoseader" => LiquidModel::ChaoSeader,
+            "grayson_streed" | "graysonstreed" | "gs" => LiquidModel::GraysonStreed,
+            "bk10" | "braun_k10" | "braunk10" => LiquidModel::BraunK10,
             other => {
                 return Err(PyValueError::new_err(format!(
-                    "liquid_kind must be 'ideal', 'cubic', 'activity', or 'chao_seader' \
-                     (got {other:?})"
+                    "liquid_kind must be 'ideal', 'cubic', 'activity', 'chao_seader', \
+                     'grayson_streed', or 'bk10' (got {other:?})"
                 )));
             }
         };
@@ -664,6 +688,145 @@ impl System {
             &[],
         )
         .map_err(flash_err)
+    }
+
+    // ── Refinery thermodynamics (M20) ────────────────────────────────────
+
+    /// Free-water (water-decant) flash at `t` [K], `p` [kPa abs] of a feed `z`
+    /// that includes water at `water_index` (M20). Optional `psat_water` in
+    /// kPa (e.g. from IF97) overrides the water component's saturation model.
+    /// Returns a dict: `vapor_fraction`, `hc_liquid_fraction`,
+    /// `free_water_fraction`, `y`, `x`, `k`, `free_water`, `y_water`,
+    /// `psat_water`, `iterations`.
+    #[pyo3(signature = (t, p, z, water_index, psat_water=None, tol=1e-10, max_iter=200))]
+    #[allow(clippy::too_many_arguments)]
+    fn flash_free_water<'py>(
+        &self,
+        py: Python<'py>,
+        t: f64,
+        p: f64,
+        z: Vec<f64>,
+        water_index: usize,
+        psat_water: Option<f64>,
+        tol: f64,
+        max_iter: usize,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        self.check_width("z", z.len())?;
+        let r = crate::flash::free_water::flash_free_water(
+            &self.spec(),
+            t,
+            p,
+            &z,
+            water_index,
+            psat_water,
+            tol,
+            max_iter,
+        )
+        .map_err(flash_err)?;
+        let d = PyDict::new_bound(py);
+        d.set_item("vapor_fraction", r.vapor_fraction)?;
+        d.set_item("hc_liquid_fraction", r.hc_liquid_fraction)?;
+        d.set_item("free_water_fraction", r.free_water_fraction)?;
+        d.set_item("y", r.y)?;
+        d.set_item("x", r.x)?;
+        d.set_item("k", r.k)?;
+        d.set_item("free_water", r.free_water)?;
+        d.set_item("y_water", r.y_water)?;
+        d.set_item("psat_water", r.psat_water)?;
+        d.set_item("iterations", r.iterations)?;
+        Ok(d)
+    }
+
+    /// Lee–Kesler pseudo-critical `(tc [K], pc [kPa], omega)` of composition
+    /// `x` (M20). `eta` = 1.0 for Lee–Kesler's own rule, 0.25 for
+    /// Plöcker–Knapp–Prausnitz.
+    #[pyo3(signature = (x, eta=0.25))]
+    fn lee_kesler_pseudocritical(&self, x: Vec<f64>, eta: f64) -> PyResult<(f64, f64, f64)> {
+        self.check_width("x", x.len())?;
+        let pc = crate::refinery::lee_kesler_pseudocritical(&self.components, &x, eta)
+            .map_err(refinery_err)?;
+        Ok((pc.tc, pc.pc, pc.omega))
+    }
+
+    /// Lee–Kesler reduced departure functions of `phase` at `(t [K], p [kPa],
+    /// x)` (M20): returns `(z, h_dep_rt, s_dep_r, ln_phi)` — `Z`,
+    /// `(H−H°)/(RT)`, `(S−S°)/R`, `ln(f/P)`, all dimensionless.
+    #[pyo3(signature = (t, p, x, phase, eta=0.25))]
+    fn lee_kesler_departure(
+        &self,
+        t: f64,
+        p: f64,
+        x: Vec<f64>,
+        phase: &str,
+        eta: f64,
+    ) -> PyResult<(f64, f64, f64, f64)> {
+        self.check_width("x", x.len())?;
+        let ph = parse_phase(phase)?;
+        let d = crate::refinery::lee_kesler_departure_mix(&self.components, &x, t, p, ph, eta)
+            .map_err(refinery_err)?;
+        Ok((d.z, d.h_dep_rt, d.s_dep_r, d.ln_phi))
+    }
+
+    /// Molar enthalpy and entropy of `phase` with the **Lee–Kesler** residual
+    /// instead of the EOS departure (M20): ideal-gas mixture terms relative to
+    /// `(t_ref, p_ref)` plus `R·T·(H−H°)/(RT)` and `R·(S−S°)/R`. Same
+    /// reference state and units as `enthalpy_entropy` — **kJ/kmol**,
+    /// **kJ/(kmol·K)** — so the two routes are directly comparable.
+    #[pyo3(signature = (t, p, x, phase, eta=0.25))]
+    fn enthalpy_entropy_lee_kesler(
+        &self,
+        t: f64,
+        p: f64,
+        x: Vec<f64>,
+        phase: &str,
+        eta: f64,
+    ) -> PyResult<(f64, f64)> {
+        self.check_width("x", x.len())?;
+        let ph = parse_phase(phase)?;
+        let d = crate::refinery::lee_kesler_departure_mix(&self.components, &x, t, p, ph, eta)
+            .map_err(refinery_err)?;
+        let h_id = crate::energy::ideal_enthalpy_mix(&self.components, &x, t, self.t_ref, &[]);
+        let s_id = crate::energy::ideal_entropy_mix(
+            &self.components,
+            &x,
+            t,
+            p,
+            self.t_ref,
+            self.p_ref,
+            &[],
+        );
+        const R: f64 = crate::types::R_GAS;
+        Ok((h_id + d.h_dep_rt * R * t, s_id + d.s_dep_r * R))
+    }
+
+    /// Peneloux volume shifts `cᵢ` in **cm³/mol** for every component under
+    /// the liquid-phase cubic EOS (M20).
+    fn peneloux_shifts(&self) -> PyResult<Vec<f64>> {
+        let eos = self.phase_eos(PhaseId::Liquid)?;
+        self.components
+            .iter()
+            .map(|c| crate::refinery::peneloux_shift(eos, c).map_err(refinery_err))
+            .collect()
+    }
+
+    /// Volume-translated molar volume of `phase` at `(t [K], p [kPa], x)` in
+    /// **cm³/mol** (M20). Needs a cubic EOS on that phase.
+    fn translated_molar_volume(&self, t: f64, p: f64, x: Vec<f64>, phase: &str) -> PyResult<f64> {
+        self.check_width("x", x.len())?;
+        let ph = parse_phase(phase)?;
+        let eos = self.phase_eos(ph)?;
+        crate::refinery::translated_molar_volume(&self.mixture_spec(eos), t, p, &x, ph)
+            .map_err(refinery_err)
+    }
+
+    /// Volume-translated mass density of `phase` at `(t [K], p [kPa], x)` in
+    /// **kg/m³** (M20). Needs a cubic EOS on that phase and `mws`.
+    fn translated_density(&self, t: f64, p: f64, x: Vec<f64>, phase: &str) -> PyResult<f64> {
+        self.check_width("x", x.len())?;
+        let ph = parse_phase(phase)?;
+        let eos = self.phase_eos(ph)?;
+        crate::refinery::translated_liquid_density(&self.mixture_spec(eos), t, p, &x, ph)
+            .map_err(refinery_err)
     }
 
     /// Partial molar enthalpies H̄ᵢ of `phase` at `(t [K], p [kPa], x)`, in

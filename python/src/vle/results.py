@@ -67,6 +67,61 @@ class FlashResult:
 
 
 @dataclass(frozen=True)
+class FreeWaterFlashResult:
+    """Outcome of a free-water (water-decant) flash (M20).
+
+    Phase fractions are moles per mole of total feed and sum to one.
+
+    Attributes:
+        vapor_fraction: Vapor moles per mole of feed (hydrocarbons + water vapor).
+        hc_liquid_fraction: Hydrocarbon-liquid moles per mole of feed.
+        free_water_fraction: Free-water (pure liquid water) moles per mole of
+            feed; 0 when no second liquid forms.
+        y: Vapor mole fractions, all components (water included).
+        x: Hydrocarbon-liquid mole fractions; water's entry is 0 by construction.
+        k: Dry-hydrocarbon K-values at the hydrocarbon partial pressure; water's
+            entry is ``y_w`` when free water exists, else NaN.
+        free_water: Whether a free-water phase is present.
+        y_water: Vapor mole fraction of water actually used.
+        psat_water: Water saturation pressure used, **kPa**.
+        iterations: Total dry-flash iterations.
+        t: Temperature in **K**. p: Pressure in **kPa** (absolute).
+        water_index: Index of the water component.
+    """
+
+    vapor_fraction: float
+    hc_liquid_fraction: float
+    free_water_fraction: float
+    y: list[float]
+    x: list[float]
+    k: list[float]
+    free_water: bool
+    y_water: float
+    psat_water: float
+    iterations: int = 0
+    t: float | None = None
+    p: float | None = None
+    water_index: int | None = None
+
+
+@dataclass(frozen=True)
+class LeeKeslerDeparture:
+    """Lee–Kesler reduced departure functions of one phase (M20), all dimensionless.
+
+    Attributes:
+        z: Compressibility factor.
+        h_dep_rt: ``(H − H°)/(R·T)`` — multiply by ``R·T`` for kJ/kmol.
+        s_dep_r: ``(S − S°)/R`` with S° the ideal gas at the same T and P.
+        ln_phi: ``ln(f/P)``.
+    """
+
+    z: float
+    h_dep_rt: float
+    s_dep_r: float
+    ln_phi: float
+
+
+@dataclass(frozen=True)
 class BubbleResult:
     """Bubble-point result: the first bubble of vapor off a liquid.
 

@@ -111,6 +111,8 @@ pub struct ComponentData {
     pub g_polar: f64,
     /// PRSV κ₁ parameter, dimensionless.
     pub prsv_k1: f64,
+    /// Watson characterization factor K_W, dimensionless (M20; 0 = unknown).
+    pub watson_k: f64,
     /// Saturation-pressure correlation this component's `psat_coeffs` fit.
     pub sat_model: SatModel,
 }
@@ -137,6 +139,7 @@ impl From<Component> for ComponentData {
             n_polar: c.n_polar,
             g_polar: c.g_polar,
             prsv_k1: c.prsv_k1,
+            watson_k: c.watson_k,
             sat_model: c.sat_model.into(),
         }
     }
@@ -186,6 +189,7 @@ impl TryFrom<ComponentData> for Component {
             n_polar: d.n_polar,
             g_polar: d.g_polar,
             prsv_k1: d.prsv_k1,
+            watson_k: d.watson_k,
             sat_model: d.sat_model.into(),
         })
     }

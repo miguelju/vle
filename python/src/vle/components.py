@@ -82,6 +82,10 @@ class Component:
     cp_coeffs: list[float] = field(default_factory=list)  # Cp°/R = Σ aₖ Tᵏ, T in K
     cp_t_range: list[float] = field(default_factory=list)  # [t_min, t_max] K
     cp_source: str = ""
+    # M20 refinery thermodynamics. All optional; 0.0 means "not set".
+    solubility_param: float = 0.0  # Hildebrand δ, (cal/cm³)^½ — Grayson-Streed γ
+    watson_k: float = 0.0  # Watson K_W — Braun K10's Maxwell-Bonnell correction
+    zra: float = 0.0  # Rackett Z_RA — Peneloux shift (else correlated from ω)
 
 
 @lru_cache(maxsize=1)

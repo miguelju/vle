@@ -86,6 +86,30 @@ Similarly, when implementing an algorithm from a specific paper below, cite the 
 
 (30) Poling, B. E.; Prausnitz, J. M.; O'Connell, J. P. *The Properties of Gases and Liquids*, 5th ed.; McGraw-Hill: New York, 2001.
 
+
+*References (31)–(41) were added 2026-08-16 with the petroleum-characterization milestone ([PETROLEUM_PSEUDOCOMPONENT_PLAN.md](engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2; learning guide at [docs/en/petroleum/](../en/petroleum/README.md)).*
+
+(31) Riazi, M. R. *Characterization and Properties of Petroleum Fractions*; ASTM Manual Series MNL50: West Conshohocken, PA, 2005.
+
+(32) Riazi, M. R.; Daubert, T. E. Simplify Property Predictions. *Hydrocarbon Processing* **1980**, *59* (3), 115–116.
+
+(33) Riazi, M. R.; Daubert, T. E. Characterization Parameters for Petroleum Fractions. *Ind. Eng. Chem. Res.* **1987**, *26* (4), 755–759.
+
+(34) Riazi, M. R.; Daubert, T. E. Analytical Correlations Interconvert Distillation Curve Types. *Oil & Gas Journal* **1986**, *84*, 50–57.
+
+(35) Daubert, T. E. Petroleum Fraction Distillation Interconversion. *Hydrocarbon Processing* **1994**, *73* (9), 75–78.
+
+(36) Kesler, M. G.; Lee, B. I. Improve Prediction of Enthalpy of Fractions. *Hydrocarbon Processing* **1976**, *55* (3), 153–158.
+
+(37) Lee, B. I.; Kesler, M. G. A Generalized Thermodynamic Correlation Based on Three-Parameter Corresponding States. *AIChE Journal* **1975**, *21* (3), 510–527.
+
+(38) Twu, C. H. An Internally Consistent Correlation for Predicting the Critical Properties and Molecular Weights of Petroleum and Coal-Tar Liquids. *Fluid Phase Equilibria* **1984**, *16*, 137–150.
+
+(39) Edmister, W. C.; Okamoto, K. K. Applied Hydrocarbon Thermodynamics, Part 13: Equilibrium Flash Vaporization Correlations for Petroleum Fractions. *Petroleum Refiner* **1959**, *38* (9), 271–288.
+
+(40) Maxwell, J. B.; Bonnell, L. S. *Vapor Pressure Charts for Petroleum Engineers*; Esso Research and Engineering: Linden, NJ, 1955; also *Ind. Eng. Chem.* **1957**, *49*, 1187.
+
+(41) American Petroleum Institute. *Technical Data Book — Petroleum Refining*, 6th ed. — Procedures 2B1.1, 3A1.1, 3A3.1, 3A3.2, 5A1.19, 7D3.6.
 ---
 
 ## Reference-to-Code Mapping
@@ -122,6 +146,17 @@ Similarly, when implementing an algorithm from a specific paper below, cite the 
 | (28) Michelsen (1999) | State-function-based flash specifications (PH flash) (§M) | `flash/adiabatic.rs` |
 | (29) Wilson (1969) | Wilson K-value correlation for flash/bubble/dew initialization (§I) | `flash/init.rs` |
 | (30) Poling, Prausnitz & O'Connell (2001) | Property-data provenance: critical constants cross-check + ideal-gas Cp°/R polynomials for the bundled component DB (Phase 19) | `engine/data/components.json`, `python/src/vle/data/components.json` |
+| (31) Riazi (2005) | *Characterization and Properties of Petroleum Fractions* — the standard text; Examples 3.2–3.5 are the interconversion test oracles (Phase 26) | `petroleum/distillation.rs` (tests) |
+| (32) Riazi & Daubert (1980) | Two-parameter Tb + SG correlations for M, Tc, Pc, Vc (Phase 26) | `petroleum/properties.rs` |
+| (33) Riazi & Daubert (1987) | Extended exponential Tb + SG correlations, adopted by the API — the module default (Phase 26) | `petroleum/properties.rs` |
+| (34) Riazi & Daubert (1986) | Point-wise D86 ↔ TBP power-law interconversion (Phase 26) | `petroleum/distillation.rs` |
+| (35) Daubert (1994) | API Procedures 3A1.1 / 3A3.1 / 3A3.2 — the difference-method curve interconversions (Phase 26) | `petroleum/distillation.rs` |
+| (36) Kesler & Lee (1976) | Critical properties, molecular weight, heavy-branch acentric factor, and the API 7D3.6 ideal-gas Cp° (Phase 26) | `petroleum/properties.rs`, `petroleum/cp.rs` |
+| (37) Lee & Kesler (1975) | Acentric factor from vapor pressure at Tb (Tbr < 0.8); the Zc corresponding-states correlation (Phase 26) | `petroleum/properties.rs` |
+| (38) Twu (1984) | n-alkane perturbation method for Tc, Pc, Vc, M of petroleum fractions (Phase 26) | `petroleum/properties.rs` |
+| (39) Edmister & Okamoto (1959) | D86 ↔ EFV equilibrium-flash-vaporization conversions (Phase 26) | `petroleum/distillation.rs` |
+| (40) Maxwell & Bonnell (1955/1957) | Vacuum ↔ atmospheric boiling-point conversion (AET) and fraction vapor pressure (Phase 26) | `petroleum/vapor_pressure.rs` |
+| (41) API *Technical Data Book* | Procedures 2B1.1 (average boiling points), 3A1.1/3A3.1/3A3.2, 5A1.19, 7D3.6 (Phase 26) | `petroleum/{gravity,distillation,vapor_pressure,cp}.rs` |
 
 ---
 
@@ -1153,44 +1188,101 @@ equivalence tests of the fast path against the general path.
 **Key source files (planned):** `engine/src/mixture.rs` (`quad_a`,
 `d_ln_phi_d_n_classical`), `engine/benches/`, `OPTIMIZATION_PLAN_PART2.md`
 
-### Phase 26: Petroleum Characterization *(Milestone 19)* — **not started**
+### Phase 26: Petroleum Characterization *(Milestone 19)* — **code complete (unreleased)**
 
-*Added 2026-07-25. Full design record:
+*Added 2026-07-25; implemented 2026-08-16. Full design record:
 [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U1, U2).*
 
 Turns a crude assay into hundreds of pseudocomponents carrying full EOS
 parameter sets — the input every crude-column calculation needs, and a
-capability the engine has **none** of today. Distillation-curve
-interconversion (ASTM D86 ↔ TBP ↔ D2887 ↔ EFV), cutting a TBP curve into N
-pseudocomponents, then estimating MW, Tc, Pc, ω, Zc and Vc per cut from its
-normal boiling point and specific gravity (Lee–Kesler, Twu, Riazi–Daubert,
-Kesler–Lee), plus ideal-gas Cp° for fractions (API 7D3.6) feeding the
-`cp_coeffs` field `Component` already carries, and Maxwell–Bonnell vapor
-pressure.
+capability the engine had **none** of before this phase.
 
-**Verification:** published API Technical Data Book worked examples, per cut.
+**Shipped.** `engine/src/petroleum/` in seven submodules, each a layer of one
+pipeline: `gravity` (API ↔ SG, Watson K, the five average boiling points),
+`distillation` (D86 ↔ TBP ↔ D2887 ↔ EFV, routed through TBP as the hub),
+`cuts` (a curve into N slices — by volume, by boiling range, or at explicit
+product boundaries), `properties` (four critical-property families:
+Riazi–Daubert 1980, API/Riazi–Daubert 1987, Kesler–Lee, Twu; Lee–Kesler ω;
+four corresponding-states Zc correlations), `cp` (Kesler–Lee / API 7D3.6
+ideal-gas Cp°, emitted directly as the `cp_coeffs` polynomial `Component`
+already carries), `vapor_pressure` (Maxwell–Bonnell, both directions plus a
+Brent inversion for `Psat(T)`), and `assay` (the whole pipeline, `Assay` →
+`Vec<Component>` + mole fractions). Surfaced in Python as `vle.petroleum`.
 
-**Key source files (planned):** `engine/src/petroleum/`, `python/src/vle/`,
-a milestone notebook
+The design constraint that shaped the module: a pseudocomponent must be an
+**ordinary `Component`**, so that nothing downstream — flash, mixture,
+energy — needs a special case for correlated properties. It is, and that is
+what `pseudocomponents_drive_a_real_flash` asserts.
 
-### Phase 27: Refinery Thermodynamics *(Milestone 20)* — **not started**
+**Verification.** Published worked examples, as planned: Riazi (2005)
+Examples 3.2, 3.3, 3.4, 3.5 and two API *Technical Data Book* examples, all
+matched to \< 0.15 °C. The property correlations, for which no per-cut API
+worked example was obtainable, are instead validated against **measured**
+Tc/Pc/ω/M/Vc for ten pure hydrocarbons from the bundled component database —
+a stronger test in one respect, since those correlations are *fitted* to
+pure-hydrocarbon data and a mistyped coefficient cannot match across ten
+compounds by accident. Maxwell–Bonnell is validated against this crate's own
+Antoine equations, an oracle nothing here was fitted to. 121 Rust unit tests,
+37 wheel-level Python tests.
 
-*Added 2026-07-25. Full design record:
+**Known gap, stated rather than rounded up.** The Kesler–Lee `CF` correction
+for non-paraffinic fractions is **not implemented** — its published
+coefficients could not be verified against a primary source. Measured cost:
+ideal-gas Cp° is up to **15.9 % low on naphthenes**, versus 2.9 % on
+paraffins and 3.1 % on aromatics. Documented in the module header and
+asserted from both sides in `naphthenes_are_the_documented_weak_spot`, so
+implementing `CF` forces the documentation to be corrected.
+
+**Key source files:** `engine/src/petroleum/{mod,gravity,distillation,cuts,properties,cp,vapor_pressure,assay}.rs`,
+`engine/src/py_petroleum.rs`, `python/src/vle/petroleum.py`,
+`python/tests/test_m19_petroleum.py`,
+`notebooks/15_petroleum_characterization.ipynb`
+
+### Phase 27: Refinery Thermodynamics *(Milestone 20)* — **code complete (unreleased)**
+
+*Added 2026-07-25; executed 2026-08-16. Full design record:
 [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §2 (U4, U5).*
 
 The methods a refinery column is actually validated against, plus the
 free-water handling that stripping steam makes unavoidable — an atmospheric
 tower injects steam, so a second liquid phase forms in the overhead drum and
-in every side stripper. Adds VLLE stability and flash (or at minimum a
-water-decant model), Grayson–Streed (extending the existing
-`LiquidModel::ChaoSeader`) and BK10 K-values, Lee–Kesler enthalpy departure as
-an alternative to the EOS departure route, and Peneloux volume translation for
-heavy-cut liquid density.
+in every side stripper. Built for the outer loop of an inside-out column
+solver: the K-value methods cost O(N) per stage, Lee–Kesler one O(N²) mixing
+pass, and nothing is allocated inside an iteration.
 
-Depends on Phase 26 for the fractions these methods apply to.
+**What shipped, and the two scope decisions stated plainly:**
 
-**Key source files (planned):** `engine/src/flash/` (three-phase),
-`engine/src/eos.rs`, `engine/src/energy.rs`
+- **Free water — the water-decant model** (`engine/src/flash/free_water.rs`).
+  Hydrocarbons flash at their partial pressure `P − y_w·P` with whatever
+  models the `SystemSpec` carries; the vapor is saturated with water at
+  `Pˢᵃᵗ_w(T)` while a free phase exists; the free-water leg comes from the
+  balance, and a short fixed point on `y_w` handles the no-free-water case.
+  **Not** a general three-liquid stability search — it cannot find a second
+  hydrocarbon liquid and neglects dissolved water — which is the plan's "at
+  minimum" option and what refinery simulators run.
+- **Grayson–Streed** (`LiquidModel::GraysonStreed`): `Kᵢ = νᵢγᵢ/φ̂ᵢⱽ`, ν and
+  the Scatchard–Hildebrand γ constants hoisted into `SystemTpCache`. The
+  legacy `LiquidModel::ChaoSeader` turned out to carry the *Grayson–Streed
+  1963* table and no γ; it is kept unchanged and documented, and the 1961
+  table is available as `RegularSolutionSet::ChaoSeader1961`.
+- **Braun K10** (`LiquidModel::BraunK10`): `Kᵢ = Pᵢᴹᴮ/(φ̂ᵢⱽP)`; no
+  pressure-correction charts (stated). Made affordable by inverting
+  Maxwell–Bonnell **in closed form** — a quadratic in `log₁₀ P` per `Q`
+  branch — with the Brent solve kept as fallback and oracle.
+- **Lee–Kesler departure** (`engine/src/refinery/lee_kesler.rs`): pure and
+  mixture (η = 1 / 0.25 rules), validated by the `H = −Tr²∂lnφ/∂Tr` and
+  `S = H/RT − lnφ` identities rather than by transcribed table values;
+  0.10 ms per N = 300 mixture enthalpy from Python.
+- **Peneloux translation** (`engine/src/refinery/volume_translation.rs`):
+  SRK and PR shifts from Z_RA, translated volume and density; K-values
+  untouched by construction.
+
+**Key source files:** `engine/src/refinery/{mod,lee_kesler,volume_translation}.rs`,
+`engine/src/flash/free_water.rs`, `engine/src/flash/system.rs` (the two new
+liquid models and their cache), `engine/src/eos.rs` (`RegularSolutionSet`,
+`regular_solution_ln_nu`), `engine/src/petroleum/vapor_pressure.rs` (closed-form
+inversion), `engine/src/py_refinery.rs`, `engine/src/py_system.rs`,
+`python/src/vle/refinery.py`, `notebooks/16_refinery_thermodynamics.ipynb`.
 
 ---
 

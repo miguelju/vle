@@ -137,7 +137,18 @@ pub(crate) struct SystemTpCache {
     /// Virial vapor only: the flat Bᵢⱼ matrix, which depends on T alone
     /// (audit Part 2 §9).
     virial_b: Option<Vec<f64>>,
+    /// Refinery K-value methods (M20), the composition-independent part of
+    /// `ln Kᵢ`: Grayson–Streed's `ln νᵢ`, or Braun K10's `ln Pᵢᴹᴮ − ln P`.
+    /// Empty for every other liquid model.
+    refinery_const: smallvec::SmallVec<[f64; 8]>,
+    /// Grayson–Streed only: the Scatchard–Hildebrand inputs `(Vᵢᴸ, δᵢ)`
+    /// resolved once (spec overrides, else the components' own fields), or
+    /// `None` when they are unavailable and γ ≡ 1.
+    scatchard: Option<ScatchardInputs>,
 }
+
+/// `(Vᵢᴸ [cm³/mol], δᵢ [(cal/cm³)^½])` per component for the regular-solution γ.
+type ScatchardInputs = (smallvec::SmallVec<[f64; 8]>, smallvec::SmallVec<[f64; 8]>);
 
 impl SystemTpCache {
     /// Build the cache for `spec` at `t` (**K**) and `p` (**kPa absolute**).
@@ -190,6 +201,27 @@ impl SystemTpCache {
             _ => None,
         };
 
+        // Refinery methods (M20): everything but the vapor φ̂ and (for
+        // Grayson-Streed) the regular-solution γ is a per-(T, P) constant.
+        let mut refinery_const = smallvec::SmallVec::new();
+        let mut scatchard = None;
+        match spec.liquid {
+            LiquidModel::GraysonStreed => {
+                refinery_const.reserve(n);
+                for c in spec.components {
+                    refinery_const.push(grayson_streed_ln_nu(c, t, p));
+                }
+                scatchard = scatchard_inputs(spec);
+            }
+            LiquidModel::BraunK10 => {
+                refinery_const.reserve(n);
+                for c in spec.components {
+                    refinery_const.push(bk10_ln_k_ideal(c, t, p)?);
+                }
+            }
+            _ => {}
+        }
+
         Ok(Self {
             t,
             p,
@@ -198,7 +230,99 @@ impl SystemTpCache {
             gamma_phi_const,
             activity,
             virial_b,
+            refinery_const,
+            scatchard,
         })
+    }
+}
+
+// ===========================================================================
+// Refinery K-value methods (M20): Grayson-Streed and Braun K10 building blocks.
+// ===========================================================================
+
+/// Grayson–Streed `ln νᵢ` for one component at `(t, p)`, species picked by name.
+fn grayson_streed_ln_nu(c: &Component, t: f64, p: f64) -> f64 {
+    crate::eos::regular_solution_ln_nu(
+        crate::eos::RegularSolutionSet::GraysonStreed1963,
+        t,
+        p,
+        c,
+        crate::eos::ChaoSeaderSpecies::for_component(c),
+    )
+}
+
+/// Braun K10 ideal-vapor `ln Kᵢ = ln Pᵢᴹᴮ(T; Tb,ᵢ, K_W,ᵢ) − ln P` for one
+/// component. `Component::watson_k == 0` means "unknown" → no Watson correction.
+fn bk10_ln_k_ideal(c: &Component, t: f64, p: f64) -> Result<f64, FlashError> {
+    if c.tb <= 0.0 {
+        return Err(FlashError::Thermo(format!(
+            "Braun K10 needs a normal boiling point for '{}' (Component::tb is {})",
+            c.name, c.tb
+        )));
+    }
+    let kw = (c.watson_k > 0.0).then_some(c.watson_k);
+    crate::petroleum::vapor_pressure::ln_vapor_pressure(t, c.tb, kw)
+        .map(|ln_psat| ln_psat - p.ln())
+        .map_err(|e| FlashError::Thermo(format!("Braun K10 for '{}': {e}", c.name)))
+}
+
+/// Resolve the Scatchard–Hildebrand inputs for a Grayson–Streed system:
+/// the `SystemSpec` `vl` / `delta` overrides when both are full-length,
+/// otherwise each component's `liquid_volume` / `solubility_param`. `None`
+/// (γ ≡ 1) if any volume or solubility parameter is missing — a documented
+/// degradation, not an error, because a hydrogen or light-gas component in a
+/// database often has no δ and the νᵢ term still carries the method.
+fn scatchard_inputs(spec: &SystemSpec) -> Option<ScatchardInputs> {
+    let n = spec.n();
+    let mut vl: smallvec::SmallVec<[f64; 8]> = smallvec::SmallVec::with_capacity(n);
+    let mut delta: smallvec::SmallVec<[f64; 8]> = smallvec::SmallVec::with_capacity(n);
+    let overrides = spec.vl.len() == n && spec.delta.len() == n;
+    for (i, c) in spec.components.iter().enumerate() {
+        let (v, d) = if overrides {
+            (spec.vl[i], spec.delta[i])
+        } else {
+            (c.liquid_volume, c.solubility_param)
+        };
+        if !(v > 0.0 && v.is_finite() && d > 0.0 && d.is_finite()) {
+            return None;
+        }
+        vl.push(v);
+        delta.push(d);
+    }
+    Some((vl, delta))
+}
+
+/// Grayson–Streed `ln Kᵢ` assembly: `slot` arrives holding the vapor `ln φ̂ᵢⱽ`
+/// and leaves holding `ln νᵢ + ln γᵢ(x) − ln φ̂ᵢⱽ`.
+fn grayson_streed_ln_k_into(
+    ln_nu: &[f64],
+    scatchard: Option<&ScatchardInputs>,
+    x: &[f64],
+    t: f64,
+    slot: &mut [f64],
+) {
+    match scatchard {
+        Some((vl, delta)) => {
+            let mut ln_gamma: smallvec::SmallVec<[f64; 8]> = smallvec::smallvec![0.0; x.len()];
+            ln_gamma_all(
+                crate::activity::ActivityModel::ScatchardHildebrand,
+                x,
+                &[],
+                &[],
+                vl,
+                delta,
+                t,
+                &mut ln_gamma,
+            );
+            for i in 0..slot.len() {
+                slot[i] = ln_nu[i] + ln_gamma[i] - slot[i];
+            }
+        }
+        None => {
+            for i in 0..slot.len() {
+                slot[i] = ln_nu[i] - slot[i];
+            }
+        }
     }
 }
 
@@ -396,6 +520,25 @@ pub(crate) fn ln_k_values_cached_into(
             }
             Ok(())
         }
+
+        // Refinery methods (M20): the constant part is cached; only the
+        // regular-solution γ (Grayson-Streed) is composition work.
+        LiquidModel::GraysonStreed => {
+            if cache.refinery_const.len() != n {
+                return Err(FlashError::Dimension("Grayson-Streed cache size".into()));
+            }
+            grayson_streed_ln_k_into(&cache.refinery_const, cache.scatchard.as_ref(), x, t, out);
+            Ok(())
+        }
+        LiquidModel::BraunK10 => {
+            if cache.refinery_const.len() != n {
+                return Err(FlashError::Dimension("Braun K10 cache size".into()));
+            }
+            for (o, c) in out.iter_mut().zip(&cache.refinery_const) {
+                *o = c - *o;
+            }
+            Ok(())
+        }
     }
 }
 
@@ -510,6 +653,25 @@ pub fn ln_k_values_into(
                     crate::eos::ChaoSeaderSpecies::Normal,
                 );
                 *slot = ln_nu - *slot;
+            }
+            Ok(())
+        }
+
+        // --- Grayson-Streed: ln Kᵢ = ln νᵢ + ln γᵢ − ln φ̂ᵢⱽ (M20) ---
+        LiquidModel::GraysonStreed => {
+            let mut ln_nu: Scratch = smallvec::smallvec![0.0; n];
+            for (slot, c) in ln_nu.iter_mut().zip(spec.components) {
+                *slot = grayson_streed_ln_nu(c, t, p);
+            }
+            let scatchard = scatchard_inputs(spec);
+            grayson_streed_ln_k_into(&ln_nu, scatchard.as_ref(), x, t, out);
+            Ok(())
+        }
+
+        // --- Braun K10: ln Kᵢ = ln Pᵢᴹᴮ − ln P − ln φ̂ᵢⱽ (M20) ---
+        LiquidModel::BraunK10 => {
+            for (slot, c) in out.iter_mut().zip(spec.components) {
+                *slot = bk10_ln_k_ideal(c, t, p)? - *slot;
             }
             Ok(())
         }
@@ -808,9 +970,13 @@ pub fn k_values_with_derivs(
             })
         }
 
-        LiquidModel::ChaoSeader => Err(FlashError::Unsupported(
-            "k_values_with_derivs: Chao-Seader liquid derivatives not implemented".into(),
-        )),
+        LiquidModel::ChaoSeader | LiquidModel::GraysonStreed | LiquidModel::BraunK10 => {
+            Err(FlashError::Unsupported(
+                "k_values_with_derivs: Chao-Seader / Grayson-Streed / Braun K10 liquid \
+                 derivatives not implemented"
+                    .into(),
+            ))
+        }
     }
 }
 
@@ -1328,5 +1494,155 @@ mod tests {
             &[0.55, 0.45],
             "γ-φ vanLaar/PR",
         );
+    }
+
+    // === Refinery K-value methods (M20) ==================================
+
+    fn refinery_pair() -> [Component; 2] {
+        // n-butane / n-heptane with regular-solution data (δ in (cal/cm³)^½,
+        // Vᴸ in cm³/mol) and boiling points, so every M20 liquid model applies.
+        let mut b = n_butane();
+        b.solubility_param = 6.73;
+        b.liquid_volume = 101.4;
+        b.tb = 272.65;
+        let mut h = n_heptane();
+        h.solubility_param = 7.43;
+        h.liquid_volume = 147.5;
+        h.tb = 371.55;
+        [b, h]
+    }
+
+    #[test]
+    fn grayson_streed_k_is_nu_times_gamma_over_phi() {
+        let comps = refinery_pair();
+        let mut spec = classical(&comps, &[]);
+        spec.liquid = LiquidModel::GraysonStreed;
+        let (t, p) = (400.0, 800.0);
+        let x = [0.4, 0.6];
+        let y = [0.7, 0.3];
+        let k = k_values(&spec, t, p, &x, &y).unwrap();
+        // Assemble by hand from the public pieces.
+        let mut vap = vec![0.0; 2];
+        vapor_ln_phi_into(&spec, t, p, &y, &mut vap).unwrap();
+        let vl = [101.4, 147.5];
+        let delta = [6.73, 7.43];
+        let mut lg = vec![0.0; 2];
+        ln_gamma_all(
+            crate::activity::ActivityModel::ScatchardHildebrand,
+            &x,
+            &[],
+            &[],
+            &vl,
+            &delta,
+            t,
+            &mut lg,
+        );
+        for i in 0..2 {
+            let ln_nu = crate::eos::regular_solution_ln_nu(
+                crate::eos::RegularSolutionSet::GraysonStreed1963,
+                t,
+                p,
+                &comps[i],
+                crate::eos::ChaoSeaderSpecies::Normal,
+            );
+            let want = (ln_nu + lg[i] - vap[i]).exp();
+            assert!(
+                (k[i] - want).abs() < 1e-12 * want,
+                "K[{i}] = {} vs {want}",
+                k[i]
+            );
+        }
+        assert!(
+            k[0] > 1.0 && k[1] < 1.0,
+            "butane volatile, heptane heavy: {k:?}"
+        );
+        // The regular-solution γ is a real contribution (not identically 1).
+        assert!(lg.iter().any(|g| g.abs() > 1e-4), "ln γ = {lg:?}");
+    }
+
+    #[test]
+    fn grayson_streed_cached_path_matches_the_direct_path_and_flashes() {
+        let comps = refinery_pair();
+        let mut spec = classical(&comps, &[]);
+        spec.liquid = LiquidModel::GraysonStreed;
+        let (t, p) = (380.0, 600.0);
+        let cache = SystemTpCache::new(&spec, t, p).unwrap();
+        let x = [0.3, 0.7];
+        let y = [0.8, 0.2];
+        let mut a = vec![0.0; 2];
+        let mut b = vec![0.0; 2];
+        ln_k_values_into(&spec, t, p, &x, &y, &mut a).unwrap();
+        ln_k_values_cached_into(&spec, &cache, &x, &y, &mut b).unwrap();
+        for i in 0..2 {
+            assert!((a[i] - b[i]).abs() < 1e-14, "{a:?} vs {b:?}");
+        }
+        // And the isothermal flash converges on it.
+        let r = crate::flash::isothermal::flash_isothermal(&spec, t, p, &[0.5, 0.5], 1e-10, 200)
+            .unwrap();
+        assert!(r.two_phase, "{r:?}");
+        for i in 0..2 {
+            let bal = r.beta * r.y[i] + (1.0 - r.beta) * r.x[i];
+            assert!((bal - 0.5).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn grayson_streed_without_solubility_data_degrades_to_gamma_one() {
+        // Components with no δ/Vᴸ: γ ≡ 1 and Grayson-Streed equals the legacy
+        // Chao-Seader path (same ν table, no γ). Documented degradation.
+        let comps = [n_butane(), n_heptane()];
+        let mut gs = classical(&comps, &[]);
+        gs.liquid = LiquidModel::GraysonStreed;
+        let mut cs = classical(&comps, &[]);
+        cs.liquid = LiquidModel::ChaoSeader;
+        let (x, y) = ([0.4, 0.6], [0.7, 0.3]);
+        let a = k_values(&gs, 400.0, 800.0, &x, &y).unwrap();
+        let b = k_values(&cs, 400.0, 800.0, &x, &y).unwrap();
+        for i in 0..2 {
+            assert!((a[i] - b[i]).abs() < 1e-12 * b[i]);
+        }
+    }
+
+    #[test]
+    fn braun_k10_is_maxwell_bonnell_over_pressure_with_an_ideal_vapor() {
+        let comps = refinery_pair();
+        let mut spec = classical(&comps, &[]);
+        spec.vapor = VaporModel::IdealGas;
+        spec.liquid = LiquidModel::BraunK10;
+        let (t, p) = (350.0, 120.0);
+        let k = k_values(&spec, t, p, &[0.5, 0.5], &[0.5, 0.5]).unwrap();
+        for i in 0..2 {
+            let want = crate::petroleum::vapor_pressure(t, comps[i].tb, None).unwrap() / p;
+            assert!(
+                (k[i] - want).abs() < 1e-12 * want,
+                "K[{i}] {} vs {want}",
+                k[i]
+            );
+        }
+        // Cached path agrees.
+        let cache = SystemTpCache::new(&spec, t, p).unwrap();
+        let mut b = vec![0.0; 2];
+        ln_k_values_cached_into(&spec, &cache, &[0.5, 0.5], &[0.5, 0.5], &mut b).unwrap();
+        for i in 0..2 {
+            assert!((b[i].exp() - k[i]).abs() < 1e-12 * k[i]);
+        }
+        // A component's Watson K, when set, changes the answer (the correction
+        // is applied), and a missing Tb is an error, not a silent zero.
+        let mut with_kw = refinery_pair();
+        with_kw[1].watson_k = 11.0; // heptane: Tb above the ramp's 366.5 K onset
+        let mut s2 = classical(&with_kw, &[]);
+        s2.vapor = VaporModel::IdealGas;
+        s2.liquid = LiquidModel::BraunK10;
+        let k2 = k_values(&s2, t, 50.0, &[0.5, 0.5], &[0.5, 0.5]).unwrap();
+        let k1 = k_values(&spec, t, 50.0, &[0.5, 0.5], &[0.5, 0.5]).unwrap();
+        assert!(
+            (k2[1] - k1[1]).abs() > 1e-6 * k1[1],
+            "Watson-K correction had no effect"
+        );
+        assert!((k2[0] - k1[0]).abs() < 1e-12 * k1[0]);
+        let no_tb = [n_butane(), n_heptane()];
+        let mut s3 = classical(&no_tb, &[]);
+        s3.liquid = LiquidModel::BraunK10;
+        assert!(k_values(&s3, t, p, &[0.5, 0.5], &[0.5, 0.5]).is_err());
     }
 }

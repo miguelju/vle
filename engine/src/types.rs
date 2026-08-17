@@ -128,6 +128,11 @@ pub struct Component {
     pub g_polar: f64,
     /// PRSV K₁ parameter. Component-specific constant for the PRSV1986 EOS variant.
     pub prsv_k1: f64,
+    /// Watson characterization factor `K_W`, **dimensionless** (M20). Set by the
+    /// petroleum characterization for pseudocomponents; `0.0` means "unknown",
+    /// which the Braun K10 path reads as "no Watson-K correction"
+    /// (`K_W ≈ 12`). Named compounds from the database leave it at zero.
+    pub watson_k: f64,
 
     // --- Saturation model selection (M7.4) ---
     /// Which saturation-pressure correlation to use for this component. Read by
@@ -165,6 +170,7 @@ impl Default for Component {
             n_polar: 0.0,
             g_polar: 0.0,
             prsv_k1: 0.0,
+            watson_k: 0.0,
             sat_model: crate::saturation::SatPressureModel::Antoine,
         }
     }

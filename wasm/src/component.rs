@@ -125,6 +125,9 @@ pub struct ComponentData {
     /// PRSV κ₁ parameter, dimensionless.
     #[serde(default)]
     pub prsv_k1: f64,
+    /// Watson characterization factor K_W, dimensionless (M20; 0 = unknown).
+    #[serde(default)]
+    pub watson_k: f64,
     /// Saturation-pressure correlation name this component's `psatCoeffs`
     /// fit (see [`parse_sat_model`] for the accepted strings).
     #[serde(default = "default_sat_model")]
@@ -153,6 +156,7 @@ impl From<Component> for ComponentData {
             n_polar: c.n_polar,
             g_polar: c.g_polar,
             prsv_k1: c.prsv_k1,
+            watson_k: c.watson_k,
             sat_model: sat_model_name(c.sat_model),
         }
     }
@@ -203,6 +207,7 @@ impl TryFrom<ComponentData> for Component {
             n_polar: d.n_polar,
             g_polar: d.g_polar,
             prsv_k1: d.prsv_k1,
+            watson_k: d.watson_k,
             sat_model: parse_sat_model(&d.sat_model)?,
         })
     }

@@ -29,9 +29,11 @@ from vle.results import (
     CriticalResult,
     DewResult,
     FlashResult,
+    FreeWaterFlashResult,
+    LeeKeslerDeparture,
 )
 from vle.system import System
-from vle import steam
+from vle import petroleum, refinery, steam
 
 try:  # Prefer the installed distribution's version; fall back for source trees.
     from importlib.metadata import PackageNotFoundError, version
@@ -51,10 +53,14 @@ __all__ = [
     "CriticalResult",
     "BatchFlashResult",
     "BatchSaturationResult",
+    "FreeWaterFlashResult",
+    "LeeKeslerDeparture",
     "CubicEos",
     "ActivityModel",
     "MixingRule",
     "PhaseId",
+    "petroleum",
+    "refinery",
     "steam",
     "__version__",
 ]
