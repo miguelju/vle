@@ -584,11 +584,16 @@ class System:
 
     def phase_cp(self, t: Scalar, p: Scalar, x: Sequence[float], phase: str) -> float:
         """Real-mixture isobaric heat capacity Cp of ``phase`` at ``(t, p, x)``,
-        in **kJ/(kmol·K)** (M12.4).
+        in **kJ/(kmol·K)** (M12.4 / M12.6) — the exact temperature derivative
+        of :meth:`enthalpy_entropy`'s H for every model pair.
 
-        ``Cp = Σxᵢ·Cpᵢ°(T) + Cp^R``, the residual via a second-order dual
-        through the temperature-generic fugacity core. Needs a cubic model on
-        ``phase``.
+        Cubic phase: ``Cp = Σxᵢ·Cpᵢ°(T) + Cp^R``, the residual via a
+        second-order dual through the temperature-generic fugacity core.
+        **γ-φ liquid** (since 0.16): ``Σxᵢ Cp°ᵢ − Σxᵢ d(ΔH_vap,ᵢ)/dT + Cpᴱ``,
+        the condensation term from a second-order dual through the saturation
+        correlation and ``Cpᴱ`` from each activity model's own Hᴱ convention.
+        Ideal-gas vapor: ``Σyᵢ Cp°ᵢ``. Virial vapor and the Chao–Seader-family
+        liquids raise.
         """
         return self._engine.phase_cp(_as_temperature(t), _as_pressure(p), list(x), phase)
 

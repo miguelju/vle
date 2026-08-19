@@ -796,6 +796,78 @@ pub fn excess_enthalpy(
     }
 }
 
+/// Excess heat capacity `Cpᴱ = ∂Hᴱ/∂T` at constant composition, in
+/// **kJ/(kmol·K)** (M12.6).
+///
+/// **This differentiates the shipped [`excess_enthalpy`] model by model** — the
+/// same per-model convention, so `Cpᴱ` is exactly `dHᴱ/dT` of the enthalpy a
+/// caller sees (a Newton solver assumes it, and the FD-oracle tests assert
+/// it), rather than a fresh Gibbs–Helmholtz on every model:
+///
+/// | model | Hᴱ as shipped | Cpᴱ here |
+/// |---|---|---|
+/// | IdealSolution | 0 | 0 |
+/// | ScatchardHildebrand | T-independent | 0 |
+/// | Margules, VanLaar | Gᴱ(T) = R·T·g(T), g = Σxᵢ ln γᵢ | R·(g + T·g′), one `Dual64` on g |
+/// | Wilson | the analytic Λ(T) expression | one `Dual64` through the same expression, T-generic |
+/// | NRTL | −R·T²·g′(T) | −R·(2T·g′ + T²·g″), one `Dual2_64` on g |
+///
+/// `temperature` in **K**; `aij` in the model's own units (see [`ln_gamma`]).
+pub fn excess_cp(
+    model: ActivityModel,
+    x: &[f64],
+    aij: &[Vec<f64>],
+    alpha: &[Vec<f64>],
+    vl: &[f64],
+    delta: &[f64],
+    temperature: f64,
+) -> f64 {
+    use num_dual::{Dual2_64, Dual64};
+    let n = x.len();
+    match model {
+        ActivityModel::IdealSolution | ActivityModel::ScatchardHildebrand => 0.0,
+
+        // Hᴱ = Gᴱ = R·T·g(T)  ⇒  Cpᴱ = R·(g + T·g′).
+        ActivityModel::Margules | ActivityModel::VanLaar => {
+            let xd: smallvec::SmallVec<[Dual64; 8]> =
+                x.iter().map(|&xi| Dual64::from(xi)).collect();
+            let td = Dual64::new(temperature, 1.0);
+            let g = excess_gibbs_rt_generic(model, &xd, aij, alpha, vl, delta, td);
+            R_GAS * (g.re + temperature * g.eps)
+        }
+
+        // Wilson: d/dT of Σⱼ xⱼ (Σₖ xₖ aⱼₖ Λⱼₖ)/(Σₖ xₖ Λⱼₖ) with Λ(T) — the same
+        // expression `excess_enthalpy` evaluates, run on a dual.
+        ActivityModel::Wilson => {
+            let td = Dual64::new(temperature, 1.0);
+            let mut h = Dual64::from(0.0);
+            for j in 0..n {
+                let mut up = Dual64::from(0.0);
+                let mut down = Dual64::from(0.0);
+                for k in 0..n {
+                    let lam = wilson_lambda_generic(j, k, aij, vl, td);
+                    down += lam * x[k];
+                    if k != j {
+                        up += lam * (x[k] * aij[j][k]);
+                    }
+                }
+                h += up / down * x[j];
+            }
+            h.eps
+        }
+
+        // NRTL: Hᴱ = −R·T²·g′(T)  ⇒  Cpᴱ = −R·(2T·g′ + T²·g″); g, g′, g″ from
+        // one second-order dual (the `residual_cp` identity).
+        ActivityModel::Nrtl => {
+            let xd: smallvec::SmallVec<[Dual2_64; 8]> =
+                x.iter().map(|&xi| Dual2_64::from(xi)).collect();
+            let td = Dual2_64::new(temperature, 1.0, 0.0);
+            let g = excess_gibbs_rt_generic(model, &xd, aij, alpha, vl, delta, td);
+            -R_GAS * (2.0 * temperature * g.v1 + temperature * temperature * g.v2)
+        }
+    }
+}
+
 /// Excess entropy Sᴱ = (Hᴱ − Gᴱ)/T.
 ///
 /// Research paper eq (2.46), rearranged from Gᴱ = Hᴱ − T·Sᴱ. Arguments as in
@@ -1195,5 +1267,86 @@ mod tests {
                 want
             );
         }
+    }
+
+    // -----------------------------------------------------------------
+    // M12.6 — excess heat capacity, per model, against the FD of the SHIPPED Hᴱ
+    // -----------------------------------------------------------------
+
+    /// `excess_cp` must equal `d(excess_enthalpy)/dT` for **every** model —
+    /// including the ones whose Hᴱ is a legacy convention (Margules / van
+    /// Laar: Hᴱ = Gᴱ) — so the per-model convention is pinned by a test.
+    #[test]
+    fn excess_cp_matches_fd_of_shipped_excess_enthalpy_per_model() {
+        let x = [0.4, 0.6];
+        let vl = [74.0, 18.0];
+        let delta = [11.5, 23.4];
+        let mut a_energy = zeros(2); // kJ/kmol (Wilson / NRTL)
+        a_energy[0][1] = 1500.0;
+        a_energy[1][0] = 2600.0;
+        let mut a_dimless = zeros(2); // dimensionless (Margules / van Laar)
+        a_dimless[0][1] = 0.7;
+        a_dimless[1][0] = 1.1;
+        let mut alpha = zeros(2);
+        alpha[0][1] = 0.3;
+        alpha[1][0] = 0.3;
+        let t = 333.15;
+        let h = 1e-2;
+        type Case<'a> = (
+            ActivityModel,
+            &'a [Vec<f64>],
+            &'a [Vec<f64>],
+            &'a [f64],
+            &'a [f64],
+        );
+        let cases: [Case<'_>; 6] = [
+            (ActivityModel::IdealSolution, &a_dimless, &[], &[], &[]),
+            (ActivityModel::ScatchardHildebrand, &[], &[], &vl, &delta),
+            (ActivityModel::Margules, &a_dimless, &[], &[], &[]),
+            (ActivityModel::VanLaar, &a_dimless, &[], &[], &[]),
+            (ActivityModel::Wilson, &a_energy, &[], &vl, &[]),
+            (ActivityModel::Nrtl, &a_energy, &alpha, &[], &[]),
+        ];
+        for (model, aij, al, v, d) in cases {
+            let he = |tt: f64| excess_enthalpy(model, &x, aij, al, v, d, tt);
+            let fd = (he(t + h) - he(t - h)) / (2.0 * h);
+            let cp = excess_cp(model, &x, aij, al, v, d, t);
+            assert!(
+                (cp - fd).abs() < 1e-6 * fd.abs().max(1e-3),
+                "{model:?}: Cpᴱ {cp} vs FD {fd}"
+            );
+        }
+        // Sanity on the shapes: the T-independent models give exactly 0; the
+        // energy-parameter models give a nonzero Cpᴱ.
+        assert_eq!(
+            excess_cp(
+                ActivityModel::IdealSolution,
+                &x,
+                &a_dimless,
+                &[],
+                &[],
+                &[],
+                t
+            ),
+            0.0
+        );
+        assert_eq!(
+            excess_cp(
+                ActivityModel::ScatchardHildebrand,
+                &x,
+                &[],
+                &[],
+                &vl,
+                &delta,
+                t
+            ),
+            0.0
+        );
+        assert!(excess_cp(ActivityModel::Nrtl, &x, &a_energy, &alpha, &[], &[], t).abs() > 1e-3);
+        assert!(excess_cp(ActivityModel::Wilson, &x, &a_energy, &[], &vl, &[], t).abs() > 1e-3);
+        // Van Laar: Hᴱ = Gᴱ = R·T·g with T-independent g ⇒ Cpᴱ = Gᴱ/T exactly.
+        let ge = excess_gibbs(ActivityModel::VanLaar, &x, &a_dimless, &[], &[], &[], t);
+        let cp = excess_cp(ActivityModel::VanLaar, &x, &a_dimless, &[], &[], &[], t);
+        assert!((cp - ge / t).abs() < 1e-9, "{cp} vs {}", ge / t);
     }
 }

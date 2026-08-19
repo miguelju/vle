@@ -46,7 +46,7 @@ derivatives throughout — exposed via a unit-aware Python facade (`vle.System`)
 and a vectorized numpy **batch API** that releases the GIL (a 200 000-point
 isothermal flash sweep runs in ~60 ms). The bundled component database (25
 compounds with ideal-gas Cp°/R coefficients), IAPWS-IF97 steam tables, CLI and
-units layer round it out. 494 Python tests and 439 Rust tests back it, and the
+units layer round it out. 508 Python tests and 482 Rust tests back it, and the
 numbers are checked against the published Chapter IV tables of the thesis this
 engine derives from — 21 executable notebooks reproduce them.
 
@@ -54,6 +54,7 @@ engine derives from — 21 executable notebooks reproduce them.
 Python surface has been stable across the last several releases, and the
 underlying Rust crate still reserves the right to change shape before 1.0. The
 numerical core is settled.
+`0.16.0` is the **γ-φ heat-capacity release** (Milestone 12.6): `System.phase_cp` now works for **every** model pair — a γ-φ (activity-model) liquid returns the exact temperature derivative of `System.enthalpy_entropy`'s H (ideal-gas Cp° minus the derivative of the Clausius–Clapeyron condensation enthalpy plus the excess Cpᴱ of the activity model's own Hᴱ convention) and an ideal-gas vapor returns Σy·Cp°, where before it raised "needs a cubic model on that phase". Under the hood every saturation correlation became dual-number generic, so `dPsat/dT` is analytic for all of them. Nothing else changed shape.
 `0.15.0` is the **petroleum and refinery release** (Milestones 19 + 20): `vle.petroleum` turns a crude assay into pseudocomponents; `vle.refinery` and six new `System` methods add the free-water decant flash, Grayson–Streed / Braun K10 K-values (`liquid_model="grayson_streed"` / `"bk10"`), Lee–Kesler enthalpy and Peneloux volume translation. `Component` gains `solubility_param`, `watson_k`, `zra`. Nothing existing changed shape.
 `0.14.0` was an **engine performance release** — the Python API is unchanged.
 The mixture core now scales **linearly** with component count instead of

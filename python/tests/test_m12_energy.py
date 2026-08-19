@@ -50,3 +50,49 @@ def test_gamma_phi_enthalpy_entropy_no_longer_errors():
     h_vap, s_vap = sys.enthalpy_entropy(t, p, x, "vapor")
     assert h_liq < h_vap  # condensation lowers the liquid enthalpy
     assert all(v == v for v in (h_liq, s_liq, h_vap, s_vap))  # not NaN
+
+
+def test_gamma_phi_phase_cp_no_longer_errors_and_matches_fd():
+    # M12.6: before, a γ-φ System's phase_cp errored ("needs a cubic model on
+    # that phase"). Now the liquid Cp is the exact T-derivative of the shipped
+    # γ-φ enthalpy, and the ideal-gas vapor is Σy·Cp°.
+    sys = System(
+        ["methanol", "water"],
+        liquid_model="activity",
+        activity="VanLaar",
+        vapor_model="ideal",
+        aij=[[0.0, 0.847], [0.522, 0.0]],
+    )
+    t, p, x = 340.0, 100.0, [0.4, 0.6]
+    h = 5e-2
+    for phase in ("liquid", "vapor"):
+        cp = sys.phase_cp(t, p, x, phase)
+        h_hi, _ = sys.enthalpy_entropy(t + h, p, x, phase)
+        h_lo, _ = sys.enthalpy_entropy(t - h, p, x, phase)
+        cp_fd = (h_hi - h_lo) / (2.0 * h)
+        assert abs(cp - cp_fd) <= 1e-6 * max(abs(cp), 1.0), (phase, cp, cp_fd)
+        assert 20.0 < cp < 200.0, (phase, cp)  # physically sized, kJ/(kmol·K)
+    # NRTL (a real Cpᴱ) through the same route.
+    nrtl = System(
+        ["ethanol", "water"],
+        liquid_model="activity",
+        activity="NRTL",
+        vapor_model="ideal",
+        aij=[[0.0, -458.7], [5574.0, 0.0]],
+        alpha=[[0.0, 0.303], [0.303, 0.0]],
+    )
+    cp = nrtl.phase_cp(350.0, 101.325, [0.5, 0.5], "liquid")
+    h_hi, _ = nrtl.enthalpy_entropy(350.0 + h, 101.325, [0.5, 0.5], "liquid")
+    h_lo, _ = nrtl.enthalpy_entropy(350.0 - h, 101.325, [0.5, 0.5], "liquid")
+    assert abs(cp - (h_hi - h_lo) / (2.0 * h)) <= 1e-6 * abs(cp)
+    # φ-φ path unchanged: still equals the FD (the M12.4 test above), and a
+    # cubic-vapor γ-φ system routes the vapor through the EOS.
+    mixed = System(
+        ["methanol", "water"],
+        liquid_model="activity",
+        activity="VanLaar",
+        vapor_model="cubic",
+        eos="PR",
+        aij=[[0.0, 0.847], [0.522, 0.0]],
+    )
+    assert mixed.phase_cp(t, p, x, "vapor") > 0.0

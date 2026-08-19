@@ -353,6 +353,20 @@ core). Execution order 12.1 → 12.5; 12.4 depends on 12.3.
 - [x] Extended criterion benches: `k_values` vs `k_values_with_derivs` (measured ~3.5×, computing k + dT + dP) and `phase_cp` in `engine/benches/engine_bench.rs`
 - [x] Full doc sync (README, package READMEs, `deploy/NOTEBOOKS.md`, parameter reference) + bump to **0.9.0** (shipped 2026-07-06)
 
+### Milestone 12.6 — γ-φ Heat Capacity + Dual-Generic Saturation Derivatives — **done — ships in v0.16.0**
+*Executed by Claude Code using Claude Fable 5*
+
+The last downstream-gap item of the derivative release, opened by stages-thermo
+M5 (2026-08-18), whose adapter had to finite-difference the γ-φ liquid Cp.
+Design record: [GAMMA_PHI_CP_PLAN.md](docs/plans/engine/GAMMA_PHI_CP_PLAN.md).
+
+- [x] **Dual-generic saturation pressure** — `saturation::psat_generic<D: DualNum>` (and `psat_*_generic` per correlation: Antoine, Riedel, Müller, RPM, Polynomial); the `f64` entry points are wrappers over it. `d_psat_dt` is now **analytic for every model** (one `Dual64`; it was a central difference for the corresponding-states fits since M7.4, so `k_values_with_derivs`' γ-φ branch and the γ-φ enthalpy's condensation term were only Antoine-exact); new `d2_psat_dt2` (`Dual2_64`) and `condensation_cp` = `d(ΔH_vap)/dT = R[2T p′/p + T²(p″p − p′²)/p²]`. Maxwell stays unsupported. Tests: real part vs `psat` to round-off, first derivative vs the Antoine closed form (1e-12) and vs FD per model (1e-6), second derivative vs FD *of the analytic first*, `condensation_cp` vs FD of ΔH_vap(T)
+- [x] **`activity::excess_cp`** — `Cpᴱ = dHᴱ/dT` **per model, of the shipped `excess_enthalpy`** (Ideal / Scatchard–Hildebrand: 0; Margules / van Laar: `R(g + Tg′)` on the legacy Hᴱ = Gᴱ convention; Wilson: a dual through the same Λ(T) expression; NRTL: `−R(2Tg′ + T²g″)` by `Dual2_64`) — so `Cp = dH/dT` holds exactly for every model, pinned by a per-model FD test
+- [x] **`flash::phase_cp(spec, t, p, comp, phase)`** — the SystemSpec-level dispatch next to `phase_enthalpy_entropy`: cubic phase → `energy::phase_cp` (unchanged); ideal-gas vapor → `Σy Cp°`; γ-φ liquid → `Σx Cp° − Σx d(ΔH_vap)/dT + Cpᴱ`; virial / Chao–Seader-family → `Unsupported`. Test: equals the FD of `phase_enthalpy_entropy`'s H to 1e-6 for van Laar/ideal gas, Wilson/PR vapor, NRTL, ideal solution and φ-φ, both phases; ideal-gas vapor is exactly `Σy Cp°`
+- [x] **PyO3** — `System.phase_cp` **re-routed through the new dispatch** (a γ-φ system now returns a value instead of "needs a cubic model on that phase" — behaviour change, documented, same shape as M12.4's `enthalpy_entropy` re-routing); no new Python names. Wheel test in `test_m12_energy.py` (γ-φ liquid + vapor vs FD; NRTL; cubic-vapor γ-φ)
+- [x] **Notebook** — a γ-φ Cp section appended to `11_derivatives_and_database.ipynb` (not a new notebook; collection count unchanged)
+- [x] **Docs + release** — `docs/plans/README.md` row, `DERIVATIVE_RELEASE_PLAN.md` pointer, package READMEs, bump to **0.16.0**
+
 ## Milestone 13: Steam Tables — `vle-steam` (IAPWS-IF97) — **shipped (v0.10.0)**
 **Goal**: Add an industrial steam-tables capability ("VLE for water only") as a new dependency-free workspace crate `vle-steam` implementing the IAPWS Industrial Formulation 1997 (IF97, R7-97 rev. 2012) — regions 1–5, the saturation line, and backward equations — surfaced through the wheel as `vle.steam` with pint/gauge units and a batch numpy API. Ships as **v0.10.0** (new public API surface = minor bump). Full design record: [STEAM_TABLES_PLAN.md](docs/plans/engine/STEAM_TABLES_PLAN.md).
 *Phase 20 of MODERNIZATION_PLAN.md*

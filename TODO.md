@@ -336,6 +336,19 @@ departure-enthalpy `db/dT` bug the M12.3 invariant surfaced (plan §7).
 - [x] **Benches** — `k_values` vs `k_values_with_derivs` (measured ~3.5×: computes k + dT + dP) and `phase_cp` in `engine/benches/engine_bench.rs`
 - [x] **Doc sync + release** — full CLAUDE.md pre-push list; `python/README.md` / `engine/README.md` 0.9.0 API story; `deploy/NOTEBOOKS.md` row; bump to **0.9.0** (shipped 2026-07-06)
 
+### Milestone 12.6 — γ-φ Heat Capacity + Dual-Generic Saturation Derivatives (~3–5h) — **Done — ships in v0.16.0**
+*Executed by Claude Code using Claude Fable 5*
+
+Opened by stages-thermo M5 (its adapter finite-differenced the γ-φ liquid Cp);
+plan [GAMMA_PHI_CP_PLAN.md](docs/plans/engine/GAMMA_PHI_CP_PLAN.md).
+
+- [x] **`saturation::psat_generic`** + per-correlation `*_generic` (Antoine, Riedel, Müller, RPM, Polynomial); `f64` entry points are wrappers; `d_psat_dt` analytic for every model (was FD for the corresponding-states fits); new `d2_psat_dt2`, `condensation_cp`; tests vs closed form / FD / FD-of-analytic
+- [x] **`activity::excess_cp`** — per-model derivative of the shipped Hᴱ (Ideal/SH 0; Margules/van Laar `R(g+Tg′)`; Wilson dual through Λ(T); NRTL `Dual2`); FD-per-model test
+- [x] **`flash::phase_cp`** — SystemSpec dispatch (cubic → `energy::phase_cp`; ideal-gas vapor `Σy Cp°`; γ-φ liquid `Σx Cp° − Σx d(ΔH_vap)/dT + Cpᴱ`; unsupported routes error); FD-of-`phase_enthalpy_entropy` test over five model pairs × two phases
+- [x] **PyO3** — `System.phase_cp` re-routed (γ-φ no longer errors; documented); wheel test
+- [x] **Notebook** — γ-φ Cp section in `11_derivatives_and_database.ipynb`
+- [x] **Doc sync + release** — plan index, `DERIVATIVE_RELEASE_PLAN.md` pointer, package READMEs, **0.16.0**
+
 ## Milestone 13: Steam Tables — `vle-steam` (IAPWS-IF97)
 
 New dependency-free workspace crate implementing the IAPWS Industrial
@@ -760,7 +773,7 @@ lessons: [OPTIMIZATION_AUDIT_HISTORY.md](docs/plans/engine/OPTIMIZATION_AUDIT_HI
 | 9. Flash & Regression | ~44–62h | **Done** (all algorithms + bindings + tests + Ch. IV validation + notebooks 04–09; shipped in v0.8.0) |
 | 10. Python Bindings, Wrapper & Batch API | ~25–36h | **Done** (System wrapper + batch API + component DB + plots + tests + intro notebook; external thermo/CoolProp bench deferred; shipped in v0.8.0) |
 | 11. Chapter IV Walkthrough | ~5–8h | **Done** (walkthrough notebook 10 + all 15 then-existing notebooks re-verified + catalogue complete; shipped in v0.8.0) |
-| 12. Downstream Derivative & Database Release | ~25–38h | **Done** — M12.1 (v0.8.2: 24-compound DB + Cp), M12.2 (Rust-side `component-db` DB), M12.3 (T/P derivatives of fugacity + K), M12.4 (real Cp + partial molar H + γ-φ enthalpy), M12.5 (notebook 11 + benches); shipped as **v0.9.0**, plus **v0.9.1** patch (WS departure-enthalpy fix) |
+| 12. Downstream Derivative & Database Release | ~25–38h | **Done** — M12.1 (v0.8.2: 24-compound DB + Cp), M12.2 (Rust-side `component-db` DB), M12.3 (T/P derivatives of fugacity + K), M12.4 (real Cp + partial molar H + γ-φ enthalpy), M12.5 (notebook 11 + benches); shipped as **v0.9.0**, plus **v0.9.1** patch (WS departure-enthalpy fix); **M12.6** (γ-φ heat capacity + dual-generic saturation derivatives, opened by stages-thermo M5) ships in **v0.16.0** |
 | 13. Steam Tables — `vle-steam` (IAPWS-IF97) | ~41–59h | **Shipped as v0.10.0** — 13.1–13.6 done (crate, all 5 regions + saturation + backward eqs, verified vs R7-97 tables; PyO3 `vle.steam` + batch numpy; notebook 12; README + benches). Signed tag pushed + published. **13.8 shipped in v0.13.0**: IF97 performance audit — power-table series (~3.3× on every forward path), region-3 safeguarded-Newton density solve (−90%) + a corrected density bound, region-2 backward `T(p,h)`/`T(p,s)` (−87.5% on `ps_vapor`). **13.7 shipped in v0.13.0**: transport properties — R12-08 viscosity, R15-11 thermal conductivity (critical enhancement included), R1-76 surface tension, in their IF97-based *industrial* form; verified against R12-08 Table 4 and R15-11 Tables 7–9 term by term; PyO3 + `vle.steam` + batch; the milestone notebook landed after the tag as a **transport section in `12_steam_tables.ipynb`** (collection stays at 19) |
 | 14. NRTL Activity Model + Ammonia | ~14–20h | **Shipped as v0.11.0** — NRTL model (general multicomponent, analytic Hᴱ via `num-dual`), `alpha` matrix threaded, PyO3 + Python wrapper, ammonia in the 25-compound DB, milestone notebook 13. Rigorous NH₃–H₂O param regression deferred (qualitative demo shipped) |
 | 15. iOS/macOS FFI (`vle-ffi` via UniFFI) | ~13–21h | **Done (unreleased)** — `ffi/` wrapper crate + bindgen bin, `scripts/build-ios.sh` (3 Apple targets → XCFramework), `swift/VleThermo` package (10 XCTests green), learning doc `docs/en/ios/`. Local-build artifact only; app itself is a future separate repo |

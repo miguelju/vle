@@ -57,6 +57,7 @@ pub enum SatPressureModel {
 
 use crate::eos::{CubicEos, PhaseId, ln_phi_pure};
 use crate::types::Component;
+use num_dual::{Dual2_64, Dual64, DualNum};
 use thiserror::Error;
 
 /// Errors raised by the saturation-pressure layer.
@@ -105,6 +106,18 @@ pub enum SatError {
 /// use `log10(P) = A − B/(C + T)` with a different sign on `C`; convert
 /// before calling this function.
 pub fn psat_antoine(comp: &Component, t: f64) -> Result<f64, SatError> {
+    psat_antoine_generic(comp, t)
+}
+
+/// [`psat_antoine`] generic over the scalar type — `f64` or a `num_dual`
+/// dual number seeded on `T`, so `dPsat/dT` and `d²Psat/dT²` come out of the
+/// same code path exactly (M12.6). The `f64` entry points are thin wrappers
+/// over the generic ones, so the numbers cannot drift apart.
+///
+/// Rust idiom: `D: DualNum<f64> + Copy` is the trait bound num-dual uses for
+/// "behaves like a real number, plus derivative bookkeeping"; `.re()` reads
+/// the real part for the range checks, and `D::from(x)` lifts a constant.
+pub fn psat_antoine_generic<D: DualNum<f64> + Copy>(comp: &Component, t: D) -> Result<D, SatError> {
     if comp.psat_coeffs.len() != 3 {
         return Err(SatError::BadCoefficients {
             name: comp.name.clone(),
@@ -115,11 +128,11 @@ pub fn psat_antoine(comp: &Component, t: f64) -> Result<f64, SatError> {
     let a1 = comp.psat_coeffs[0];
     let a2 = comp.psat_coeffs[1];
     let a3 = comp.psat_coeffs[2];
-    let denom = a3 + t;
-    if denom <= 0.0 {
-        return Err(SatError::OutOfRange(t));
+    let denom = t + a3;
+    if denom.re() <= 0.0 {
+        return Err(SatError::OutOfRange(t.re()));
     }
-    Ok(comp.pc * (a1 - a2 / denom).exp())
+    Ok((denom.recip() * (-a2) + a1).exp() * comp.pc)
 }
 
 /// Analytical derivative `dPsat/dT` for the Antoine form.
@@ -146,8 +159,13 @@ const ATM_KPA: f64 = 101.325;
 /// `ln(Psat/Pc)` from the Riedel criterion using `Tc`, `Pc`, and the normal
 /// boiling point `Tb`. Returns Psat in **kPa**. Requires `comp.tb > 0`.
 pub fn psat_riedel(comp: &Component, t: f64) -> Result<f64, SatError> {
-    if comp.tb <= 0.0 || comp.tc <= 0.0 || comp.pc <= 0.0 || t <= 0.0 {
-        return Err(SatError::OutOfRange(t));
+    psat_riedel_generic(comp, t)
+}
+
+/// [`psat_riedel`] generic over the scalar type (see [`psat_antoine_generic`]).
+pub fn psat_riedel_generic<D: DualNum<f64> + Copy>(comp: &Component, t: D) -> Result<D, SatError> {
+    if comp.tb <= 0.0 || comp.tc <= 0.0 || comp.pc <= 0.0 || t.re() <= 0.0 {
+        return Err(SatError::OutOfRange(t.re()));
     }
     let trb = comp.tb / comp.tc;
     let aux = -35.0 + 36.0 / trb + 42.0 * trb.ln() - trb.powi(6);
@@ -155,8 +173,8 @@ pub fn psat_riedel(comp: &Component, t: f64) -> Result<f64, SatError> {
     let q = (0.315 * aux + (comp.pc / ATM_KPA).ln()) / (0.0838 * aux - trb.ln());
     let c1 = 0.0838 * (3.758 - q);
     let tr = t / comp.tc;
-    let ln_pr = (-35.0 + 36.0 / tr) * c1 + (42.0 * c1 + q) * tr.ln() - c1 * tr.powi(6);
-    Ok(comp.pc * ln_pr.exp())
+    let ln_pr = (tr.recip() * 36.0 - 35.0) * c1 + tr.ln() * (42.0 * c1 + q) - tr.powi(6) * c1;
+    Ok(ln_pr.exp() * comp.pc)
 }
 
 /// Müller corresponding-states saturation pressure. Ref (4), TERMOI.PAS:177.
@@ -164,8 +182,13 @@ pub fn psat_riedel(comp: &Component, t: f64) -> Result<f64, SatError> {
 /// `ln(Psat/Pc)` from `Tc`, `Pc`, `Tb`, and ω. The legacy's `0.0134 − ln(Pc_bar)`
 /// is exactly `ln(1 atm / Pc)`, written here unit-cleanly. Returns Psat in **kPa**.
 pub fn psat_muller(comp: &Component, t: f64) -> Result<f64, SatError> {
-    if comp.tb <= 0.0 || comp.tc <= 0.0 || comp.pc <= 0.0 || t <= 0.0 {
-        return Err(SatError::OutOfRange(t));
+    psat_muller_generic(comp, t)
+}
+
+/// [`psat_muller`] generic over the scalar type (see [`psat_antoine_generic`]).
+pub fn psat_muller_generic<D: DualNum<f64> + Copy>(comp: &Component, t: D) -> Result<D, SatError> {
+    if comp.tb <= 0.0 || comp.tc <= 0.0 || comp.pc <= 0.0 || t.re() <= 0.0 {
+        return Err(SatError::OutOfRange(t.re()));
     }
     let trb = comp.tb / comp.tc;
     let mut a = 5.37273 * (1.0 + comp.omega);
@@ -173,23 +196,30 @@ pub fn psat_muller(comp: &Component, t: f64) -> Result<f64, SatError> {
         / (trb.ln() - 0.832223 * (1.0 - 1.0 / trb));
     a -= 0.832223 * b;
     let tr = t / comp.tc;
-    let ln_pr = a * (1.0 - 1.0 / tr) + b * tr.ln();
-    Ok(comp.pc * ln_pr.exp())
+    let ln_pr = (-tr.recip() + 1.0) * a + tr.ln() * b;
+    Ok(ln_pr.exp() * comp.pc)
 }
 
 /// Riedel-Plank-Miller (RPM) saturation pressure. Ref (4), TERMOI.PAS:169.
 /// Returns Psat in **kPa**.
 pub fn psat_rpm(comp: &Component, t: f64) -> Result<f64, SatError> {
-    if comp.tb <= 0.0 || comp.tc <= 0.0 || comp.pc <= 0.0 || t <= 0.0 {
-        return Err(SatError::OutOfRange(t));
+    psat_rpm_generic(comp, t)
+}
+
+/// [`psat_rpm`] generic over the scalar type (see [`psat_antoine_generic`]).
+pub fn psat_rpm_generic<D: DualNum<f64> + Copy>(comp: &Component, t: D) -> Result<D, SatError> {
+    if comp.tb <= 0.0 || comp.tc <= 0.0 || comp.pc <= 0.0 || t.re() <= 0.0 {
+        return Err(SatError::OutOfRange(t.re()));
     }
     let trb = comp.tb / comp.tc;
     let x = (comp.pc / ATM_KPA).ln() * trb / (1.0 - trb);
     let c1 = 0.4835 + 0.4605 * x;
     let g = (x / c1 - (1.0 + trb)) / ((3.0 + trb) * (1.0 - trb).powi(2));
     let tr = t / comp.tc;
-    let ln_pr = -c1 * (g * (3.0 + tr) * (1.0 - tr).powi(3) - tr * tr + 1.0) / tr;
-    Ok(comp.pc * ln_pr.exp())
+    let one_minus = -tr + 1.0;
+    let poly = (tr + 3.0) * one_minus.powi(3) * g - tr * tr + 1.0;
+    let ln_pr = -(poly / tr) * c1;
+    Ok(ln_pr.exp() * comp.pc)
 }
 
 /// Generic fitted (DIPPR-101-style) saturation polynomial:
@@ -197,6 +227,15 @@ pub fn psat_rpm(comp: &Component, t: f64) -> Result<f64, SatError> {
 /// [c0, c1, c2, c3, c4]`. A flexible stand-in for database correlations
 /// (`SatPressureModel::Polynomial`); not a specific legacy formula.
 pub fn psat_polynomial(comp: &Component, t: f64) -> Result<f64, SatError> {
+    psat_polynomial_generic(comp, t)
+}
+
+/// [`psat_polynomial`] generic over the scalar type (see
+/// [`psat_antoine_generic`]).
+pub fn psat_polynomial_generic<D: DualNum<f64> + Copy>(
+    comp: &Component,
+    t: D,
+) -> Result<D, SatError> {
     if comp.psat_coeffs.len() != 5 {
         return Err(SatError::BadCoefficients {
             name: comp.name.clone(),
@@ -204,11 +243,11 @@ pub fn psat_polynomial(comp: &Component, t: f64) -> Result<f64, SatError> {
             got: comp.psat_coeffs.len(),
         });
     }
-    if t <= 0.0 {
-        return Err(SatError::OutOfRange(t));
+    if t.re() <= 0.0 {
+        return Err(SatError::OutOfRange(t.re()));
     }
     let c = &comp.psat_coeffs;
-    let ln_p = c[0] + c[1] / t + c[2] * t.ln() + c[3] * t.powf(c[4]);
+    let ln_p = t.recip() * c[1] + t.ln() * c[2] + t.powf(c[4]) * c[3] + c[0];
     Ok(ln_p.exp())
 }
 
@@ -259,20 +298,47 @@ pub fn reduced_psat(model: SatPressureModel, comp: &Component, t: f64) -> Result
     Ok(psat(model, comp, t)? / comp.pc)
 }
 
-/// Generic `dPsat/dT` in **kPa/K**. Analytical for Antoine; central-difference
-/// for the corresponding-states correlations (matching the legacy
-/// `DPrVapor_DT`, TERMOI.PAS:236). `Maxwell` is not supported here.
+/// Generic `dPsat/dT` in **kPa/K** — **analytic for every model** (M12.6):
+/// one first-order dual through [`psat_generic`]. `Maxwell` is not supported
+/// here.
+///
+/// *History:* until 0.15 this was analytic for Antoine only and a central
+/// difference for the corresponding-states correlations (kept from the legacy
+/// `DPrVapor_DT`, TERMOI.PAS:236). The dual path replaced the difference; the
+/// Antoine closed form ([`d_psat_dt_antoine`]) stays as the test oracle.
 pub fn d_psat_dt(model: SatPressureModel, comp: &Component, t: f64) -> Result<f64, SatError> {
-    match model {
-        SatPressureModel::Antoine => d_psat_dt_antoine(comp, t),
-        SatPressureModel::Maxwell => Err(SatError::NotImplemented(SatPressureModel::Maxwell)),
-        other => {
-            let h = 1e-3 * t.max(1.0);
-            let hi = psat(other, comp, t + h)?;
-            let lo = psat(other, comp, t - h)?;
-            Ok((hi - lo) / (2.0 * h))
-        }
-    }
+    let d = psat_generic(model, comp, Dual64::new(t, 1.0))?;
+    Ok(d.eps)
+}
+
+/// `(Psat, dPsat/dT, d²Psat/dT²)` in **(kPa, kPa/K, kPa/K²)** from one
+/// second-order dual through [`psat_generic`] (M12.6). `Maxwell` unsupported.
+pub fn d2_psat_dt2(
+    model: SatPressureModel,
+    comp: &Component,
+    t: f64,
+) -> Result<(f64, f64, f64), SatError> {
+    let d = psat_generic(model, comp, Dual2_64::new(t, 1.0, 0.0))?;
+    Ok((d.re, d.v1, d.v2))
+}
+
+/// The temperature derivative of the Clausius–Clapeyron condensation
+/// enthalpy, `d(ΔH_vap)/dT` in **kJ/(kmol·K)** — the per-component piece of a
+/// γ-φ liquid heat capacity (M12.6).
+///
+/// With `ΔH_vap = R T² p′/p` (the form the γ-φ enthalpy ships,
+/// `flash::phase_enthalpy_entropy`),
+///
+/// ```text
+/// d(ΔH_vap)/dT = R [ 2T p′/p + T² (p″ p − p′²)/p² ]
+/// ```
+///
+/// where `p, p′, p″` come from [`d2_psat_dt2`]. Returns the derivative
+/// alone; pair it with `ideal_cp` and `excess_cp` in the caller.
+pub fn condensation_cp(model: SatPressureModel, comp: &Component, t: f64) -> Result<f64, SatError> {
+    const R: f64 = 8.31451; // kJ/(kmol·K)
+    let (p, p1, p2) = d2_psat_dt2(model, comp, t)?;
+    Ok(R * (2.0 * t * p1 / p + t * t * (p2 * p - p1 * p1) / (p * p)))
 }
 
 /// Boiling temperature in **K**: invert `Psat(T) = P`. Closed form for Antoine;
@@ -374,12 +440,23 @@ pub fn pseudo_antoine(
 /// `Maxwell` needs a cubic EOS, so it is not reachable through this
 /// model-only entry point — call [`psat_maxwell`] directly.
 pub fn psat(model: SatPressureModel, comp: &Component, t: f64) -> Result<f64, SatError> {
+    psat_generic(model, comp, t)
+}
+
+/// [`psat`] generic over the scalar type — the single code path the `f64`
+/// value, `dPsat/dT` ([`d_psat_dt`]) and `d²Psat/dT²` ([`d2_psat_dt2`]) all
+/// run through (M12.6).
+pub fn psat_generic<D: DualNum<f64> + Copy>(
+    model: SatPressureModel,
+    comp: &Component,
+    t: D,
+) -> Result<D, SatError> {
     match model {
-        SatPressureModel::Antoine => psat_antoine(comp, t),
-        SatPressureModel::Riedel => psat_riedel(comp, t),
-        SatPressureModel::Muller => psat_muller(comp, t),
-        SatPressureModel::RPM => psat_rpm(comp, t),
-        SatPressureModel::Polynomial => psat_polynomial(comp, t),
+        SatPressureModel::Antoine => psat_antoine_generic(comp, t),
+        SatPressureModel::Riedel => psat_riedel_generic(comp, t),
+        SatPressureModel::Muller => psat_muller_generic(comp, t),
+        SatPressureModel::RPM => psat_rpm_generic(comp, t),
+        SatPressureModel::Polynomial => psat_polynomial_generic(comp, t),
         SatPressureModel::Maxwell => Err(SatError::NotImplemented(SatPressureModel::Maxwell)),
     }
 }
@@ -495,5 +572,128 @@ mod tests {
         let lp_fit = a1 - a2 / (a3 + 350.0);
         let lp_true = (psat(SatPressureModel::Riedel, &c, 350.0).unwrap() / c.pc).ln();
         assert!((lp_fit - lp_true).abs() < 1e-6);
+    }
+
+    // ------------------------------------------------------------------
+    // M12.6 — dual-generic saturation derivatives
+    // ------------------------------------------------------------------
+
+    fn polynomial_pentane() -> Component {
+        // A DIPPR-101-shaped fit for n-pentane (ln P[kPa] = c0 + c1/T +
+        // c2 ln T + c3 T^c4); coefficients only need to be plausible here.
+        Component {
+            psat_coeffs: vec![78.741 - 6.9078, -5420.3, -8.8253, 9.6171e-6, 2.0],
+            sat_model: SatPressureModel::Polynomial,
+            ..pentane()
+        }
+    }
+
+    const ALL_FORMULA_MODELS: [SatPressureModel; 5] = [
+        SatPressureModel::Antoine,
+        SatPressureModel::Riedel,
+        SatPressureModel::Muller,
+        SatPressureModel::RPM,
+        SatPressureModel::Polynomial,
+    ];
+
+    fn comp_for(model: SatPressureModel) -> Component {
+        if model == SatPressureModel::Polynomial {
+            polynomial_pentane()
+        } else {
+            pentane()
+        }
+    }
+
+    /// The generic path with `D = f64` *is* the value path, so the dual
+    /// evaluation's real part matches `psat` bit for bit.
+    #[test]
+    fn dual_real_part_equals_psat() {
+        for model in ALL_FORMULA_MODELS {
+            let c = comp_for(model);
+            for &t in &[300.0, 350.0, 420.0] {
+                let v = psat(model, &c, t).unwrap();
+                let d = psat_generic(model, &c, Dual64::new(t, 1.0)).unwrap();
+                // Same formula, dual arithmetic — agree to round-off.
+                assert!(
+                    (v - d.re).abs() <= 4.0 * f64::EPSILON * v,
+                    "{model:?} at {t} K"
+                );
+                let (p, _, _) = d2_psat_dt2(model, &c, t).unwrap();
+                assert!(
+                    (v - p).abs() <= 4.0 * f64::EPSILON * v,
+                    "{model:?} at {t} K (Dual2)"
+                );
+            }
+        }
+    }
+
+    /// The dual `dPsat/dT` reproduces the Antoine closed form to round-off
+    /// and a central difference (h = 1e-4 T) for every model to 1e-6.
+    #[test]
+    fn dual_first_derivative_matches_closed_form_and_fd() {
+        let c = pentane();
+        for &t in &[300.0, 350.0, 420.0] {
+            let a = d_psat_dt_antoine(&c, t).unwrap();
+            let d = d_psat_dt(SatPressureModel::Antoine, &c, t).unwrap();
+            assert!((a - d).abs() < 1e-12 * a.abs(), "Antoine {t}: {a} vs {d}");
+        }
+        for model in ALL_FORMULA_MODELS {
+            let c = comp_for(model);
+            for &t in &[300.0, 350.0, 420.0] {
+                let h = 1e-4 * t;
+                let fd =
+                    (psat(model, &c, t + h).unwrap() - psat(model, &c, t - h).unwrap()) / (2.0 * h);
+                let d = d_psat_dt(model, &c, t).unwrap();
+                assert!(
+                    (fd - d).abs() < 1e-6 * d.abs(),
+                    "{model:?} at {t} K: FD {fd} vs dual {d}"
+                );
+                assert!(d > 0.0, "{model:?}: Psat must rise with T");
+            }
+        }
+    }
+
+    /// The dual `d²Psat/dT²` matches a central difference **of the analytic
+    /// first derivative**, and `condensation_cp` matches the FD of ΔH_vap(T).
+    #[test]
+    fn dual_second_derivative_and_condensation_cp_match_fd() {
+        for model in ALL_FORMULA_MODELS {
+            let c = comp_for(model);
+            for &t in &[300.0, 350.0, 420.0] {
+                let h = 1e-4 * t;
+                let fd2 = (d_psat_dt(model, &c, t + h).unwrap()
+                    - d_psat_dt(model, &c, t - h).unwrap())
+                    / (2.0 * h);
+                let (_, _, p2) = d2_psat_dt2(model, &c, t).unwrap();
+                assert!(
+                    (fd2 - p2).abs() < 1e-6 * p2.abs().max(1e-6),
+                    "{model:?} at {t} K: FD {fd2} vs dual {p2}"
+                );
+                // ΔH_vap(T) = R T² p'/p, differentiated by FD, vs the analytic.
+                let dh = |tt: f64| {
+                    8.31451 * tt * tt * d_psat_dt(model, &c, tt).unwrap()
+                        / psat(model, &c, tt).unwrap()
+                };
+                let fd_cp = (dh(t + h) - dh(t - h)) / (2.0 * h);
+                let cp = condensation_cp(model, &c, t).unwrap();
+                assert!(
+                    (fd_cp - cp).abs() < 1e-5 * cp.abs().max(1.0),
+                    "{model:?} at {t} K: FD {fd_cp} vs analytic {cp}"
+                );
+                // A latent heat falls with temperature (ΔCp of vaporization
+                // is negative), so d(ΔH_vap)/dT ≤ 0 below the critical region
+                // — exactly 0 for the two-constant Antoine fit (a₃ = 0), where
+                // ΔH_vap = R·a₂ is a constant.
+                // (Checked away from the critical region only — at Tr ≈ 0.9
+                // the corresponding-states fits are not monotone in this.)
+                if t <= 350.0 {
+                    assert!(cp < 1e-9, "{model:?} at {t} K: d(ΔH_vap)/dT = {cp} > 0");
+                }
+            }
+        }
+        assert!(matches!(
+            d2_psat_dt2(SatPressureModel::Maxwell, &pentane(), 300.0),
+            Err(SatError::NotImplemented(_))
+        ));
     }
 }

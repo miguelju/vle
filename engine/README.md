@@ -93,6 +93,8 @@ virial path gains flat row-major `b_mix_matrix_flat` +
 −24…−28 %, tangent-plane stability −44…−51 %. Details in
 [`OPTIMIZATION_PLAN_PART2.md`](https://github.com/miguelju/vle/blob/main/docs/plans/engine/OPTIMIZATION_PLAN_PART2.md).
 
+`0.16.0` — the **γ-φ heat-capacity release** (Milestone 12.6, the last downstream-gap item of the derivative release, opened by stages-thermo M5). **`flash::phase_cp`** is the SystemSpec-level heat capacity next to `phase_enthalpy_entropy`: cubic phases as before, ideal-gas vapor `Σy Cp°`, and the **γ-φ liquid** `Σx Cp° − Σx d(ΔH_vap)/dT + Cpᴱ` — the exact temperature derivative of the shipped γ-φ enthalpy, asserted against it for every model pair. Underneath: **`saturation::psat_generic`** makes every saturation correlation (Antoine, Riedel, Müller, RPM, Polynomial) generic over `num_dual`, so `d_psat_dt` is now analytic for every model (it was a central difference for the corresponding-states fits), with new `d2_psat_dt2` and `condensation_cp`; and **`activity::excess_cp`** differentiates each activity model's *own* Hᴱ convention. `System.phase_cp` on the Python side routes through the new dispatch (a γ-φ system no longer errors). No other API changed.
+
 `0.15.0` — the **petroleum and refinery release** (Milestones 19 + 20). **`vle_thermo::refinery`** (M20): Lee–Kesler departure (pure + mixture, validated by thermodynamic identities), Peneloux volume translation, `LiquidModel::{GraysonStreed, BraunK10}` with their (T, P)-constant parts cached, `flash::free_water::flash_free_water` (the water-decant flash — the industry approximation, not a three-liquid stability search), and a closed-form Maxwell–Bonnell inversion; the legacy `ChaoSeader` path was found to carry the Grayson–Streed 1963 table without γ and is kept as is, documented. `Component` gains `watson_k`. And **`vle_thermo::petroleum`** (M19) — petroleum
 characterization, the layer that lets the engine run on crude oil. A
 distillation curve plus a gravity becomes a `Vec<Component>`: D86 ↔ TBP ↔ D2887
@@ -137,7 +139,7 @@ for the phase-by-phase technical detail.
 
 ```toml
 [dependencies]
-vle-thermo = "0.15"
+vle-thermo = "0.16"
 ```
 
 Or with `cargo add`:

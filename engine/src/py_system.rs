@@ -854,12 +854,17 @@ impl System {
     }
 
     /// Real-mixture isobaric heat capacity Cp of `phase` at `(t [K], p [kPa],
-    /// x)`, in **kJ/(kmol·K)** (M12.4). `Cp = Σxᵢ·Cpᵢ°(T) + Cp^R`, the residual
-    /// via a second-order dual. Needs a cubic model on that phase.
+    /// x)`, in **kJ/(kmol·K)** (M12.4 / M12.6). Cubic phase:
+    /// `Cp = Σxᵢ·Cpᵢ°(T) + Cp^R`, the residual via a second-order dual.
+    ///
+    /// Routed through the SystemSpec-level dispatch since M12.6: a **γ-φ**
+    /// liquid now returns `Σxᵢ Cp°ᵢ − Σxᵢ d(ΔH_vap,ᵢ)/dT + Cpᴱ` (the exact
+    /// T-derivative of `enthalpy_entropy`'s H) and an ideal-gas vapor
+    /// `Σyᵢ Cp°ᵢ`, instead of erroring for lack of a cubic model on that
+    /// phase. φ-φ behaviour is unchanged.
     fn phase_cp(&self, t: f64, p: f64, x: Vec<f64>, phase: &str) -> PyResult<f64> {
         let ph = parse_phase(phase)?;
-        let eos = self.phase_eos(ph)?;
-        crate::energy::phase_cp(&self.mixture_spec(eos), t, p, &x, ph).map_err(mix_err)
+        crate::flash::phase_cp(&self.spec(), t, p, &x, ph).map_err(flash_err)
     }
 
     // ── Batch numpy methods (Track D) ─────────────────────────────────

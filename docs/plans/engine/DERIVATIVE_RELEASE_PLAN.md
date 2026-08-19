@@ -422,6 +422,16 @@ identities — implement via the identities, not new differentiation machinery:
 
 ---
 
+## 4b. Post-release addendum — M12.6 (2026-08-18)
+
+M12.4's `phase_cp` covered cubic phases only; the γ-φ liquid heat capacity was
+the one G5 quantity left to a downstream finite difference (stages-thermo M5,
+`ThermoSystem::dh_dt`). It shipped in **v0.16.0** as
+[`GAMMA_PHI_CP_PLAN.md`](GAMMA_PHI_CP_PLAN.md): dual-generic saturation
+correlations (`d_psat_dt` analytic for every model, `d2_psat_dt2`,
+`condensation_cp`), a per-model `excess_cp`, and the SystemSpec-level
+`flash::phase_cp` that `System.phase_cp` now routes through.
+
 ## 5. What is deliberately NOT in this milestone
 
 - **γ-φ / non-cubic PH (adiabatic) flash** — today `flash_adiabatic` is

@@ -1089,6 +1089,103 @@ pub fn phase_enthalpy_entropy(
     }
 }
 
+// ===========================================================================
+// Packaged phase heat capacity under the system's model pair (M12.6).
+// ===========================================================================
+
+/// Isobaric heat capacity `Cp = (∂H/∂T)_{P,x}` of one phase under the
+/// System's model pair, in **kJ/(kmol·K)** (M12.6) — the term-by-term
+/// temperature derivative of [`phase_enthalpy_entropy`]'s `H`, so the two
+/// agree to round-off for every model pair (asserted by test).
+///
+/// - **Cubic (φ-φ) phase** → [`crate::energy::phase_cp`] (ideal-gas mixture
+///   Cp + the residual Cp from a second-order dual through the EOS).
+/// - **Ideal-gas vapor** → `Σᵢ yᵢ Cp°ᵢ(T)`.
+/// - **γ-φ liquid** (activity / ideal solution) → the derivative of the
+///   shipped `H_L = H_ig − Σxᵢ ΔH_vap,ᵢ + Hᴱ`:
+///   `Σxᵢ Cp°ᵢ − Σxᵢ d(ΔH_vap,ᵢ)/dT + Cpᴱ`, with the condensation term from
+///   [`crate::saturation::condensation_cp`] (one second-order dual through the
+///   saturation correlation) and `Cpᴱ` from [`crate::activity::excess_cp`]
+///   (each model's own Hᴱ convention differentiated — see there).
+/// - Virial vapor and the Chao–Seader-family liquids → `Unsupported`, as for
+///   the enthalpy.
+///
+/// `t` in **K**, `p` in **kPa absolute**, `comp` mole fractions of the phase.
+pub fn phase_cp(
+    spec: &SystemSpec,
+    t: f64,
+    p: f64,
+    comp: &[f64],
+    phase: PhaseId,
+) -> Result<f64, FlashError> {
+    use crate::activity::excess_cp;
+    use crate::energy::{ideal_cp, phase_cp as eos_cp};
+    use crate::saturation::condensation_cp;
+
+    let n = spec.n();
+    if comp.len() != n {
+        return Err(FlashError::Dimension(format!(
+            "components={n}, comp={}",
+            comp.len()
+        )));
+    }
+    let cubic_eos = match phase {
+        PhaseId::Vapor => match spec.vapor {
+            VaporModel::Cubic(eos) => Some(eos),
+            _ => None,
+        },
+        PhaseId::Liquid => match spec.liquid {
+            LiquidModel::Cubic(eos) => Some(eos),
+            _ => None,
+        },
+    };
+    if let Some(eos) = cubic_eos {
+        return eos_cp(&spec.mixture_spec(eos), t, p, comp, phase)
+            .map_err(|e| FlashError::Thermo(e.to_string()));
+    }
+    // Ideal-gas mixture heat capacity — the baseline of both remaining routes.
+    let cp_ideal: f64 = comp
+        .iter()
+        .zip(spec.components)
+        .map(|(z, c)| z * ideal_cp(c, t))
+        .sum();
+    match phase {
+        PhaseId::Vapor => match spec.vapor {
+            VaporModel::IdealGas => Ok(cp_ideal),
+            VaporModel::Virial => Err(FlashError::Unsupported(
+                "phase_cp: virial vapor heat capacity not implemented".into(),
+            )),
+            VaporModel::Cubic(_) => unreachable!("handled above"),
+        },
+        PhaseId::Liquid => match spec.liquid {
+            LiquidModel::Activity(_) | LiquidModel::IdealSolution => {
+                // −Σxᵢ d(ΔH_vap,ᵢ)/dT — the liquid sits ΔH_vap below the gas.
+                let mut cp_cond = 0.0;
+                for (i, &z_i) in comp.iter().enumerate() {
+                    cp_cond += z_i
+                        * condensation_cp(spec.sat_model(i), &spec.components[i], t)
+                            .map_err(|e| FlashError::Thermo(e.to_string()))?;
+                }
+                let cp_e = match spec.liquid {
+                    LiquidModel::Activity(model) => {
+                        excess_cp(model, comp, spec.aij, spec.alpha, spec.vl, spec.delta, t)
+                    }
+                    _ => 0.0,
+                };
+                Ok(cp_ideal - cp_cond + cp_e)
+            }
+            LiquidModel::ChaoSeader | LiquidModel::GraysonStreed | LiquidModel::BraunK10 => {
+                Err(FlashError::Unsupported(
+                    "phase_cp: Chao-Seader / Grayson-Streed / Braun K10 liquid heat capacity \
+                     not implemented"
+                        .into(),
+                ))
+            }
+            LiquidModel::Cubic(_) => unreachable!("handled above"),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1644,5 +1741,112 @@ mod tests {
         let mut s3 = classical(&no_tb, &[]);
         s3.liquid = LiquidModel::BraunK10;
         assert!(k_values(&s3, t, p, &[0.5, 0.5], &[0.5, 0.5]).is_err());
+    }
+
+    // -----------------------------------------------------------------
+    // M12.6 — packaged phase heat capacity
+    // -----------------------------------------------------------------
+
+    /// Butane / heptane with ideal-gas Cp polynomials, so the ideal term is
+    /// live (the plain fixtures carry zeros).
+    fn cp_pair() -> [Component; 2] {
+        let mut a = n_butane();
+        a.cp_coeffs = [1.935, 3.685e-2, -1.14e-5, 0.0, 0.0]; // Cp°/R shape
+        a.liquid_volume = 100.4;
+        let mut b = n_heptane();
+        b.cp_coeffs = [3.15, 5.7e-2, -1.6e-5, 0.0, 0.0];
+        b.liquid_volume = 147.5;
+        [a, b]
+    }
+
+    /// `phase_cp` is the T-derivative of the shipped `phase_enthalpy_entropy`
+    /// H for **every** model pair it supports: γ-φ liquid (van Laar / ideal
+    /// gas; Wilson / cubic vapor; NRTL), ideal-gas vapor, and the cubic
+    /// phases (unchanged: equals `energy::phase_cp`).
+    #[test]
+    fn phase_cp_matches_fd_of_phase_enthalpy_for_every_route() {
+        let comps = cp_pair();
+        let x = [0.4, 0.6];
+        let (t, p) = (350.0, 300.0);
+        let h = 0.05;
+        let a_vl = vec![vec![0.0, 0.7], vec![1.1, 0.0]];
+        let a_wilson = vec![vec![0.0, 1200.0], vec![-300.0, 0.0]];
+        let a_nrtl = vec![vec![0.0, 2400.0], vec![-1100.0, 0.0]];
+        let alpha = vec![vec![0.0, 0.3], vec![0.3, 0.0]];
+        let vl = [100.4, 147.5];
+        let mut van_laar = classical(&comps, &[]);
+        van_laar.vapor = VaporModel::IdealGas;
+        van_laar.liquid = LiquidModel::Activity(ActivityModel::VanLaar);
+        van_laar.aij = &a_vl;
+        let mut wilson_cubic = classical(&comps, &[]);
+        wilson_cubic.vapor = VaporModel::Cubic(CubicEos::PR1976);
+        wilson_cubic.liquid = LiquidModel::Activity(ActivityModel::Wilson);
+        wilson_cubic.aij = &a_wilson;
+        wilson_cubic.vl = &vl;
+        let mut nrtl = classical(&comps, &[]);
+        nrtl.vapor = VaporModel::IdealGas;
+        nrtl.liquid = LiquidModel::Activity(ActivityModel::Nrtl);
+        nrtl.aij = &a_nrtl;
+        nrtl.alpha = &alpha;
+        let mut ideal_sol = classical(&comps, &[]);
+        ideal_sol.vapor = VaporModel::IdealGas;
+        ideal_sol.liquid = LiquidModel::IdealSolution;
+        let phi_phi = classical(&comps, &[]);
+        for (label, spec) in [
+            ("van Laar / ideal gas", &van_laar),
+            ("Wilson / PR vapor", &wilson_cubic),
+            ("NRTL / ideal gas", &nrtl),
+            ("ideal solution / ideal gas", &ideal_sol),
+            ("φ-φ RKS", &phi_phi),
+        ] {
+            for phase in [PhaseId::Liquid, PhaseId::Vapor] {
+                let hh = |tt: f64| {
+                    phase_enthalpy_entropy(spec, tt, p, &x, phase, 298.15, 101.325, &[], &[])
+                        .unwrap()
+                        .0
+                };
+                let fd = (hh(t + h) - hh(t - h)) / (2.0 * h);
+                let cp = phase_cp(spec, t, p, &x, phase).unwrap();
+                assert!(
+                    (cp - fd).abs() < 1e-6 * fd.abs().max(1.0),
+                    "{label} {phase:?}: Cp {cp} vs FD {fd}"
+                );
+                assert!(cp > 0.0, "{label} {phase:?}: Cp = {cp}");
+            }
+        }
+        // The cubic route is the M12.4 function, untouched.
+        let direct = crate::energy::phase_cp(
+            &phi_phi.mixture_spec(CubicEos::RKS1972),
+            t,
+            p,
+            &x,
+            PhaseId::Liquid,
+        )
+        .unwrap();
+        assert_eq!(
+            phase_cp(&phi_phi, t, p, &x, PhaseId::Liquid).unwrap(),
+            direct
+        );
+        // Ideal-gas vapor is exactly Σ y Cp°.
+        let cp_ig: f64 = x
+            .iter()
+            .zip(&comps)
+            .map(|(z, c)| z * crate::energy::ideal_cp(c, t))
+            .sum();
+        assert_eq!(
+            phase_cp(&van_laar, t, p, &x, PhaseId::Vapor).unwrap(),
+            cp_ig
+        );
+        // Unsupported routes say so.
+        let mut cs = classical(&comps, &[]);
+        cs.liquid = LiquidModel::ChaoSeader;
+        assert!(matches!(
+            phase_cp(&cs, t, p, &x, PhaseId::Liquid),
+            Err(FlashError::Unsupported(_))
+        ));
+        assert!(matches!(
+            phase_cp(&van_laar, t, p, &[1.0], PhaseId::Liquid),
+            Err(FlashError::Dimension(_))
+        ));
     }
 }
