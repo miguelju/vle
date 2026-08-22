@@ -39,7 +39,7 @@
 //! 0.05 % into a hot naphtha. Both are documented gaps, and both are outside
 //! what a crude-column simulation needs from the thermodynamics (the *column*
 //! side of decanting — condenser water legs, two-liquid stages — is downstream
-//! work in `stages-thermo`, D6 in the plan).
+//! work for a staged-separation consumer, D6 in the plan).
 //!
 //! # Cost
 //!

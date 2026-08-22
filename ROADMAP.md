@@ -301,7 +301,7 @@ Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](docs
 - [x] Update the notebook catalogue (`deploy/NOTEBOOKS.md`) — marked the then-15-notebook collection complete (19 today, after notebooks 11–14); rebuilt `notebooks/index.ipynb`
 
 ## Milestone 12: Downstream Derivative & Database Release (vle-thermo 0.9.x) — **done**
-**Goal**: Close the five upstream gaps identified by `stages-thermo` (the planned staged-separation library — the first downstream consumer of the published crate/wheel): expanded component database with ideal-gas Cp coefficients, a Rust-side component database, analytic/dual T and P derivatives of fugacity and K-values, real-mixture heat capacity + partial molar enthalpy, and a packaged γ-φ phase enthalpy. **All five closed** — M12.1 shipped in v0.8.2; M12.2–12.5 shipped in v0.9.0 (both tagged 2026-07-06). **v0.9.1** (2026-07-06) is a follow-up patch fixing the Wong-Sandler departure-enthalpy `db/dT` bug the M12.3 Gibbs–Helmholtz invariant surfaced (DERIVATIVE_RELEASE_PLAN.md §7).
+**Goal**: Close the five upstream gaps identified by a downstream staged-separation (distillation) consumer (the first downstream consumer of the published crate/wheel): expanded component database with ideal-gas Cp coefficients, a Rust-side component database, analytic/dual T and P derivatives of fugacity and K-values, real-mixture heat capacity + partial molar enthalpy, and a packaged γ-φ phase enthalpy. **All five closed** — M12.1 shipped in v0.8.2; M12.2–12.5 shipped in v0.9.0 (both tagged 2026-07-06). **v0.9.1** (2026-07-06) is a follow-up patch fixing the Wong-Sandler departure-enthalpy `db/dT` bug the M12.3 Gibbs–Helmholtz invariant surfaced (DERIVATIVE_RELEASE_PLAN.md §7).
 *Phase 19 of MODERNIZATION_PLAN.md*
 
 Full technical detail, current-state audit, and design decisions live in
@@ -356,8 +356,8 @@ core). Execution order 12.1 → 12.5; 12.4 depends on 12.3.
 ### Milestone 12.6 — γ-φ Heat Capacity + Dual-Generic Saturation Derivatives — **done — ships in v0.16.0**
 *Executed by Claude Code using Claude Fable 5*
 
-The last downstream-gap item of the derivative release, opened by stages-thermo
-M5 (2026-08-18), whose adapter had to finite-difference the γ-φ liquid Cp.
+The last downstream-gap item of the derivative release, opened by a downstream staged-separation (distillation) consumer
+(2026-08-18), whose adapter had to finite-difference the γ-φ liquid Cp.
 Design record: [GAMMA_PHI_CP_PLAN.md](docs/plans/engine/GAMMA_PHI_CP_PLAN.md).
 
 - [x] **Dual-generic saturation pressure** — `saturation::psat_generic<D: DualNum>` (and `psat_*_generic` per correlation: Antoine, Riedel, Müller, RPM, Polynomial); the `f64` entry points are wrappers over it. `d_psat_dt` is now **analytic for every model** (one `Dual64`; it was a central difference for the corresponding-states fits since M7.4, so `k_values_with_derivs`' γ-φ branch and the γ-φ enthalpy's condensation term were only Antoine-exact); new `d2_psat_dt2` (`Dual2_64`) and `condensation_cp` = `d(ΔH_vap)/dT = R[2T p′/p + T²(p″p − p′²)/p²]`. Maxwell stays unsupported. Tests: real part vs `psat` to round-off, first derivative vs the Antoine closed form (1e-12) and vs FD per model (1e-6), second derivative vs FD *of the analytic first*, `condensation_cp` vs FD of ΔH_vap(T)
@@ -468,8 +468,8 @@ estimate against a baseline saved on the same machine in the same session.
 
 *Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
-Upstream enabler for the downstream `stages-thermo` library's Ponchon–Savarit
-milestone (heat-of-mixing on the ammonia–water enthalpy–composition method). Adds
+Upstream enabler for the Ponchon–Savarit milestone of a downstream staged-separation (distillation) consumer
+(heat-of-mixing on the ammonia–water enthalpy–composition method). Adds
 the **NRTL** activity model (general multicomponent form; analytic ∂lnγ/∂T and Hᴱ
 via `num-dual`) and **ammonia** to the bundled component database. Design record:
 [NRTL_AMMONIA_PLAN.md](docs/plans/engine/NRTL_AMMONIA_PLAN.md).
@@ -486,7 +486,7 @@ via `num-dual`) and **ammonia** to the bundled component database. Design record
 - [x] Ammonia in the component DB (generator + all three JSON copies + Cp°/R
       quartic); Rust `all_25_compounds_parse` + Python DB tests updated
 - [x] Milestone notebook (`notebooks/13_nrtl_ammonia.ipynb`) + NOTEBOOKS catalogue — NH₃–H₂O γ, exothermic Hᴱ, bubble-P curve (α = 0.2), with α-sensitivity and Aij-regression exercises; executes top-to-bottom
-- [~] NH₃–H₂O NRTL parameters — qualitatively correct behavior demonstrated (α = 0.2 + illustrative energies: negative deviation, exothermic mixing, ammonia-rich vapor). Regression against a published bubble-P–x dataset is deferred; the definitive ammonia–water chart is reproduced from reference data downstream in `stages-thermo`, per the plan's accuracy bar
+- [~] NH₃–H₂O NRTL parameters — qualitatively correct behavior demonstrated (α = 0.2 + illustrative energies: negative deviation, exothermic mixing, ammonia-rich vapor). Regression against a published bubble-P–x dataset is deferred; the definitive ammonia–water chart is reproduced from reference data by the downstream consumer, per the plan's accuracy bar
 - [x] **Operator step:** version bumped → v0.11.0; signed `v0.11.0` tag pushed; `release.yml` publishes vle-thermo to crates.io + PyPI — YubiKey-gated
 
 ---
@@ -634,15 +634,15 @@ verified feasibility spike; the single-threaded/rayon decomposition):
 # The petroleum track (M18–M20) — gating a downstream headline capability
 
 *Updated 2026-07-26.* The **atmospheric crude distillation unit is now the
-terminal goal of the downstream `stages-thermo` project**, not a speculative
+terminal goal of a downstream staged-separation (distillation) consumer**, not a speculative
 extension. These three milestones are therefore the **gating path** for a stated
 headline capability rather than optional-someday work:
 
-| | Gates |
+| | Gates (downstream) |
 |---|---|
-| **M18** — N-Scalable Mixture Core | stages-thermo **M15**'s C ≈ 300 performance claim. *Does **not** gate their inside-out solver (M11), which is buildable today* |
-| **M19** — Petroleum Characterization | stages-thermo **M13** (assay → pseudocomponent column) |
-| **M20** — Refinery Thermodynamics | stages-thermo **M14** (crude-tower topology + free water) |
+| **M18** — N-Scalable Mixture Core | the C ≈ 300 performance claim. *Does **not** gate the inside-out solver, which is buildable today* |
+| **M19** — Petroleum Characterization | the petroleum feed path (assay → pseudocomponent column) |
+| **M20** — Refinery Thermodynamics | crude-tower topology + free water |
 
 **M18 is the one to start first** — it is independent of M19/M20, independently
 valuable (a pure speedup of an existing hot path, no new physics), and it is the
@@ -650,7 +650,7 @@ only one of the three that benefits every current user of classical mixing
 whether or not the crude column is ever built.
 
 Shared record: [PETROLEUM_PSEUDOCOMPONENT_PLAN.md](docs/plans/engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md)
-(upstream half) and `docs/plans/CRUDE_COLUMN_PLAN.md` in the stages-thermo repo (downstream half).
+(upstream half); the downstream half lives with the consumer.
 
 ## Milestone 18: N-Scalable Mixture Core — **shipped in v0.14.0**
 

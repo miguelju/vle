@@ -2,22 +2,22 @@
 
 **Status:** SHIPPED as Milestone 14 / v0.11.0 (2026-07-09) — §§1–7 are the executed design
 record. **§8 (methanol–water van Laar vs NRTL comparison) is a PROPOSED follow-up, not yet
-scheduled.** **Driver:** downstream — stages-thermo Milestone 2
-(Ponchon–Savarit) needs a proper heat-of-mixing model and the ammonia component to teach
+scheduled.** **Driver:** downstream — the Ponchon–Savarit milestone of a downstream staged-separation (distillation) consumer
+needs a proper heat-of-mixing model and the ammonia component to teach
 the ammonia–water enthalpy–composition method. This is the vle-side upstream milestone that
-gates stages-thermo M2 (sibling to the derivative release tracked in `DERIVATIVE_RELEASE_PLAN.md`).
+gates that milestone (sibling to the derivative release tracked in `DERIVATIVE_RELEASE_PLAN.md`).
 When executed, add ROADMAP.md / TODO.md / MODERNIZATION_PLAN.md entries + a model-attribution line
 per this repo's milestone rules.
 
 ## Why NRTL (and not UNIQUAC / extended UNIQUAC / a Helmholtz EOS)
 
-Design conclusion from the stages-thermo M2 planning conversation:
+Design conclusion from the downstream Ponchon–Savarit planning conversation:
 
 - vle-thermo today has Ideal / VanLaar / Wilson / Scatchard / Margules. Van Laar & Margules give
   only the crude legacy `Hᴱ = Gᴱ, Sᴱ = 0` (T-independent params); Wilson has a proper analytic
   T-derived `Hᴱ`. None model ammonia–water's large heat of mixing well.
 - **NRTL is the right general investment.** It is the standard model for aqueous-associating and
-  polar mixtures and lifts the *whole* aqueous-nonideal ladder stages-thermo will use — methanol /
+  polar mixtures and lifts the *whole* aqueous-nonideal ladder the downstream consumer will use — methanol /
   ethanol / 2-propanol / acetone–water and the later extractive/azeotropic ternaries — not just
   ammonia–water. On a single binary it has 3 adjustable knobs (τ₁₂, τ₂₁, α₁₂) vs plain UNIQUAC's 2,
   so it fits VLE **and** `Hᴱ` at least as well.
@@ -27,10 +27,10 @@ Design conclusion from the stages-thermo M2 planning conversation:
 - **Extended UNIQUAC / Helmholtz EOS are single-use luxuries.** The models that actually reproduce the
   textbook ammonia–water chart are *extended* UNIQUAC (Thomsen–Rasmussen: Debye–Hückel + speciation) or
   a Helmholtz-energy EOS (Tillner-Roth & Friend). Their distinguishing capability serves **nothing else**
-  on the stages roadmap (every other planned system is neutral / non-electrolyte, and the cubic EOS already
-  meets the ~1% cross-simulator target). So we add NRTL once for broad benefit, and stages-thermo will
+  on the downstream roadmap (every other planned system is neutral / non-electrolyte, and the cubic EOS already
+  meets the ~1% cross-simulator target). So we add NRTL once for broad benefit, and the downstream consumer will
   reproduce the ammonia–water *textbook chart* from reference data (Ibrahim–Klein / Tillner-Roth) rather
-  than build single-use thermodynamics. Full lesson: stages-thermo `M2_PONCHON_SAVARIT_PLAN.md`.
+  than build single-use thermodynamics. The full lesson is recorded in its Ponchon–Savarit plan.
 
 ## Repo conventions that apply (from this repo's CLAUDE.md)
 
@@ -60,10 +60,10 @@ Design conclusion from the stages-thermo M2 planning conversation:
 - **Non-randomness α storage — option B (chosen).** NRTL needs `αᵢⱼ` (symmetric, a *pair* property).
   The stack currently threads a single `aij` matrix.
   - Option A (overload the `aij` diagonal for α) is lowest-touch but **binary-only** — 3 pair-α's can't
-    map onto 3 component-diagonal slots, so it breaks for ternary and would need redo for stages-thermo M9.
+    map onto 3 component-diagonal slots, so it breaks for ternary and would need redo for the downstream extractive/azeotropic work.
   - **Option B (chosen):** add a parallel symmetric `alpha: Vec<Vec<f64>>` field to `SystemSpec`, the
     `System` pyclass, and `GeSpec`, threaded through `ln_gamma` / `_all` / `_generic` / `excess_*`.
-    Larger diff, but correct for ternary → serves stages-thermo M9's extractive acetone–methanol–water.
+    Larger diff, but correct for ternary → serves the downstream extractive acetone–methanol–water case.
 
 ## 2. NRTL — files to touch
 
@@ -122,8 +122,8 @@ Design conclusion from the stages-thermo M2 planning conversation:
   residuals; α fixed). Note `fit_aij` is hardwired to a 2-param `(aij[0][1], aij[1][0])` fit — reuse as-is
   with α fixed, or generalize the residual builder to inject α.
 - **Accuracy bar:** qualitative / few-% at moderate pressure; document the elevated-P boundary. Enough for
-  stages-thermo to demonstrate CMO error honestly; **not** expected to match the Bošnjaković chart (that is
-  route (b) in stages-thermo M2 — reference data).
+  the downstream consumer to demonstrate CMO error honestly; **not** expected to match the Bošnjaković chart (that is
+  route (b) in its Ponchon–Savarit milestone — reference data).
 
 ## 6. Milestone notebook (repo convention — required)
 
@@ -137,7 +137,7 @@ executed top-to-bottom via `nbconvert --execute`, and catalogued in `deploy/NOTE
 
 Doc-sync the files above, model-attribution line, `cargo fmt --check`, bump both version fields
 (→ **0.11.0**), land on `main`; Miguel signs the `v0.11.0` tag; `release.yml` publishes to crates.io + PyPI.
-**stages-thermo M2 then bumps `vle-thermo = "0.11"`.**
+**The downstream consumer then bumps `vle-thermo = "0.11"`.**
 
 ## Verification (end-to-end)
 

@@ -14,7 +14,8 @@
 //! `clsActivityMulticomp.cls` and Pascal `TERMOIII.PAS`). **NRTL** (Renon &
 //! Prausnitz, 1968) has **no legacy counterpart** — it was added in Milestone 14
 //! for the aqueous-associating / polar mixtures (ammonia–water and the
-//! alcohol–water ladder) the downstream `stages-thermo` library needs. Each
+//! alcohol–water ladder) a downstream staged-separation (distillation)
+//! consumer needs. Each
 //! model requires binary interaction parameters (Aij) fit to experimental VLE
 //! data.
 //!

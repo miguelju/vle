@@ -726,8 +726,8 @@ discrepancy, **fixed in the v0.9.1 patch release** (root cause was a missing
 co-volume `db/dT` term in `energy::h_departure_rt_mix`, not the suspected
 `t_dln_a_dt_mix` — see [DERIVATIVE_RELEASE_PLAN.md](engine/DERIVATIVE_RELEASE_PLAN.md) §7).
 
-The first downstream consumer of the published `vle-thermo` crate/wheel — the
-planned `stages-thermo` staged-separation (distillation) library — audited the
+The first downstream consumer of the published `vle-thermo` crate/wheel — a
+planned staged-separation (distillation) library — audited the
 0.8.1 public API against what a rigorous column solver (MESH / Naphtali–Sandholm
 Newton with an exact block-tridiagonal Jacobian) needs per stage evaluation, and
 found five gaps. This phase closes them by **extending the §L exact-derivative
@@ -862,19 +862,19 @@ Executed by Claude Code using Claude Opus 4.8 (1M context).*
 
 Adds the **NRTL** (Non-Random Two-Liquid; Renon & Prausnitz, 1968) activity model
 and the **ammonia** component. This is the vle-side *upstream* enabler for the
-downstream `stages-thermo` library's Ponchon–Savarit milestone, which teaches the
+Ponchon–Savarit milestone of a downstream staged-separation (distillation) consumer, which teaches the
 ammonia–water enthalpy–composition method and therefore needs a liquid model with
 a real heat of mixing plus ammonia in the bundled database.
 
 **Why NRTL** (not UNIQUAC / extended UNIQUAC / a Helmholtz EOS): NRTL is the
 standard model for aqueous-associating and polar mixtures and lifts the whole
-aqueous-nonideal ladder `stages-thermo` will use (the alcohol/acetone–water
+aqueous-nonideal ladder the downstream consumer will use (the alcohol/acetone–water
 systems and later extractive/azeotropic ternaries), not just ammonia–water. Its
 three binary knobs (τ₁₂, τ₂₁, α₁₂) fit VLE **and** Hᴱ, and it reuses the existing
 `aij` energy-matrix pattern (plain UNIQUAC would force new per-component `r`, `q`
 structural fields for no accuracy gain on two small molecules). Extended
 UNIQUAC / a Helmholtz EOS are single-use luxuries whose distinguishing capability
-serves nothing else on the stages roadmap — so `stages-thermo` reproduces the
+serves nothing else on the downstream roadmap — so the consumer reproduces the
 ammonia–water *textbook chart* from reference data rather than building single-use
 electrolyte thermodynamics here.
 
@@ -889,7 +889,7 @@ the off-diagonal `aij[i][j] = gᵢⱼ − gⱼⱼ` (kJ/kmol) gives `τᵢⱼ = a
 central-difference oracle — the test-oracle mandate). The **general multicomponent
 form** is implemented via column sums `Sⱼ = Σₖ xₖGₖⱼ`, `Cⱼ = Σₖ xₖτₖⱼGₖⱼ` (so the
 binary closed form is just a test oracle), written once generic over the scalar
-type — correct for the ternary+ systems `stages-thermo` M9 needs.
+type — correct for the ternary+ systems the downstream extractive/azeotropic work needs.
 
 **The `alpha` matrix (design option B):** NRTL's non-randomness `αᵢⱼ` is a
 symmetric *pair* property, so a new `alpha: &[Vec<f64>]` (N×N) is threaded in
@@ -915,11 +915,11 @@ quartic (every enthalpy balance needs it), cross-checked against Poling, Prausni
 **Parameters + validation:** NH₃–H₂O uses published NRTL parameters (α ≈ 0.2–0.3)
 validated against one literature bubble-P–x dataset (few-% at moderate P; the
 elevated-P boundary is documented). Reproducing the Bošnjaković chart is a
-`stages-thermo` reference-data concern, not this milestone's.
+downstream reference-data concern, not this milestone's.
 
 **Notebook + release:** a milestone notebook works NRTL γ + Hᴱ for NH₃–H₂O with
 the bubble-P–x validation plot per the Notebook Conventions; ships as **v0.11.0**
-(new public API surface = minor bump). `stages-thermo` M2 then bumps
+(new public API surface = minor bump). The downstream consumer then bumps
 `vle-thermo = "0.11"`.
 
 **Key source files:** `engine/src/activity.rs`, `engine/src/flash/system.rs`,

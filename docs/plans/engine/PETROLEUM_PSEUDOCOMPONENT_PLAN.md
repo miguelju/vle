@@ -48,21 +48,20 @@ with **hundreds of pseudocomponents** — the canonical refinery unit, and the
 workload that most thoroughly stresses everything this project has built.
 
 > **Status change, 2026-07-26.** This is no longer a speculative downstream ask:
-> the crude distillation unit is now the **terminal goal of the `stages-thermo`
-> project** (that repo's `PLAN.md` §1, goal 3). Consequently **M18/M19/M20 are
+> the crude distillation unit is now the **terminal goal of a downstream staged-separation (distillation) consumer**
+> of this crate. Consequently **M18/M19/M20 are
 > the gating path for a stated headline capability**, not optional-someday work,
 > and inside-out has been promoted downstream from a stretch milestone to a
-> required solver shipping *before* stages-thermo v1.0. Downstream milestone
-> numbering was reworked at the same time — §3 below carries the current mapping.
+> required solver shipping *before* that consumer's v1.0. Its own milestone
+> numbering was reworked at the same time — §3 below lists the deliverables.
 
 **Placement.** Three new milestones in this repo — **18**, **19**, **20**
 (Phases **25**, **26**, **27** in [MODERNIZATION_PLAN.md](../MODERNIZATION_PLAN.md)) —
-plus four in the downstream `stages-thermo` repo (**M11** inside-out, **M13–M15**
-the crude tower), whose `PLAN.md` §7.1, `ROADMAP.md`/`TODO.md` and the dedicated
-`docs/plans/CRUDE_COLUMN_PLAN.md` carry the matching entries. This document is the shared
+plus the column-side work in the downstream consumer (the inside-out solver and
+the crude tower itself), tracked in that project's own plans. This document is the shared
 technical record for the **upstream** half, the same division of labor as
 [DERIVATIVE_RELEASE_PLAN.md](DERIVATIVE_RELEASE_PLAN.md) vs. its Milestone 12
-entries; `docs/plans/CRUDE_COLUMN_PLAN.md` in `stages-thermo` is the downstream half.
+entries; the downstream half lives with the consumer.
 
 ---
 
@@ -77,7 +76,7 @@ merits:
 | | Blocker | Where | Consequence at N = 300 |
 |---|---|---|---|
 | **B1** | The classical mixing rule is unconditionally **O(N²)**, even when every k_ij is zero | `engine/src/mixture.rs`, `quad_a` | ~90 000 cross-terms per fugacity evaluation for a quantity computable in ~300 |
-| **B2** | Naphtali–Sandholm's Jacobian is dense per stage | `stages-thermo` M8 | Blocks of (2N+1)² = 361 000 entries; the block-Thomas sweep is ~10¹⁰ flops **per Newton iteration** |
+| **B2** | Naphtali–Sandholm's Jacobian is dense per stage | the downstream column solver | Blocks of (2N+1)² = 361 000 entries; the block-Thomas sweep is ~10¹⁰ flops **per Newton iteration** |
 
 Everything else in this plan is new physics or new correlations — real work,
 but ordinary work. B1 and B2 are the two places where the *shape* of the code
@@ -122,7 +121,7 @@ current user of classical mixing.
 
 ### 1.2 B2 — the solver choice, not the solver quality
 
-`stages-thermo`'s flagship is Naphtali–Sandholm: full Newton on MESH with a
+The downstream consumer's flagship is Naphtali–Sandholm: full Newton on MESH with a
 block-tridiagonal Jacobian, (2N+1) unknowns per stage. At N = 300, S = 50 that
 is ~10¹⁰ flops per iteration and gigabytes of Jacobian — seconds per iteration
 at best.
@@ -137,13 +136,13 @@ from Milestone 11 (stretch) onto the critical path.** It is the enabling
 algorithm for this workload, not a historical footnote. Naphtali–Sandholm
 remains the right flagship for the 5–20-component columns it was scoped for.
 
-*(2026-07-26 update: acted on. Downstream **M11 is now required and executes
-before M10**, so stages-thermo v1.0 ships both solvers. It also reached back into
-that repo's unwritten M5 — the thermo-provider boundary becomes a trait, profiles
+*(2026-07-26 update: acted on. Downstream, **inside-out is now required and
+executes before v1.0**, so the consumer's v1.0 ships both solvers. It also reached back into
+that project's still-unwritten MESH infrastructure — the thermo-provider boundary becomes a trait, profiles
 become structure-of-arrays, and the spec system gains a general
 computed-stream-property variant — because those are free before three solvers
 consume the old shapes and a rewrite afterwards. Note the non-gate: **M18 does
-not gate downstream M11.** Inside-out on a 5–20-component column is buildable and
+not gate the downstream inside-out solver.** Inside-out on a 5–20-component column is buildable and
 validatable immediately; M18 gates the C ≈ 300 performance claim.)*
 
 ---
@@ -176,19 +175,19 @@ coding; line numbers drift.
 
 ---
 
-## 3. Downstream work (`stages-thermo`)
+## 3. Downstream work (the staged-separation consumer)
 
-*Full detail in that repo's `docs/plans/CRUDE_COLUMN_PLAN.md`; milestone mapping current as
-of 2026-07-26.*
+*The column-side deliverables, as agreed 2026-07-26; the detailed plan and its
+milestone mapping live with the downstream consumer.*
 
-| | Deliverable | Downstream milestone |
+| | Deliverable | Sequencing |
 |---|---|---|
-| **D1** | **Inside-out (Boston–Britt), now required.** Outer loop: rigorous `vle-thermo` K and H at the current profiles → fit the local models. Inner loop: solve MESH against the *simple* models. This is what makes N = 300 feasible | **M11** *(before their v1.0)* |
-| **D2** | **Crude-tower topology.** Pumparounds (heat removal), side strippers (their own mini-columns with steam), a flash zone, overflash. Multi-feed and side draws already arrive with their M5; these are new structure | **M14** |
-| **D3** | **Product-quality specs.** D86 95 % points and gaps/overlaps, not mole-fraction purity. Needs a spec type that runs a distillation-curve calculation on a product stream — which loops back to U1 | **M15** |
-| **D4** | **Lumping / de-lumping.** The pragmatic escape hatch: solve ~20 lumped pseudocomponents, de-lump the converged profiles. Worth having even once inside-out lands, because it is what makes design *sweeps* interactive | **M13** |
-| **D5** | **Steam from `vle-steam`.** Stripping steam is best evaluated from IF97 rather than a cubic EOS, so `vle-steam` becomes a dependency of the crude-tower path. (Its transport properties, Milestone 13.7, then feed tray hydraulics and heat-transfer sizing later) | **M14** |
-| **D6** | **Three-phase / decanting *column* stages** *(added 2026-07-26)*. **U4 is not the whole story:** this plan listed free water as an upstream need only, but the *column* side is downstream work — a condenser that decants a water leg, side strippers where free water exists, a two-liquid stage in the MESH residual set, a decant draw in the material balance. It appeared in no checklist in either repo before now. U4 supplies the thermodynamics; the stage model is theirs | **M14** |
+| **D1** | **Inside-out (Boston–Britt), now required.** Outer loop: rigorous `vle-thermo` K and H at the current profiles → fit the local models. Inner loop: solve MESH against the *simple* models. This is what makes N = 300 feasible | *before the consumer's v1.0* |
+| **D2** | **Crude-tower topology.** Pumparounds (heat removal), side strippers (their own mini-columns with steam), a flash zone, overflash. Multi-feed and side draws already arrive with its MESH infrastructure; these are new structure | the crude-tower milestone |
+| **D3** | **Product-quality specs.** D86 95 % points and gaps/overlaps, not mole-fraction purity. Needs a spec type that runs a distillation-curve calculation on a product stream — which loops back to U1 | last |
+| **D4** | **Lumping / de-lumping.** The pragmatic escape hatch: solve ~20 lumped pseudocomponents, de-lump the converged profiles. Worth having even once inside-out lands, because it is what makes design *sweeps* interactive | first crude-tower step |
+| **D5** | **Steam from `vle-steam`.** Stripping steam is best evaluated from IF97 rather than a cubic EOS, so `vle-steam` becomes a dependency of the crude-tower path. (Its transport properties, Milestone 13.7, then feed tray hydraulics and heat-transfer sizing later) | the crude-tower milestone |
+| **D6** | **Three-phase / decanting *column* stages** *(added 2026-07-26)*. **U4 is not the whole story:** this plan listed free water as an upstream need only, but the *column* side is downstream work — a condenser that decants a water leg, side strippers where free water exists, a two-liquid stage in the MESH residual set, a decant draw in the material balance. It appeared in no checklist on either side before now. U4 supplies the thermodynamics; the stage model is the consumer's | the crude-tower milestone |
 
 ---
 
@@ -199,10 +198,10 @@ of 2026-07-26.*
 | ~~**A**~~ | vle | ~~**M18** — N-scalable core + N-sweep benches~~ **done, v0.14.0** | — |
 | ~~**B**~~ | vle | ~~**M19** — characterization + fraction correlations~~ **done 2026-08-16** | — (parallel with A) |
 | ~~**C**~~ | vle | ~~**M20** — free water + refinery methods~~ **done 2026-08-16** | B |
-| **D** | stages-thermo | **M11** inside-out solver (D1) | their M9 — **not A** |
-| **E** | stages-thermo | **M13** petroleum feed path (D4) | B, D |
-| **F** | stages-thermo | **M14** topology + steam + three-phase (D2, D5, D6) | C, E |
-| **G** | stages-thermo | **M15** quality specs, C ≈ 300, validation (D3) | A, F |
+| **D** | downstream | inside-out solver (D1) | its own solver-robustness work — **not A** |
+| **E** | downstream | petroleum feed path (D4) | B, D |
+| **F** | downstream | topology + steam + three-phase (D2, D5, D6) | C, E |
+| **G** | downstream | quality specs, C ≈ 300, validation (D3) | A, F |
 
 A and B are independent and may interleave. **A is worth starting immediately
 and on its own merits**, independent of whether the crude column is ever built.
@@ -211,7 +210,7 @@ and on its own merits**, independent of whether the crude column is ever built.
 inside-out on a 5–20-component column can be built and validated against
 Naphtali–Sandholm with no upstream work at all. **A gates the C ≈ 300 performance
 claim (phase G), not the solver's existence**, which is what allows D1 to land
-before stages-thermo v1.0 without waiting on this repo.
+before the consumer's v1.0 without waiting on this repo.
 
 ## 5. Validation targets
 

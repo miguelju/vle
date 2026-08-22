@@ -17,13 +17,12 @@ surfaced (§7). This file remains the *design record*; the as-built state is
 > [the Plan & Audit History](../README.md); see CLAUDE.md *Completion Claims Must
 > Be Verified Against the Code*.
 
-**Origin**: `stages-thermo` — the staged-separation (distillation) library planned
-as the first downstream consumer of `vle-thermo` (see its `PLAN.md` §7
-"The thermo adapter and upstream vle-thermo gaps", currently at
-`~/dev/stages-thermo/PLAN.md`). Its API-mapping audit against vle-thermo **0.8.1**
+**Origin**: a downstream staged-separation (distillation) consumer — the staged-separation (distillation) library planned
+as the first downstream consumer of `vle-thermo` (its plan has a section on
+"the thermo adapter and upstream vle-thermo gaps"). Its API-mapping audit against vle-thermo **0.8.1**
 identified five upstream gaps. This plan closes all five, in this repo, under this
-repo's rules. It is the work stages-thermo's roadmap calls
-"M4 — Upstream: vle-thermo derivative release (0.9.x, in the vle repo)".
+repo's rules. It is the work that consumer's roadmap calls
+"Upstream: vle-thermo derivative release (0.9.x, in the vle repo)".
 
 **Placement in the planning hierarchy**: this milestone is **Milestone 12** in
 [ROADMAP.md](../../../ROADMAP.md) / [TODO.md](../../../TODO.md) and **Phase 19** in
@@ -108,7 +107,7 @@ numbers drift):
 
 ## 3. Sub-milestones and release strategy
 
-Two releases, because G1/G2 gate stages-thermo's very first milestone
+Two releases, because G1/G2 gate the downstream consumer's very first milestone
 (benzene–toluene McCabe–Thiele) while G4/G5 aren't needed until its rigorous
 solver:
 
@@ -126,7 +125,7 @@ Total ≈ **25–38 h**. Execution order is 12.1 → 12.5 strictly; 12.4 depends
 Version-bump rationale: v0.8.2 is additive data + Python threading (no Rust API
 change). v0.9.0 carries the new Rust API surface **and** one deliberate breaking
 change to public generic signatures (§6) — a 0.x minor bump is the semver-correct
-vehicle for that, and matches the "target 0.9.x" contract stages-thermo pins
+vehicle for that, and matches the "target 0.9.x" contract the downstream consumer pins
 against.
 
 ---
@@ -139,7 +138,7 @@ against.
 
 | Compound | Why (downstream validation case) |
 |---|---|
-| toluene | benzene–toluene — *the* McCabe–Thiele teaching binary (stages M1) |
+| toluene | benzene–toluene — *the* McCabe–Thiele teaching binary (the consumer's first milestone) |
 | ethanol | ethanol–water azeotrope; azeotropic-distillation hard case |
 | acetone | acetone–methanol–water extractive case; acetone–chloroform |
 | chloroform | acetone–chloroform maximum-boiling azeotrope |
@@ -193,7 +192,7 @@ against.
    bundled), `python/README.md` compound count if stated, README feature list if
    it names the DB size.
 7. Release: bump both versions to **0.8.2**, tag per PUBLISHING.md. This is the
-   "tiny vle-thermo PR first" that stages-thermo M1 explicitly waits on.
+   "tiny vle-thermo PR first" that the downstream consumer's first milestone explicitly waits on.
 
 ### M12.2 — Rust-side component database (G3)
 
@@ -357,7 +356,7 @@ identities — implement via the identities, not new differentiation machinery:
   d²α/dTr² for the 2-parameter classical branch (mechanical: the α forms are
   elementary) + central-FD *of the analytic first derivative* as oracle-only,
   with the dual path revisited when the dependency allows. Do not ship FD.
-- **Packaged γ-φ phase enthalpy/entropy** — the assembly stages-thermo would
+- **Packaged γ-φ phase enthalpy/entropy** — the assembly the downstream consumer would
   otherwise do in its adapter, done once here instead. New function in
   `flash/system.rs` (it needs `SystemSpec` to know the liquid model, mirroring
   `k_values`' dispatch):
@@ -425,8 +424,8 @@ identities — implement via the identities, not new differentiation machinery:
 ## 4b. Post-release addendum — M12.6 (2026-08-18)
 
 M12.4's `phase_cp` covered cubic phases only; the γ-φ liquid heat capacity was
-the one G5 quantity left to a downstream finite difference (stages-thermo M5,
-`ThermoSystem::dh_dt`). It shipped in **v0.16.0** as
+the one G5 quantity left to a downstream finite difference (the consumer's
+thermo adapter). It shipped in **v0.16.0** as
 [`GAMMA_PHI_CP_PLAN.md`](GAMMA_PHI_CP_PLAN.md): dual-generic saturation
 correlations (`d_psat_dt` analytic for every model, `d2_psat_dt2`,
 `condensation_cp`), a per-model `excess_cp`, and the SystemSpec-level
@@ -473,7 +472,7 @@ correlations (`d_psat_dt` analytic for every model, `d2_psat_dt2`,
 5. **γ-φ K-derivative / `gamma_phi_k` drift** — the derivative assembly must
    mirror the value assembly term-for-term; prefer refactoring `gamma_phi_k` so
    both share one term list over writing a parallel copy.
-6. **Downstream co-development loop**: stages-thermo builds against the
+6. **Downstream co-development loop**: the consumer builds against the
    *published* crate (its CI rule). If mid-milestone testing needs unpublished
    API, downstream uses a local `[patch.crates-io]` — nothing in this repo
    changes for that.

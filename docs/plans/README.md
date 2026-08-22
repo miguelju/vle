@@ -32,7 +32,7 @@ ROADMAP → TODO → PLAN trio described in `CLAUDE.md`'s synchronization rules.
 | [`MODERNIZATION_PLAN.md`](MODERNIZATION_PLAN.md) | 2026-04-04 | **live plan** | Active — 27 phases; started at 17, grown 10 times since | all |
 | [`PERFORMANCE_PROPOSAL.md`](engine/PERFORMANCE_PROPOSAL.md) | 2026-07-01 | plan | Accepted, folded into the trio. Tracks C+E → M8.2, B → M8.3, A → M9, D → M10 | 8.2 – 10 |
 | [`DERIVATIVE_RELEASE_PLAN.md`](engine/DERIVATIVE_RELEASE_PLAN.md) | 2026-07-05 | plan | **Shipped** — all five downstream gaps closed (v0.8.2, v0.9.0, + patch v0.9.1) | 12 |
-| [`GAMMA_PHI_CP_PLAN.md`](engine/GAMMA_PHI_CP_PLAN.md) | 2026-08-18 | plan | **Executed** (→ v0.16.0) — the last G5 gap (γ-φ heat capacity) plus dual-generic saturation derivatives; opened by stages-thermo M5 | 12.6 |
+| [`GAMMA_PHI_CP_PLAN.md`](engine/GAMMA_PHI_CP_PLAN.md) | 2026-08-18 | plan | **Executed** (→ v0.16.0) — the last G5 gap (γ-φ heat capacity) plus dual-generic saturation derivatives; opened by the downstream consumer | 12.6 |
 | [`STEAM_TABLES_PLAN.md`](engine/STEAM_TABLES_PLAN.md) | 2026-07-07 | plan | **Shipped** in v0.10.0; extended by M13.7 – 13.8 in **v0.13.0** (transport properties + the IF97 performance pass); the 13.7 notebook landed just after the tag as a transport section in `12_steam_tables.ipynb` | 13 |
 | [`NRTL_AMMONIA_PLAN.md`](engine/NRTL_AMMONIA_PLAN.md) | 2026-07-07 | plan | **Shipped** in v0.11.0. §8 (van Laar vs NRTL comparison) is a *proposed* follow-up, not scheduled | 14 |
 | [`optimizations_audit.md`](engine/optimizations_audit.md) | 2026-07-24 | **audit** (external) | Delivered and answered in full; kept verbatim, never edited | — |
@@ -94,8 +94,8 @@ it doesn't — and finite differences survive only as test oracles.** It also ad
 academic references (23)–(29) and grew the improvement plan from §A–§H to §A–§M.
 
 Four days later, [`DERIVATIVE_RELEASE_PLAN.md`](engine/DERIVATIVE_RELEASE_PLAN.md)
-arrived from an unusual direction: **a downstream consumer**. `stages-thermo`, a
-staged-separation library planned on top of this one, audited its own API needs
+arrived from an unusual direction: **a downstream consumer** — a
+staged-separation (distillation) library planned on top of this one, which audited its own API needs
 against `vle-thermo` 0.8.1 and found five gaps. This is the first plan in the
 repo written to close gaps somebody else identified — and all five closed.
 
@@ -106,7 +106,7 @@ Two plans in one day, both shipping within a week.
 properties as a **dependency-free sibling crate** rather than bending the mixture
 engine around a single substance — "VLE for water only", usable standalone.
 [`NRTL_AMMONIA_PLAN.md`](engine/NRTL_AMMONIA_PLAN.md) was again downstream-driven:
-`stages-thermo`'s Ponchon–Savarit work needed a proper heat-of-mixing model and
+the downstream consumer's Ponchon–Savarit work needed a proper heat-of-mixing model and
 the ammonia component, so NRTL was chosen over UNIQUAC and a Helmholtz EOS, with
 the reasoning recorded rather than assumed.
 
@@ -183,7 +183,7 @@ enthalpy departure, Peneloux volume translation; v0.15.0) — with its two scope
 decisions stated in `ROADMAP.md` and `TODO.md` rather than rounded up: the
 free-water model is the decant approximation, not a three-liquid stability
 search, and BK10 ships without Braun's pressure-correction charts. The upstream
-half of the plan is done; what remains is downstream in `stages-thermo` (§3 of
+half of the plan is done; what remains is downstream, in the consumer (§3 of
 the plan).
 
 M19 is also a small case study in the rule this folder exists to enforce. Its

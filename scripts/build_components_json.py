@@ -121,8 +121,8 @@ RAW = {
 }
 
 # Milestone 12.1 additions (9 compounds) + Milestone 14's ammonia (→ 25 total):
-# the classic distillation / absorber validation set the downstream stages-thermo
-# library needs, plus ammonia for the ammonia–water Ponchon–Savarit method.
+# the classic distillation / absorber validation set a downstream staged-separation
+# (distillation) consumer needs, plus ammonia for the ammonia–water Ponchon–Savarit method.
 # Sourced from thermo 0.6.0 / chemicals 1.5.2 (M12.1 on 2026-07-05, ammonia on
 # 2026-07-08); Antoine from the chemicals Antoine-Poling table (bar form =
 # published Pa form − 5), cross-checked vs Poling, Prausnitz & O'Connell (30).

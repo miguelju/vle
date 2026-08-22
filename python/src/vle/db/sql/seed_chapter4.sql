@@ -33,8 +33,8 @@ VALUES
 
 -- ============================================================================
 -- MILESTONE 12.1 ADDITIONS (9 compounds → 24 total)
--- The classic distillation / absorber validation set the downstream
--- stages-thermo library needs. Kept in lockstep with the JSON DB
+-- The classic distillation / absorber validation set a downstream
+-- staged-separation (distillation) consumer needs. Kept in lockstep with the JSON DB
 -- (scripts/build_components_json.py). Sourced 2026-07-05 from thermo 0.6.0 /
 -- chemicals 1.5.2, cross-checked vs Poling, Prausnitz & O'Connell 5th ed. (30).
 -- Not Chapter IV cases; `vle-db validate chapter4` is unaffected.

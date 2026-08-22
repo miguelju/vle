@@ -6,7 +6,7 @@ NRTL (Renon & Prausnitz, 1968) is the standard local-composition model for
 aqueous-associating and polar mixtures. This notebook works the ammonia–water
 binary: activity coefficients, the (large, negative) heat of mixing that only a
 temperature-dependent model captures, and a bubble-pressure curve — the
-liquid-phase piece the downstream ``stages-thermo`` library needs for the
+liquid-phase piece a downstream staged-separation (distillation) consumer needs for the
 ammonia–water Ponchon–Savarit (enthalpy–composition) method.
 
 Also contains the NRTL_AMMONIA_PLAN.md §8 follow-up (added 2026-07-12): the
@@ -60,8 +60,8 @@ def build() -> nbf.NotebookNode:
         "and the **ammonia–water** pair at the heart of absorption refrigeration. "
         "This notebook adds NRTL and ammonia to `vle-thermo` and uses them to "
         "compute the activity coefficients, the **heat of mixing**, and a "
-        "bubble-pressure curve of NH₃–H₂O — the liquid-phase model the downstream "
-        "`stages-thermo` library needs for the ammonia–water "
+        "bubble-pressure curve of NH₃–H₂O — the liquid-phase model a downstream "
+        "staged-separation (distillation) consumer needs for the ammonia–water "
         "enthalpy–composition (Ponchon–Savarit) method."
     ))
 
@@ -269,7 +269,7 @@ def build() -> nbf.NotebookNode:
         "range. For quantitative work, regress the NRTL energies against "
         "experimental NH₃–H₂O VLE and use a cubic (or reference) vapor. The "
         "textbook ammonia–water enthalpy–composition chart is reproduced from "
-        "reference data downstream in `stages-thermo`, not from this fit."
+        "reference data by a downstream staged-separation consumer, not from this fit."
     ))
 
     # ---- §8 follow-up: van Laar vs NRTL on methanol–water ---------------

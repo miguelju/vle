@@ -288,7 +288,7 @@ Notebooks 01–08 ship incrementally through Milestones 4–10. This milestone i
 
 ## Milestone 12: Downstream Derivative & Database Release (vle-thermo 0.9.x)
 
-Closes the five upstream gaps identified by `stages-thermo` (planned first
+Closes the five upstream gaps identified by a downstream staged-separation (distillation) consumer (the first
 downstream consumer). Full technical spec: [DERIVATIVE_RELEASE_PLAN.md](docs/plans/engine/DERIVATIVE_RELEASE_PLAN.md).
 Two releases: **v0.8.2** (12.1 fast-track) then **v0.9.0** (12.2–12.5).
 Total ~25–38h. All sub-milestones **done** 2026-07-05→07-06 (Claude Opus 4.8):
@@ -339,7 +339,7 @@ departure-enthalpy `db/dT` bug the M12.3 invariant surfaced (plan §7).
 ### Milestone 12.6 — γ-φ Heat Capacity + Dual-Generic Saturation Derivatives (~3–5h) — **Done — ships in v0.16.0**
 *Executed by Claude Code using Claude Fable 5*
 
-Opened by stages-thermo M5 (its adapter finite-differenced the γ-φ liquid Cp);
+Opened by a downstream staged-separation (distillation) consumer (its adapter finite-differenced the γ-φ liquid Cp);
 plan [GAMMA_PHI_CP_PLAN.md](docs/plans/engine/GAMMA_PHI_CP_PLAN.md).
 
 - [x] **`saturation::psat_generic`** + per-correlation `*_generic` (Antoine, Riedel, Müller, RPM, Polynomial); `f64` entry points are wrappers; `d_psat_dt` analytic for every model (was FD for the corresponding-states fits); new `d2_psat_dt2`, `condensation_cp`; tests vs closed form / FD / FD-of-analytic
@@ -447,7 +447,7 @@ machine in the same session — the untouched-baseline discipline the audit set.
 *Phase 21 of MODERNIZATION_PLAN.md*
 *Executed by Claude Code using Claude Opus 4.8 (1M context)*
 
-Upstream enabler for `stages-thermo` Milestone 2 (Ponchon–Savarit): a proper
+Upstream enabler for the Ponchon–Savarit milestone of a downstream staged-separation (distillation) consumer: a proper
 heat-of-mixing model + ammonia for the ammonia–water enthalpy–composition method.
 Design record: [NRTL_AMMONIA_PLAN.md](docs/plans/engine/NRTL_AMMONIA_PLAN.md).
 
@@ -472,7 +472,7 @@ Design record: [NRTL_AMMONIA_PLAN.md](docs/plans/engine/NRTL_AMMONIA_PLAN.md).
 - [~] **NH₃–H₂O NRTL parameters** — qualitatively correct behavior demonstrated
       (α = 0.2 + illustrative energies: negative deviation, exothermic mixing,
       ammonia-rich vapor). Regression against a published bubble-P–x dataset is
-      deferred (rigorous ammonia–water chart is `stages-thermo`'s job from
+      deferred (rigorous ammonia–water chart is the downstream consumer's job from
       reference data — matches the plan's "qualitative / few-%" accuracy bar)
 - [x] **Operator step (YubiKey-gated):** version bumped → v0.11.0; signed
       `v0.11.0` tag pushed; `release.yml` publishes vle-thermo to crates.io + PyPI
@@ -637,12 +637,13 @@ from Jupyter).
 # The petroleum track (M18–M20) — gating a downstream headline capability
 
 *Updated 2026-07-26.* The **atmospheric crude distillation unit is now the
-terminal goal of the downstream `stages-thermo` project**. These three milestones
-gate it: **M18** → their M15 performance claim (*not* their M11 inside-out solver,
-which is buildable today), **M19** → their M13, **M20** → their M14. **Start M18
+terminal goal of a downstream staged-separation (distillation) consumer**. These three milestones
+gate it: **M18** → its C ≈ 300 performance claim (*not* its inside-out solver,
+which is buildable today), **M19** → its petroleum feed path, **M20** → its
+crude-tower topology. **Start M18
 first**: independent of the other two, and independently valuable regardless of
-whether the crude column is ever built. Downstream half of the record:
-`docs/plans/CRUDE_COLUMN_PLAN.md` in the stages-thermo repo.
+whether the crude column is ever built. The downstream half of the record lives
+with the consumer.
 
 ## Milestone 18: N-Scalable Mixture Core *(~10–16h)* — **Shipped in v0.14.0**
 *Phase 25 of MODERNIZATION_PLAN.md*
@@ -773,7 +774,7 @@ lessons: [OPTIMIZATION_AUDIT_HISTORY.md](docs/plans/engine/OPTIMIZATION_AUDIT_HI
 | 9. Flash & Regression | ~44–62h | **Done** (all algorithms + bindings + tests + Ch. IV validation + notebooks 04–09; shipped in v0.8.0) |
 | 10. Python Bindings, Wrapper & Batch API | ~25–36h | **Done** (System wrapper + batch API + component DB + plots + tests + intro notebook; external thermo/CoolProp bench deferred; shipped in v0.8.0) |
 | 11. Chapter IV Walkthrough | ~5–8h | **Done** (walkthrough notebook 10 + all 15 then-existing notebooks re-verified + catalogue complete; shipped in v0.8.0) |
-| 12. Downstream Derivative & Database Release | ~25–38h | **Done** — M12.1 (v0.8.2: 24-compound DB + Cp), M12.2 (Rust-side `component-db` DB), M12.3 (T/P derivatives of fugacity + K), M12.4 (real Cp + partial molar H + γ-φ enthalpy), M12.5 (notebook 11 + benches); shipped as **v0.9.0**, plus **v0.9.1** patch (WS departure-enthalpy fix); **M12.6** (γ-φ heat capacity + dual-generic saturation derivatives, opened by stages-thermo M5) ships in **v0.16.0** |
+| 12. Downstream Derivative & Database Release | ~25–38h | **Done** — M12.1 (v0.8.2: 24-compound DB + Cp), M12.2 (Rust-side `component-db` DB), M12.3 (T/P derivatives of fugacity + K), M12.4 (real Cp + partial molar H + γ-φ enthalpy), M12.5 (notebook 11 + benches); shipped as **v0.9.0**, plus **v0.9.1** patch (WS departure-enthalpy fix); **M12.6** (γ-φ heat capacity + dual-generic saturation derivatives, opened by the downstream consumer) ships in **v0.16.0** |
 | 13. Steam Tables — `vle-steam` (IAPWS-IF97) | ~41–59h | **Shipped as v0.10.0** — 13.1–13.6 done (crate, all 5 regions + saturation + backward eqs, verified vs R7-97 tables; PyO3 `vle.steam` + batch numpy; notebook 12; README + benches). Signed tag pushed + published. **13.8 shipped in v0.13.0**: IF97 performance audit — power-table series (~3.3× on every forward path), region-3 safeguarded-Newton density solve (−90%) + a corrected density bound, region-2 backward `T(p,h)`/`T(p,s)` (−87.5% on `ps_vapor`). **13.7 shipped in v0.13.0**: transport properties — R12-08 viscosity, R15-11 thermal conductivity (critical enhancement included), R1-76 surface tension, in their IF97-based *industrial* form; verified against R12-08 Table 4 and R15-11 Tables 7–9 term by term; PyO3 + `vle.steam` + batch; the milestone notebook landed after the tag as a **transport section in `12_steam_tables.ipynb`** (collection stays at 19) |
 | 14. NRTL Activity Model + Ammonia | ~14–20h | **Shipped as v0.11.0** — NRTL model (general multicomponent, analytic Hᴱ via `num-dual`), `alpha` matrix threaded, PyO3 + Python wrapper, ammonia in the 25-compound DB, milestone notebook 13. Rigorous NH₃–H₂O param regression deferred (qualitative demo shipped) |
 | 15. iOS/macOS FFI (`vle-ffi` via UniFFI) | ~13–21h | **Done (unreleased)** — `ffi/` wrapper crate + bindgen bin, `scripts/build-ios.sh` (3 Apple targets → XCFramework), `swift/VleThermo` package (10 XCTests green), learning doc `docs/en/ios/`. Local-build artifact only; app itself is a future separate repo |

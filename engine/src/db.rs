@@ -4,7 +4,7 @@
 //! `python/src/vle/components.py`. Where the wheel reads
 //! `vle/data/components.json` through `importlib.resources`, the crate embeds
 //! the **same** JSON at compile time via [`include_str!`] and parses it lazily
-//! on first use. Downstream Rust consumers (e.g. `stages-thermo`) can then turn
+//! on first use. Downstream Rust consumers (e.g. a column solver) can then turn
 //! a component *name* into the [`Component`] the engine needs without
 //! hand-building the struct — closing gap **G3** of `DERIVATIVE_RELEASE_PLAN.md`.
 //!

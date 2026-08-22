@@ -3,15 +3,15 @@
 *Adopted 2026-08-18 (Claude Fable 5), at Miguel's request, as the last
 downstream-gap item of the derivative release
 ([`DERIVATIVE_RELEASE_PLAN.md`](DERIVATIVE_RELEASE_PLAN.md) G5): the packaged
-`phase_cp` shipped in M12.4 covers cubic (φ-φ) phases only, and stages-thermo
-M5 (v0.4.0, 2026-08-18) had to fill the γ-φ liquid Cp with a central finite
+`phase_cp` shipped in M12.4 covers cubic (φ-φ) phases only, and a downstream staged-separation (distillation) consumer
+(2026-08-18) had to fill the γ-φ liquid Cp with a central finite
 difference in its adapter — the exact interim the derivative release exists to
 retire. Small, self-contained, and independently valuable to vle-thermo's own
-users; scheduled before stages-thermo M6.*
+users; scheduled before that consumer's rigorous-solver milestone.*
 
 ## 1. The gap, precisely
 
-`ThermoProvider::dh_dt` (stages-thermo, `engine/src/thermo.rs`) is the phase
+The downstream consumer's `dh_dt` (its thermo-adapter trait method) is the phase
 heat capacity a column solver needs for the temperature column of its enthalpy
 balances (Naphtali–Sandholm Jacobian, inside-out's enthalpy-surrogate fit).
 Today:
@@ -19,7 +19,7 @@ Today:
 | Route | `∂ln K/∂T` | `∂H/∂T = Cp` |
 |---|---|---|
 | φ-φ (cubic both phases) | analytic — `k_values_with_derivs` (M12.3) | analytic — `energy::phase_cp` (M12.4, `Dual2` through `ln_phi_all_generic`) |
-| γ-φ (activity liquid, ideal-gas vapor) | analytic — term-by-term (M12.3) | **missing upstream** → stages-thermo central FD |
+| γ-φ (activity liquid, ideal-gas vapor) | analytic — term-by-term (M12.3) | **missing upstream** → downstream central FD |
 
 Two smaller upstream facts feed the same fix:
 
@@ -95,12 +95,11 @@ re-routing of `enthalpy_entropy`. New `System.d_psat_dt(i, t)` /
 `d2_psat_dt2(i, t)` are **not** added (no downstream consumer); the
 saturation derivatives stay Rust-level. Batch variant of `phase_cp` optional.
 
-### 2.5 Downstream (stages-thermo, after the release)
+### 2.5 Downstream (the consumer, after the release)
 
-Bump the pin to 0.16, replace the `ModelKind::GammaPhi` arm of
-`ThermoSystem::dh_dt` with `vle_thermo::flash::phase_cp` (~10 lines), keep
-`dh_dt_fd` and its test as the permanent oracle, and delete the "FD-interim"
-notes in `thermo.rs`, `CLAUDE.md` and `docs/theory/mesh.md`.
+Bump the pin to 0.16, replace the γ-φ arm of its adapter's `dh_dt` with
+`vle_thermo::flash::phase_cp` (~10 lines), keep its FD oracle and test as the
+permanent oracle, and delete its "FD-interim" notes.
 
 ## 3. Tests
 

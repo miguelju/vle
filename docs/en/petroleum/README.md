@@ -47,22 +47,21 @@ the bridge wrong does not produce an obviously wrong answer — it produces a
 plausible column with the wrong product yields. That is the kind of error worth
 a long document.
 
-The column itself is not built here. It is built in the cousin repository,
-**[`stages-thermo`](https://github.com/miguelju/stages-thermo)** — the
+The column itself is not built here. It is built by a downstream staged-separation (distillation) consumer — a
 staged-separation library that carries the actual column-design algorithms and
-calls this repo for all of its thermodynamics. Its flagship solver is
+calls this crate for all of its thermodynamics. Its flagship solver is
 Naphtali–Sandholm, full Newton on the MESH equations; the Boston–Britt
 inside-out algorithm is its next milestone, and is required precisely because
-of the component counts this module produces. The two repositories are
+of the component counts this module produces. The two are
 deliberately split along that seam:
-**`vle-thermo` answers "what does this mixture do at this T and P"; `stages-thermo`
-answers "how many trays do I need".** Neither is much use without the other.
+**`vle-thermo` answers "what does this mixture do at this T and P"; the column
+solver answers "how many trays do I need".** Neither is much use without the other.
 
-That makes this module a **prerequisite**, not a side quest. `stages-thermo`
+That makes this module a **prerequisite**, not a side quest. A column solver
 cannot start a crude tower without a component list, and this is where the
-component list comes from — which is also why the shared design record
+component list comes from — which is also why the design record
 ([`PETROLEUM_PSEUDOCOMPONENT_PLAN.md`](../../plans/engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md))
-spans both repositories rather than living in one.
+describes both the upstream and the downstream halves of the work.
 
 ---
 
@@ -155,8 +154,8 @@ did not change.
 Two of those entries are load-bearing in this repository right now. **Watson &
 Nelson's 1933 factor is [`watson_k`](#41-gravity)** in `petroleum/gravity.rs`, a
 93-year-old correlation on the hot path of every characterization. And
-**Boston & Britt's inside-out** is the solver the downstream `stages-thermo`
-project needs in order to run a column at the component counts this module
+**Boston & Britt's inside-out** is the solver a downstream staged-separation
+consumer needs in order to run a column at the component counts this module
 produces — which is why Milestone 18 spent its effort making the mixture core
 scale to N = 300 rather than making it cleverer.
 
@@ -1467,10 +1466,10 @@ a Grayson–Streed K-value by hand; the Rust module docs
 (`engine/src/refinery/mod.rs`, `lee_kesler.rs`, `volume_translation.rs`,
 `engine/src/flash/free_water.rs`) carry the equations in full.
 
-Beyond that, the downstream `stages-thermo` project consumes both modules for
+Beyond that, a downstream staged-separation (distillation) consumer consumes both modules for
 its crude-tower work — see
 [`PETROLEUM_PSEUDOCOMPONENT_PLAN.md`](../../plans/engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) §3.
-What that project still needs from *this* repo is now short: the column side
+What such a consumer still needs from *this* repo is now short: the column side
 of free water (D6 there), and, someday, the Kesler–Lee `CF` correction (§8.4)
 with a primary source behind it.
 
