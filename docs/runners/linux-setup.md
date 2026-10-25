@@ -4,10 +4,14 @@
 > informational criterion bench, moved to GitHub-hosted `ubuntu-latest` in
 > `.github/workflows/bench.yml` (see `docs/ci.md`). The wheel builds and Rust
 > tests left it in v0.12.0. Kept for reference — the same pattern still hosts
-> other repos' runners on the lab's Docker host. To decommission
-> `vle-runner-01`: stop and remove its container on the runner host, confirm
-> it shows offline via `gh api repos/miguelju/vle/actions/runners`, then
-> `DELETE` it by id. The sections below describe the setup as it was.
+> other repos' runners on the lab's Docker host. **`vle-runner-01` was
+> decommissioned on 2026-10-25:** `docker compose down` in its directory
+> (the ephemeral container deregistered itself — `gh api
+> repos/miguelju/vle/actions/runners` showed zero runners, no `DELETE`
+> needed), its local token copy shredded, and its config directory archived
+> rather than deleted for rollback. The access token itself was **not**
+> revoked: the same token still serves the other repo's runner on that host.
+> The sections below describe the setup as it was.
 
 This is the recipe for standing up a **Linux x86_64 self-hosted GitHub
 Actions runner** that destroys itself after every job. We run it as a
