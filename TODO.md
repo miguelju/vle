@@ -271,8 +271,11 @@ Claude Code using Claude Fable 5.*
 - [x] **Release** — 0.17.0, together with the Python floor move to 3.11 (`abi3-py311`, `cp311-*`, `tomli` dropped)
 - [x] **Solver benchmark sweep** — benches for every public `flash::*` solver; findings in `OPTIMIZATION_PLAN_PART1.md` §9; stability-before-flash and Aij-analytic-Jacobian doc claims corrected
 - [x] **Fix `flash_adiabatic`** — `flash_isothermal_warm` re-seeds from Wilson when a warm K yields no RR root at iteration 0; `flash_adiabatic` and `flash_free_water` carry K only from `two_phase` results (as `flash_pt_batch` does); the adiabatic bracket-collapse exit returns `NoConvergence` instead of `Ok` when the residual is above `tol`. Tests `adiabatic_recovers_temperature_ten_component_rks` (432.1142 K, was 385.67 K) and `warm_start_from_a_single_phase_k_does_not_force_single_phase`, both failing with the fix disabled; no measured cost (`OPTIMIZATION_PLAN_PART1.md` §9)
-- [ ] **Fix `trace_envelope` seeding** — fails from `p_start` 50/100/1000 kPa for n-butane/n-heptane and propane/n-pentane (the Python default is 100 kPa)
-- [ ] **Decide: wire `stability_analysis` into `flash_isothermal`** (correctness vs ≈ 2× cold-flash cost; measure)
+- [x] **Fix `trace_envelope` seeding** — seeds from `bubble_temperature` at `p_start`; also fixed the tangent orientation (the trace oscillated at the critical point and never reached the dew branch), the failed-step retry point, and the missing stop at `p_start` on the dew branch. Tests `closes_the_loop_through_the_critical_point_once`, `traces_from_low_starting_pressures` (v0.17.1)
+- [x] **Fix `bubble_pressure` trivial solution** (found while testing the envelope) — density-based trivial test, lower-pressure restarts, secant-on-ln-P inversion of Newton bubble-T; `newton_temperature` uses the same test; bisection fallback checks its residual. Tests `bubble_pressure_never_returns_the_trivial_solution`, `near_critical_bubble_points_decline_rather_than_answer_wrongly` (v0.17.1, `OPTIMIZATION_PLAN_PART1.md` §10)
+- [x] **Decide: wire `stability_analysis` into `flash_isothermal`** — measured on 21 600 grid points: zero missed splits, so no; recommend a stability check on flash non-convergence instead (`OPTIMIZATION_PLAN_PART1.md` §10)
+- [ ] **Stability check on flash non-convergence** — 55/21 600 grid points fail to converge near the critical locus and are all stable single-phase
+- [ ] **Sweep liquid–liquid-prone systems** (water/hydrocarbon, γ-φ) for missed splits before closing the stability question
 - [ ] *Follow-ups:* simultaneous (n+1)-variable Newton; warm-start entry point (`T₀`, `K₀`); Newton on ln P for `bubble_pressure`/`dew_pressure`
 
 ## Milestone 10: Python Bindings, Wrapper & Batch API

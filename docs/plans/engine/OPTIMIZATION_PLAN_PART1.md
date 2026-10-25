@@ -422,9 +422,16 @@ few dozen K-evaluations was the signal to look.
 | `flash_isothermal_warm` (converged K) | 0.43 µs | 0.58 µs | 0.66 µs | 0.72 µs | 0.84 µs |
 | `bubble_temperature` | 3.98 µs | 5.82 µs | 8.94 µs | 9.89 µs | 13.9 µs |
 | `dew_temperature` | 6.92 µs | 8.11 µs | 8.99 µs | 11.2 µs | 11.6 µs |
-| `bubble_pressure` | 6.48 µs | 6.28 µs | 6.99 µs | 7.16 µs | 67.2 µs |
+| `bubble_pressure` | ~~6.48 µs~~ | ~~6.28 µs~~ | ~~6.99 µs~~ | ~~7.16 µs~~ | 67.2 µs |
 | `dew_pressure` | 16.5 µs | 9.84 µs | 22.0 µs | 12.6 µs | 24.0 µs |
 | `critical_point` | 5.52 µs | 20.6 µs | 50.0 µs | 111 µs | 206 µs |
+
+**Struck through: those four `bubble_pressure` numbers timed a wrong answer.**
+Every N = 2–8 fixture contains methane at 350 K, and on all of them the solver
+converged to the trivial solution `K ≡ 1` (§10). They are kept, struck, because
+they are the evidence: a fast benchmark of a wrong answer looks exactly like a
+fast benchmark. The N = 10 harness mixture (no methane) was genuine. Correct
+figures are in §10.
 
 | `flash_solvers` case | Median |
 |---|---|
@@ -472,7 +479,8 @@ sweep's real yield was **correctness**:
    and 1000 kPa on both PR and RKS (corrector does not converge), and trace
    only from 300 kPa; methane/ethane and ethane/n-heptane trace from every
    start. `System.phase_envelope(["n-butane","n-heptane"])` with defaults
-   raises. **Open.**
+   raises. **Fixed in v0.17.1** — see §10, which also found that even
+   successful traces never reached the dew branch.
 4. **The Aij regression Jacobian is a finite difference**, not the analytic
    Jacobian MODERNIZATION_PLAN / CLAUDE.md / README claimed (the module's own
    docs were honest). At 0.28 ms per fit it is not a performance problem. Doc
@@ -480,11 +488,96 @@ sweep's real yield was **correctness**:
 
 Performance leads, none urgent: `critical_point` grows ≈ N²·² (5.5 µs → 206 µs
 from N = 2 to 10), which matters only if a pseudocomponent-scale critical
-point is ever needed; `bubble_pressure` is state-sensitive (7 µs on the bench
-fixture, 67 µs on the wide-boiling 10-component mixture — the multiplicative
-`P ← P·S` update converges linearly), so a Newton on ln P with the exact
+point is ever needed; `bubble_pressure` is state-sensitive (the "7 µs on the
+bench fixture" first written here was the trivial solution, §10; 67 µs on the
+wide-boiling 10-component mixture — the multiplicative `P ← P·S` update
+converges linearly), so a Newton on ln P with the exact
 `∂ln K/∂P` (already returned by `k_values_with_derivs`) would mirror §8; both
 regressions inherit any bubble-P speed-up.
+
+---
+
+## 10. Addendum (v0.17.1, 2026-10-25): envelope continuation and the trivial bubble point
+
+Following up §9's open items turned up three more defects, two of them silent
+wrong answers that had been present since Milestone 9. All three were found by
+checking one solver's output against an *independent* one — the phase envelope
+against `bubble_temperature` / `dew_temperature` — rather than by reading.
+
+1. **`trace_envelope` seed.** The seed was Wilson K at `T = 0.7·Σzᵢ·Tc,ᵢ`,
+   ≈ 338 K for equimolar n-butane/n-heptane at 100 kPa against a bubble point
+   near 292 K, and the fixed-P corrector failed from there. It now seeds from
+   `bubble_temperature` at `p_start` (the converged T and K; the old guess
+   remains the fallback). Every pair in §9's table now traces from 50, 100,
+   300 and 1000 kPa on PR and RKS.
+2. **`trace_envelope` never reached the dew branch.** The tangent solve fixes
+   `t[s] = +1`, so the predictor always *increased* the spec variable; once the
+   spec switched to an `ln Kᵢ` (which must fall through 0 at the critical
+   point) the trace reversed and oscillated around the critical point for every
+   remaining point — 400 requested points on n-butane/n-heptane, all but ~35
+   bouncing between 485 and 501 K. A failed step also restored the point
+   *before* the last accepted one. Fixed: the tangent is oriented along the
+   previous step (secant), a failed step retries from the last accepted point,
+   and the trace stops when the dew branch returns to `p_start` (which the doc
+   comment had always promised; the code never checked). A closed n-butane/
+   n-heptane envelope is now 57 points in 0.69 ms, where the oscillating trace
+   took 6.5 ms for 400 points.
+3. **`bubble_pressure` returned the trivial solution as `Ok`.** The
+   multiplicative `P ← P·S` update, started from the Wilson pressure, can walk
+   into the region where the known phase has a single cubic root; both phases
+   take it, `K ≡ 1`, and `S = 1` holds at any pressure. Measured, against the
+   phase envelope:
+
+   | Mixture (PR unless noted) | T | Returned before | True (envelope) | Now |
+   |---|---|---|---|---|
+   | methane/n-pentane 50/50, RKS | 350 K | 27 479 kPa, K ≡ 1 | 12 386 kPa | 12 383 kPa |
+   | methane/ethane 50/50 | 221.7 K | 5 198 kPa, K ≡ 1 | 4 100.0 kPa | 4 100.0 kPa |
+   | methane/ethane 50/50 | 251.6 K | 4 639.5 kPa, K = 1.0002 | 6 277.0 kPa | `NoConvergence` |
+   | CO₂/n-butane 80/20, k = 0.13 | 310 K | 6 753 kPa, K ≡ 1 | ≈ 6.2 MPa | 6 208 kPa |
+
+   `bubble_temperature` inherited it through its bisection fallback (methane/
+   ethane at 6277 kPa returned 230.68 K for a 251.57 K bubble point).
+   **Fix** (`flash/incipient.rs`): a converged saturation point is rejected as
+   trivial when the two phases have the same density — the known phase on its
+   root and the incipient phase on its root have Z within 1 % — which a pure
+   component or an exact azeotrope (K = 1, distinct roots) never does; the
+   solver then restarts from lower pressures and, failing that, inverts the
+   Newton saturation-temperature solve by a safeguarded secant on ln P.
+   `newton_temperature` applies the same density test, and the bisection
+   fallback now treats "no saturation pressure here" as the high side of its
+   bracket and returns `NoConvergence` when the bracket collapses without a
+   root, instead of the midpoint.
+
+   **What this costs, measured** (criterion, the §9 fixtures): bubble_pressure
+   N = 2/4/6/8 is now 344 / 88 / 107 / 50 µs. Those are the first correct
+   numbers for these mixtures; the "6–7 µs" they replace computed nothing.
+   Where the old solver was right (the 10-component mixture without methane:
+   532 / 1224 / 1862 kPa at 350 / 400 / 432 K) the answers are identical and
+   the overhead is two Z evaluations. Within ≈ 15 K of the methane/ethane
+   critical point both solvers now **decline** rather than answer; the
+   envelope is the tool there. Newton on ln P with the exact `∂ln K/∂P` remains
+   the way to make the near-critical pressure solve both fast and convergent.
+
+   **A test was validating against the bug.** `kij_regression`'s
+   `recovers_a_known_kij` generates synthetic data with `bubble_pressure` and
+   fits it back; its x_CO₂ = 0.8 point was the trivial 6753 kPa, and the test
+   passed because generation and fit shared the defect. It now runs on the
+   correct 6208 kPa unchanged.
+
+**Stability analysis in the flash — measured, not wired in.** §9 left open
+whether `flash_isothermal` should run `stability_analysis`. On a 60 × 60
+T–P grid (150–600 K, 10–80 000 kPa) for six PR hydrocarbon mixtures
+(binaries to 10 components, with and without methane): of 17 277 points the
+cold flash called single-phase, stability called **zero** unstable; of 4 268
+two-phase points it agreed on 4 267. Running it before every flash would
+roughly double cold-flash cost for no change in any answer on this grid. Where
+it *would* help is the 55 grid points (0.25 %) where the flash fails to
+converge near the critical locus: stability says *stable* at every one, so a
+stability check **on flash failure** would turn those errors into correct
+single-phase answers at no cost on the normal path. That fallback is the
+recommendation; it is not implemented yet. Caveat: hydrocarbons with
+classical mixing only — liquid–liquid-prone systems (water/hydrocarbon, γ-φ)
+were not swept, and that is where stability matters most.
 
 ---
 

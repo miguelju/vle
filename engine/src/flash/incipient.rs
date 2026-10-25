@@ -39,6 +39,8 @@
 use super::FlashError;
 use super::init::wilson_k_values;
 use super::system::{SystemSpec, k_values, k_values_with_derivs};
+use crate::eos::{LiquidModel, PhaseId, VaporModel};
+use crate::mixture::z_mix;
 
 /// Which saturation point — selects the known phase and the sum condition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,6 +140,20 @@ pub(crate) struct SatPoint {
 /// Multiplicative outer update — `P ← P·S` (bubble) or `P ← P/S` (dew) —
 /// which drives `S → 1` monotonically, warm-starting the K-values across
 /// outer steps. Wilson seeds both P and K.
+///
+/// **Trivial-solution guard.** Near the mixture critical point the iteration
+/// can walk into the region where the cubic has a single real root for the
+/// known phase; both phases then take that root, `K ≡ 1` exactly, and
+/// `S = 1` is satisfied at a meaningless pressure. Until v0.17.1 that was
+/// returned as `Ok` — e.g. equimolar methane/ethane (PR) at 221.7 K gave a
+/// bubble pressure of 5198 kPa against the true 4100 kPa
+/// (`OPTIMIZATION_PLAN_PART1.md` §10). A converged K ≡ 1 is now accepted only
+/// if the known phase still has distinct liquid and vapor roots (a pure
+/// component or an exact azeotrope, where K = 1 is the right answer);
+/// otherwise the solve restarts from a lower pressure, and if every restart
+/// lands on the trivial solution too it falls back to [`inverse_pressure`]
+/// — the saturation temperature solved by Newton, inverted by a secant on
+/// `ln P`. [`FlashError::NoConvergence`] only if that fails as well.
 pub(crate) fn solve_pressure(
     spec: &SystemSpec,
     t: f64,
@@ -146,7 +162,125 @@ pub(crate) fn solve_pressure(
     tol: f64,
     max_iter: usize,
 ) -> Result<SatPoint, FlashError> {
-    let mut p = wilson_pressure_guess(spec, t, known, point).max(1e-6);
+    let mut p0 = wilson_pressure_guess(spec, t, known, point).max(1e-6);
+    let p_seed = p0;
+    // Restart budget: each restart halves the starting pressure.
+    const RESTARTS: usize = 3;
+    for _ in 0..=RESTARTS {
+        let sp = multiplicative_pressure(spec, t, p0, known, point, tol, max_iter)?;
+        if !is_trivial(spec, t, sp.var, known, &sp.incipient, point)? {
+            return Ok(sp);
+        }
+        p0 = 0.5 * p0.min(sp.var);
+    }
+    inverse_pressure(spec, t, p_seed, known, point, tol, max_iter).ok_or(
+        FlashError::NoConvergence {
+            what: "saturation pressure (only the trivial solution K = 1 was found)",
+            iters: max_iter,
+            residual: 0.0,
+        },
+    )
+}
+
+/// Saturation pressure at `t` (**K**) by inverting the saturation
+/// *temperature*: solve `f(P) = ln(T_sat(P) / t) = 0` by a safeguarded
+/// secant on `ln P`, each `T_sat` from [`newton_temperature`].
+///
+/// The fallback for the near-critical region where `P ← P·S` collapses onto
+/// the trivial solution: Newton on `1/T` carries the exact `∂ln K/∂T` and
+/// stays on the physical branch there (CO₂/n-butane at 310 K, x_CO₂ = 0.8:
+/// the multiplicative update finds only `K ≡ 1`, this finds 6.2 MPa).
+/// `T_sat` rises with `P` along a saturation branch, so the secant is well
+/// posed; a pressure where Newton declines (past the end of the branch) is
+/// treated as "too far" and the step is halved back toward the last good
+/// point. Calls `newton_temperature`, never `solve_temperature`, whose
+/// bisection fallback would recurse into [`solve_pressure`]. Returns `None`
+/// if it cannot vouch for an answer. `p_seed` in **kPa**.
+fn inverse_pressure(
+    spec: &SystemSpec,
+    t: f64,
+    p_seed: f64,
+    known: &[f64],
+    point: Point,
+    tol: f64,
+    max_iter: usize,
+) -> Option<SatPoint> {
+    let eval = |ln_p: f64| -> Option<(f64, SatPoint)> {
+        let sp = newton_temperature(spec, ln_p.exp(), known, point, tol, max_iter)?;
+        Some(((sp.var / t).ln(), sp))
+    };
+    // A first good point: walk down from the seed until Newton answers.
+    let mut ln_p = p_seed.ln();
+    let mut a = None;
+    for _ in 0..12 {
+        if let Some(r) = eval(ln_p) {
+            a = Some((ln_p, r));
+            break;
+        }
+        ln_p -= 0.2;
+    }
+    let (mut x0, (mut f0, sp0)) = a?;
+    if f0.abs() < tol {
+        return Some(SatPoint {
+            var: x0.exp(),
+            ..sp0
+        });
+    }
+    // Second point: Clausius–Clapeyron-sized step in the right direction
+    // (T_sat too high ⇒ lower P).
+    let mut x1 = x0 - 0.05 * f0.signum();
+    let (mut f1, mut sp1) = loop {
+        match eval(x1) {
+            Some(r) => break r,
+            None => {
+                x1 = 0.5 * (x0 + x1);
+                if (x1 - x0).abs() < 1e-6 {
+                    return None;
+                }
+            }
+        }
+    };
+    for _ in 0..max_iter {
+        if f1.abs() < tol {
+            return Some(SatPoint {
+                var: x1.exp(),
+                ..sp1
+            });
+        }
+        let slope = (f1 - f0) / (x1 - x0);
+        if !slope.is_finite() || slope <= 0.0 {
+            return None;
+        }
+        let mut x2 = x1 - (f1 / slope).clamp(-0.3, 0.3);
+        let (f2, sp2) = loop {
+            match eval(x2) {
+                Some(r) => break r,
+                None => {
+                    x2 = 0.5 * (x1 + x2);
+                    if (x2 - x1).abs() < 1e-9 {
+                        return None;
+                    }
+                }
+            }
+        };
+        (x0, f0) = (x1, f1);
+        (x1, f1, sp1) = (x2, f2, sp2);
+    }
+    None
+}
+
+/// The `P ← P·S` / `P ← P/S` iteration from a given starting pressure `p0`
+/// (**kPa**), with Wilson K at `(t, p0)`.
+fn multiplicative_pressure(
+    spec: &SystemSpec,
+    t: f64,
+    p0: f64,
+    known: &[f64],
+    point: Point,
+    tol: f64,
+    max_iter: usize,
+) -> Result<SatPoint, FlashError> {
+    let mut p = p0;
     let mut k = wilson_k_init(spec, t, p);
     for iter in 0..max_iter {
         let (s, incipient) = incipient_sum(spec, t, p, known, point, &mut k, 40)?;
@@ -172,6 +306,52 @@ pub(crate) fn solve_pressure(
     }
     unreachable!("loop returns via convergence or NoConvergence")
 }
+
+/// Is a converged saturation point the **trivial solution** — both phases on
+/// the same cubic root, so `K ≡ 1` and `S = 1` hold at any pressure?
+///
+/// Neither `K ≈ 1` nor `S = 1` decides it on its own. A pure component at its
+/// vapor pressure and an exact azeotrope have `K = 1` legitimately; and the
+/// successive-substitution loop *approaches* the trivial solution slowly, so
+/// a not-yet-trivial `K = 1.0002` already satisfies `|S − 1| < tol`. The
+/// physical test is density: the known phase on its root (liquid for a bubble
+/// point) and the incipient phase on its root (vapor) must differ. At the
+/// trivial solution their Z factors coincide; at a genuine saturation point
+/// — even 0.1 in `ln K` from the critical point — they do not.
+///
+/// Applies to φ-φ systems with the same cubic in both phases; γ-φ systems
+/// (and virial vapors) cannot collapse this way and are never trivial.
+/// `t` in **K**, `p` in **kPa**.
+fn is_trivial(
+    spec: &SystemSpec,
+    t: f64,
+    p: f64,
+    known: &[f64],
+    incipient: &[f64],
+    point: Point,
+) -> Result<bool, FlashError> {
+    let (VaporModel::Cubic(ev), LiquidModel::Cubic(el)) = (spec.vapor, spec.liquid) else {
+        return Ok(false);
+    };
+    if ev != el {
+        return Ok(false);
+    }
+    let (x, y) = match point {
+        Point::Bubble => (known, incipient),
+        Point::Dew => (incipient, known),
+    };
+    let ms = spec.mixture_spec(el);
+    let thermo = |e: crate::mixture::MixError| FlashError::Thermo(e.to_string());
+    let zl = z_mix(&ms, t, p, x, PhaseId::Liquid).map_err(thermo)?;
+    let zv = z_mix(&ms, t, p, y, PhaseId::Vapor).map_err(thermo)?;
+    Ok((zv - zl).abs() < TRIVIAL_Z * zv.abs().max(zl.abs()))
+}
+
+/// Relative Z-factor gap below which the two phases of a saturation point are
+/// the same phase (the trivial solution). Equimolar methane/ethane (PR) has a
+/// gap of ≈ 0.25 one envelope step (|ln K₁| ≈ 0.09) from its critical point;
+/// the slowly-converging trivial approach it replaces had a gap below 10⁻³.
+const TRIVIAL_Z: f64 = 1e-2;
 
 /// Solve for the saturation **temperature** at fixed `p` (bubble-T or dew-T).
 ///
@@ -349,7 +529,11 @@ pub(crate) fn newton_temperature(
 
         if ln_s.abs() < tol && step < tol {
             let max_ln_k = d.k.iter().fold(0.0_f64, |m, k| m.max(k.ln().abs()));
-            if max_ln_k < TRIVIAL_LN_K {
+            // Trivial by K, or the two phases on one root (same density) —
+            // see `is_trivial`. Either way, let the fallback decide.
+            if max_ln_k < TRIVIAL_LN_K
+                || is_trivial(spec, t, p, known, &incipient, point).unwrap_or(true)
+            {
                 return None;
             }
             return Some(SatPoint {
@@ -420,6 +604,17 @@ pub(crate) fn bisect_temperature(
     // Scan upward for the first sign change; since h is monotone we stop at
     // the (unique) bracket around the root, keeping the endpoint values so we
     // don't re-solve there.
+    //
+    // An undefined h right after a negative one means the scan stepped past
+    // the end of the saturation curve (near the mixture critical point the
+    // pressure solve finds only the trivial solution and refuses, since
+    // v0.17.1). The root, if any, lies before that end, so the step counts as
+    // a bracket whose high side is "undefined"; the bisection below treats
+    // undefined midpoints as high, and the residual check at the end rejects
+    // the case where `p` is above the whole curve and there is no root.
+    // (Before v0.17.1 those undefined points were trivial "pressures" that
+    // happened to bracket the same way — and nothing checked the final
+    // residual.)
     let (t_start, t_end, steps) = (50.0, 1000.0, 96);
     let mut prev: Option<(f64, f64)> = None;
     let mut bracket: Option<(f64, f64, f64)> = None; // (lo, hi, h_lo)
@@ -428,6 +623,12 @@ pub(crate) fn bisect_temperature(
         let ht = match h(t) {
             Some(v) => v,
             None => {
+                if let Some((tp, hp)) = prev {
+                    if hp < 0.0 {
+                        bracket = Some((tp, t, hp));
+                        break;
+                    }
+                }
                 prev = None;
                 continue;
             }
@@ -448,24 +649,36 @@ pub(crate) fn bisect_temperature(
     let mut t_star = 0.5 * (lo + hi);
     for iter in 0..max_iter {
         t_star = 0.5 * (lo + hi);
-        // The scan already proved h is defined at both ends; within a physical
-        // saturation bracket the pressure solve converges at the midpoint too.
-        // A failure here is unexpected — surface it rather than guess.
-        let ht = h(t_star).ok_or(FlashError::Thermo("P_sat(mid) failed".into()))?;
-        if ht.abs() < tol || (hi - lo) < 1e-9 {
-            break;
+        // Undefined at the midpoint ⇒ past the end of the saturation curve,
+        // i.e. on the high side of the root.
+        let ht = h(t_star);
+        if let Some(v) = ht {
+            if v.abs() < tol {
+                break;
+            }
         }
-        if ht * h_lo > 0.0 {
-            lo = t_star;
-            h_lo = ht;
-        } else {
-            hi = t_star;
+        if (hi - lo) < 1e-9 {
+            // The bracket has collapsed without the residual reaching `tol`:
+            // either `p` is above the end of the saturation curve (no root)
+            // or h jumps here. Neither is an answer.
+            return Err(FlashError::NoConvergence {
+                what: "saturation temperature (bracket collapsed without a root)",
+                iters: iter + 1,
+                residual: ht.map_or(f64::INFINITY, f64::abs),
+            });
+        }
+        match ht {
+            Some(v) if v * h_lo > 0.0 => {
+                lo = t_star;
+                h_lo = v;
+            }
+            _ => hi = t_star,
         }
         if iter + 1 == max_iter {
             return Err(FlashError::NoConvergence {
                 what: "saturation temperature",
                 iters: max_iter,
-                residual: ht.abs(),
+                residual: ht.map_or(f64::INFINITY, f64::abs),
             });
         }
     }
@@ -511,6 +724,88 @@ mod tests {
             delta: &[],
             sat_models: &[],
             ge_model: None,
+        }
+    }
+
+    /// PR methane/ethane and CO₂/n-butane (k = 0.13) — both have bubble
+    /// points the multiplicative pressure update used to "solve" as the
+    /// trivial solution `K ≡ 1`.
+    fn near_critical_pairs() -> ([Component; 2], [Component; 2]) {
+        let c = |name: &str, tc, pc, omega| Component {
+            name: name.into(),
+            tc,
+            pc,
+            omega,
+            ..Component::default()
+        };
+        (
+            [
+                c("methane", 190.564, 4599.0, 0.0115),
+                c("ethane", 305.32, 4872.0, 0.0995),
+            ],
+            [
+                c("CO2", 304.13, 7377.0, 0.2239),
+                c("n-butane", 425.12, 3796.0, 0.200),
+            ],
+        )
+    }
+
+    fn pr_spec<'a>(components: &'a [Component], kij: &'a [Vec<f64>]) -> SystemSpec<'a> {
+        SystemSpec {
+            vapor: VaporModel::Cubic(CubicEos::PR1976),
+            liquid: LiquidModel::Cubic(CubicEos::PR1976),
+            kij,
+            ..rks(components)
+        }
+    }
+
+    #[test]
+    fn bubble_pressure_never_returns_the_trivial_solution() {
+        // Regression (v0.17.1). Before: methane/ethane at 221.7 K returned
+        // 5198 kPa (true 4100 kPa, from the phase envelope), CO₂/n-butane at
+        // 310 K, x = 0.8 returned 6753 kPa (true ≈ 6.2 MPa) — both with
+        // K ≡ 1 and y = x, as Ok. Now: a genuine K, and the answer agrees
+        // with the independent Newton saturation-temperature solve.
+        let (me, co2_c4) = near_critical_pairs();
+        let kij = [vec![0.0, 0.13], vec![0.13, 0.0]];
+        for (comps, kij, t, x) in [
+            (&me, &[][..], 221.726, [0.5, 0.5]),
+            (&me, &[][..], 233.368, [0.5, 0.5]),
+            (&co2_c4, &kij[..], 310.0, [0.75, 0.25]),
+            (&co2_c4, &kij[..], 310.0, [0.8, 0.2]),
+        ] {
+            let spec = pr_spec(comps, kij);
+            let sp = solve_pressure(&spec, t, &x, Point::Bubble, 1e-10, 200).unwrap();
+            assert!(sp.k[0] > 1.1, "{}: trivial K {:?}", comps[0].name, sp.k);
+            let tb = newton_temperature(&spec, sp.var, &x, Point::Bubble, 1e-10, 200).unwrap();
+            assert!(
+                (tb.var - t).abs() < 1e-4,
+                "{} at {t} K: bubble P {} gives bubble T {}",
+                comps[0].name,
+                sp.var,
+                tb.var
+            );
+        }
+        // The known envelope point (221.726 K, 4100.0 kPa).
+        let spec = pr_spec(&me, &[]);
+        let sp = solve_pressure(&spec, 221.726, &[0.5, 0.5], Point::Bubble, 1e-10, 200).unwrap();
+        assert!((sp.var - 4100.0).abs() < 1.0, "P = {}", sp.var);
+    }
+
+    #[test]
+    fn near_critical_bubble_points_decline_rather_than_answer_wrongly() {
+        // Methane/ethane 50/50 (PR) at 251.565 K: the phase envelope's bubble
+        // point is 6277.0 kPa. Within ~15 K of the critical point the
+        // incipient solvers may not find it; what they must not do is return
+        // anything else (before v0.17.1: 4639.5 kPa, and bubble T at
+        // 6277 kPa came back as 230.68 K).
+        let (me, _) = near_critical_pairs();
+        let spec = pr_spec(&me, &[]);
+        if let Ok(sp) = solve_pressure(&spec, 251.565, &[0.5, 0.5], Point::Bubble, 1e-10, 200) {
+            assert!((sp.var - 6277.0).abs() < 1.0, "bubble P {}", sp.var);
+        }
+        if let Ok(sp) = solve_temperature(&spec, 6277.0, &[0.5, 0.5], Point::Bubble, 1e-10, 200) {
+            assert!((sp.var - 251.565).abs() < 1e-2, "bubble T {}", sp.var);
         }
     }
 

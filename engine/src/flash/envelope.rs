@@ -45,6 +45,7 @@
 use nalgebra::{DMatrix, DVector};
 
 use super::FlashError;
+use super::bubble::bubble_temperature;
 use super::init::wilson_k_values;
 use super::system::{SystemSpec, min_gibbs_ln_phi};
 
@@ -168,8 +169,10 @@ fn correct(
 /// * `max_points` — maximum number of envelope points to trace.
 ///
 /// # Returns
-/// The traced [`EnvelopePoint`]s in order. Tracing stops at `max_points`, if
-/// a corrector fails, or once the branch turns back to low pressure.
+/// The traced [`EnvelopePoint`]s in order: up the bubble branch, through the
+/// critical point, and down the dew branch. Tracing stops at `max_points`,
+/// when the step size cannot be reduced further (corrector failure), or once
+/// the dew branch has come back down to `p_start` — the closed envelope.
 ///
 /// # Errors
 /// [`FlashError::Unsupported`] for a non-cubic system;
@@ -194,20 +197,33 @@ pub fn trace_envelope(
         ));
     }
 
-    // Seed: a bubble point at p_start. Use the existing bubble-pressure-free
-    // route — start from a bubble temperature guess via Wilson and correct.
-    // Initial K, T from Wilson at p_start (bubble side).
-    let t0 = {
-        // Bubble T guess: Σ zᵢ·Tc,ᵢ scaled — refine by the corrector.
-        let tavg: f64 = z.iter().zip(spec.components).map(|(zi, c)| zi * c.tc).sum();
-        0.7 * tavg
-    };
+    // Seed: the bubble point at p_start, from the engine's own
+    // bubble-temperature solver (Newton on 1/T since v0.17.0, a few µs). Its
+    // converged T and K put the corrector inside its basin of attraction.
+    // The previous seed — Wilson K at T = 0.7·Σzᵢ·Tc,ᵢ — could sit tens of
+    // kelvin from the bubble point (≈ 338 K vs ≈ 290 K for equimolar
+    // n-butane/n-heptane at 100 kPa), and the fixed-P corrector then failed
+    // to converge from p_start 50, 100 and 1000 kPa on ordinary pairs
+    // (OPTIMIZATION_PLAN_PART1.md §9). It is kept as the fallback for a
+    // bubble solve that fails.
     let mut x = DVector::zeros(n + 2);
-    let kw = wilson_k_values(spec.components, t0, p_start);
-    for i in 0..n {
-        x[i] = kw[i].ln();
+    match bubble_temperature(spec, p_start, z, 1e-10, 200) {
+        Ok(b) => {
+            for i in 0..n {
+                x[i] = b.k[i].ln();
+            }
+            x[n] = b.value.ln();
+        }
+        Err(_) => {
+            let tavg: f64 = z.iter().zip(spec.components).map(|(zi, c)| zi * c.tc).sum();
+            let t0 = 0.7 * tavg;
+            let kw = wilson_k_values(spec.components, t0, p_start);
+            for i in 0..n {
+                x[i] = kw[i].ln();
+            }
+            x[n] = t0.ln();
+        }
     }
-    x[n] = t0.ln();
     x[n + 1] = p_start.ln();
 
     // Correct the seed with P fixed (spec = ln P index n+1).
@@ -231,18 +247,33 @@ pub fn trace_envelope(
     points.push(record(&x));
 
     // Continuation loop.
-    let mut s_idx = n; // start by stepping ln T
+    let mut s_idx = n; // start by stepping ln T (up the bubble branch)
     let mut ds = 0.05; // step in the specified variable
-    let mut x_prev = x.clone();
+    // Direction of travel, carried between steps. The tangent solve below
+    // fixes t[s_idx] = +1, i.e. it always points toward *increasing* the
+    // spec variable; without re-orienting it against the previous direction
+    // the trace reverses whenever the spec switches to a variable that must
+    // now decrease (ln Kᵢ falling through 0 at the critical point is the
+    // common case) and oscillates there forever. That was the behaviour
+    // before v0.17.0: hundreds of points bouncing around the critical point,
+    // the dew branch never reached.
+    let mut prev_dir: Option<DVector<f64>> = None;
+    let mut p_max = p_start;
     for _ in 1..max_points {
         // Tangent dX/dS: solve J·t = e_{last} (the spec row derivative).
         let j = jacobian(spec, z, &x, s_idx, x[s_idx])?;
         let mut rhs = DVector::zeros(n + 2);
         rhs[n + 1] = 1.0; // ∂g_{n+2}/∂S = −1 → tangent solves J·t = e
-        let tangent = match j.lu().solve(&rhs) {
+        let mut tangent = match j.lu().solve(&rhs) {
             Some(t) => t,
             None => break,
         };
+        // Keep moving the way we were moving (secant orientation).
+        if let Some(d) = &prev_dir {
+            if tangent.dot(d) < 0.0 {
+                tangent = -tangent;
+            }
+        }
         // Choose the next spec = the fastest-moving unknown (best-conditioned).
         let mut best = n; // default ln T
         let mut best_mag = 0.0;
@@ -266,16 +297,23 @@ pub fn trace_envelope(
                 if !x_new.iter().all(|v| v.is_finite()) || moved < 1e-9 {
                     break;
                 }
-                x_prev = x.clone();
+                prev_dir = Some(&x_new - &x);
                 x = x_new;
-                points.push(record(&x));
+                let pt = record(&x);
+                let p_now = pt.p;
+                points.push(pt);
                 // Grow the step when convergence is easy.
                 ds = (ds * 1.1).min(0.15);
+                // Closed the loop: past the cricondenbar and back down the
+                // dew branch to the starting pressure.
+                p_max = p_max.max(p_now);
+                if p_max > p_start * 1.5 && p_now <= p_start {
+                    break;
+                }
             }
             Err(_) => {
-                // Halve the step and retry from the last good point.
+                // Halve the step and retry from the same (last good) point.
                 ds *= 0.5;
-                x = x_prev.clone();
                 if ds < 1e-3 {
                     break;
                 }
@@ -374,6 +412,121 @@ mod tests {
             p_max > 2.0 * 300.0,
             "envelope P_max {p_max} did not climb above the seed"
         );
+    }
+
+    fn n_butane() -> Component {
+        Component {
+            name: "n-butane".into(),
+            tc: 425.12,
+            pc: 3796.0,
+            omega: 0.200,
+            ..Component::default()
+        }
+    }
+
+    fn n_heptane() -> Component {
+        Component {
+            name: "n-heptane".into(),
+            tc: 540.2,
+            pc: 2740.0,
+            omega: 0.350,
+            ..Component::default()
+        }
+    }
+
+    /// Every answer the saturation solvers give must agree with the envelope:
+    /// on the bubble side (incipient vapor, K of the light component > 1)
+    /// `bubble_temperature` at the point's P, on the dew side
+    /// `dew_temperature` — two independent solvers. Near the critical point
+    /// they may decline (`Err`), never answer wrongly; before v0.17.1
+    /// `bubble_temperature` returned a trivial-solution T up to 21 K off
+    /// here. Returns how many points were checked.
+    fn assert_matches_saturation_solvers(
+        spec: &SystemSpec,
+        z: &[f64],
+        env: &[EnvelopePoint],
+    ) -> usize {
+        use crate::flash::dew::dew_temperature;
+        let mut checked = 0;
+        for pt in env {
+            // Skip the cricondenbar/critical stretch, where one pressure can
+            // carry two envelope temperatures on the same branch.
+            if pt.k[0].ln().abs() < 0.1 {
+                continue;
+            }
+            let solved = if pt.k[0] > 1.0 {
+                bubble_temperature(spec, pt.p, z, 1e-10, 200)
+            } else {
+                dew_temperature(spec, pt.p, z, 1e-10, 200)
+            };
+            if let Ok(r) = solved {
+                assert!(
+                    (pt.t - r.value).abs() < 1e-3,
+                    "envelope T {} vs saturation solver {} at P {}",
+                    pt.t,
+                    r.value,
+                    pt.p
+                );
+                checked += 1;
+            }
+        }
+        checked
+    }
+
+    #[test]
+    fn closes_the_loop_through_the_critical_point_once() {
+        // Regression (v0.17.0): the tangent was never oriented against the
+        // direction of travel, so once the spec variable switched to an
+        // ln Kᵢ the trace reversed at the critical point and oscillated
+        // there for every remaining point; the dew branch was never reached.
+        // Now it must go up the bubble branch, cross the critical point
+        // exactly once (ln K₁ changes sign once), and come back down the dew
+        // branch to the starting pressure.
+        for comps in [[methane(), ethane()], [n_butane(), n_heptane()]] {
+            let spec = pr(&comps);
+            let z = [0.5, 0.5];
+            let p_start = 100.0;
+            let env = trace_envelope(&spec, &z, p_start, 400).unwrap();
+            let last = env.last().unwrap();
+            assert!(
+                last.p <= p_start,
+                "{}: did not close (stopped at P {}, {} points)",
+                comps[0].name,
+                last.p,
+                env.len()
+            );
+            assert!(env.len() < 200, "{}: {} points", comps[0].name, env.len());
+            let crossings = env
+                .windows(2)
+                .filter(|w| (w[0].k[0] > 1.0) != (w[1].k[0] > 1.0))
+                .count();
+            assert_eq!(crossings, 1, "{}: critical crossings", comps[0].name);
+            // The dew point at p_start is hotter than the bubble point.
+            assert!(last.t > env[0].t);
+            let checked = assert_matches_saturation_solvers(&spec, &z, &env);
+            assert!(
+                checked * 4 >= env.len() * 3,
+                "{}: solvers answered at only {checked} of {} points",
+                comps[0].name,
+                env.len()
+            );
+        }
+    }
+
+    #[test]
+    fn traces_from_low_starting_pressures() {
+        // Regression (v0.17.0): the seed was Wilson K at T = 0.7·Σzᵢ·Tc,ᵢ,
+        // tens of kelvin from the bubble point, and the fixed-P corrector
+        // failed for n-butane/n-heptane from p_start 50, 100 and 1000 kPa
+        // (100 kPa is the Python default). The seed is now the converged
+        // bubble point.
+        let comps = [n_butane(), n_heptane()];
+        let spec = pr(&comps);
+        for p_start in [50.0, 100.0, 300.0, 1000.0] {
+            let env = trace_envelope(&spec, &[0.5, 0.5], p_start, 400).unwrap();
+            let p_max = env.iter().map(|p| p.p).fold(0.0_f64, f64::max);
+            assert!(p_max > 3000.0, "p_start {p_start}: P_max {p_max}");
+        }
     }
 
     #[test]

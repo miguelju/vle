@@ -264,7 +264,15 @@ the solver and the text; see `OPTIMIZATION_PLAN_PART1.md` §8. The follow-up
 sweep — a bench for every public solver — then found two more summaries the
 code contradicts (stability analysis "before every flash"; an "analytical"
 Aij Jacobian that is a finite difference) and a silently wrong adiabatic flash,
-fixed in the same release (`OPTIMIZATION_PLAN_PART1.md` §9).
+fixed in the same release (`OPTIMIZATION_PLAN_PART1.md` §9). Following up the
+sweep's open items (§10) found two more silent wrong answers by checking one
+solver against another — the phase envelope against the bubble/dew solvers:
+`bubble_pressure` returned the trivial solution `K ≡ 1` for methane-containing
+mixtures (27 479 kPa for a 12 386 kPa bubble point), and the envelope tracer
+oscillated at the critical point instead of reaching the dew branch. The
+sweep's own `bubble_pressure` benchmark had been timing the trivial solution
+— a fast benchmark of a wrong answer is indistinguishable from a fast
+benchmark — and a kij-regression test had been validating against it.
 
 ---
 
