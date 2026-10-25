@@ -280,8 +280,31 @@ fn multiplicative_pressure(
     tol: f64,
     max_iter: usize,
 ) -> Result<SatPoint, FlashError> {
+    multiplicative_pressure_k(
+        spec,
+        t,
+        p0,
+        wilson_k_init(spec, t, p0),
+        known,
+        point,
+        tol,
+        max_iter,
+    )
+}
+
+/// [`multiplicative_pressure`] from given starting K-values.
+#[allow(clippy::too_many_arguments)]
+fn multiplicative_pressure_k(
+    spec: &SystemSpec,
+    t: f64,
+    p0: f64,
+    mut k: Vec<f64>,
+    known: &[f64],
+    point: Point,
+    tol: f64,
+    max_iter: usize,
+) -> Result<SatPoint, FlashError> {
     let mut p = p0;
-    let mut k = wilson_k_init(spec, t, p);
     for iter in 0..max_iter {
         let (s, incipient) = incipient_sum(spec, t, p, known, point, &mut k, 40)?;
         if (s - 1.0).abs() < tol {
@@ -374,6 +397,79 @@ pub(crate) fn solve_temperature(
         Some(sp) => Ok(sp),
         None => bisect_temperature(spec, p, known, point, tol, max_iter),
     }
+}
+
+/// Is a caller's starting guess usable: a finite positive value and, if
+/// K-values are given, the right length and all finite and positive.
+fn guess_ok(spec: &SystemSpec, value: f64, k0: Option<&[f64]>) -> bool {
+    value.is_finite()
+        && value > 0.0
+        && k0.is_none_or(|k| k.len() == spec.n() && k.iter().all(|v| v.is_finite() && *v > 0.0))
+}
+
+/// [`solve_temperature`] **warm-started** from a caller's guess: `t0` in
+/// **K**, optional K-values `k0` (Wilson at `(t0, p)` when absent).
+///
+/// Runs [`newton_temperature_from`] from the guess; if that declines — or
+/// the guess is unusable — it runs the cold [`solve_temperature`]. Both solve
+/// the same equation to the same tolerance, so a guess changes the cost,
+/// never the answer: a good guess (the previous stage's or iteration's
+/// temperature and K) saves the Wilson seeding and most Newton steps, a bad
+/// one costs one declined attempt.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn solve_temperature_from(
+    spec: &SystemSpec,
+    p: f64,
+    known: &[f64],
+    point: Point,
+    t0: f64,
+    k0: Option<&[f64]>,
+    tol: f64,
+    max_iter: usize,
+) -> Result<SatPoint, FlashError> {
+    if guess_ok(spec, t0, k0) {
+        let warm = match k0 {
+            Some(k) => newton_temperature_from(spec, p, known, point, t0, k, tol, max_iter),
+            None => {
+                let kw = wilson_k_init(spec, t0, p);
+                newton_temperature_from(spec, p, known, point, t0, &kw, tol, max_iter)
+            }
+        };
+        if let Some(sp) = warm {
+            return Ok(sp);
+        }
+    }
+    solve_temperature(spec, p, known, point, tol, max_iter)
+}
+
+/// [`solve_pressure`] **warm-started** from a caller's guess: `p0` in
+/// **kPa**, optional K-values `k0` (Wilson at `(t, p0)` when absent).
+///
+/// Runs the `P ← P·S` iteration from the guess and accepts a result that is
+/// not the trivial solution ([`is_trivial`]); otherwise — or for an unusable
+/// guess — it runs the cold [`solve_pressure`], trivial-solution recovery
+/// included. Same equation, same tolerance: the guess changes the cost, never
+/// the answer.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn solve_pressure_from(
+    spec: &SystemSpec,
+    t: f64,
+    known: &[f64],
+    point: Point,
+    p0: f64,
+    k0: Option<&[f64]>,
+    tol: f64,
+    max_iter: usize,
+) -> Result<SatPoint, FlashError> {
+    if guess_ok(spec, p0, k0) {
+        let k = k0.map_or_else(|| wilson_k_init(spec, t, p0), <[f64]>::to_vec);
+        if let Ok(sp) = multiplicative_pressure_k(spec, t, p0, k, known, point, tol, max_iter) {
+            if !is_trivial(spec, t, sp.var, known, &sp.incipient, point)? {
+                return Ok(sp);
+            }
+        }
+    }
+    solve_pressure(spec, t, known, point, tol, max_iter)
 }
 
 /// Below this `max |ln Kᵢ|` a converged temperature solve is treated as the
@@ -470,22 +566,41 @@ pub(crate) fn newton_temperature(
     tol: f64,
     max_iter: usize,
 ) -> Option<SatPoint> {
-    let n = spec.n();
-    let mut t = wilson_temperature(spec, p, known, point)?;
+    let t0 = wilson_temperature(spec, p, known, point)?;
     // Seed the incipient phase from Wilson K at the Wilson temperature.
-    let mut incipient = vec![0.0; n];
-    {
-        let kw = wilson_k_init(spec, t, p);
-        let mut s = 0.0;
-        for i in 0..n {
-            incipient[i] = match point {
-                Point::Bubble => kw[i] * known[i],
-                Point::Dew => known[i] / kw[i],
-            };
-            s += incipient[i];
-        }
-        incipient.iter_mut().for_each(|v| *v /= s);
+    let kw = wilson_k_init(spec, t0, p);
+    newton_temperature_from(spec, p, known, point, t0, &kw, tol, max_iter)
+}
+
+/// The Newton-on-`1/T` iteration of [`newton_temperature`] from a caller's
+/// starting point: temperature `t0` in **K** and K-values `k0` (which seed
+/// the incipient composition, `wᵢ ∝ Kᵢxᵢ` or `yᵢ/Kᵢ`). `p` in **kPa**.
+/// Returns `None` exactly when [`newton_temperature`] would.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn newton_temperature_from(
+    spec: &SystemSpec,
+    p: f64,
+    known: &[f64],
+    point: Point,
+    t0: f64,
+    k0: &[f64],
+    tol: f64,
+    max_iter: usize,
+) -> Option<SatPoint> {
+    let mut t = t0;
+    let mut incipient: Vec<f64> = known
+        .iter()
+        .zip(k0)
+        .map(|(&z, &k)| match point {
+            Point::Bubble => k * z,
+            Point::Dew => z / k,
+        })
+        .collect();
+    let s0: f64 = incipient.iter().sum();
+    if !s0.is_finite() || s0 <= 0.0 {
+        return None;
     }
+    incipient.iter_mut().for_each(|v| *v /= s0);
 
     for _ in 0..max_iter.max(1) {
         // (x, y) ordering for the K evaluation: the known phase is the
@@ -955,5 +1070,146 @@ mod tests {
             assert_newton_matches_bisection(&spec, p, &z, Point::Bubble);
             assert_newton_matches_bisection(&spec, p, &z, Point::Dew);
         }
+    }
+
+    /// Warm-started solve ≡ cold solve, from a near guess (the cold answer
+    /// nudged — a neighboring stage's result) and from deliberately bad or
+    /// malformed guesses (which must fall back, not fail or drift).
+    fn assert_warm_matches_cold(spec: &SystemSpec, p: f64, t: f64, z: &[f64]) {
+        use crate::flash::bubble::{
+            SaturationResult, bubble_pressure, bubble_pressure_from, bubble_temperature,
+            bubble_temperature_from,
+        };
+        use crate::flash::dew::{
+            dew_pressure, dew_pressure_from, dew_temperature, dew_temperature_from,
+        };
+        let tol = 1e-10;
+        let n = z.len();
+        let close = |a: f64, b: f64, what: &str| {
+            assert!(
+                (a - b).abs() < 1e-6 * b.abs().max(1.0),
+                "{what}: warm {a} vs cold {b}"
+            );
+        };
+        let bad_k = vec![1.0; n + 1]; // wrong length
+        let nan_k = vec![f64::NAN; n];
+
+        type TFn = fn(&SystemSpec, f64, &[f64], f64, usize) -> Result<SaturationResult, FlashError>;
+        type TFrom = fn(
+            &SystemSpec,
+            f64,
+            &[f64],
+            f64,
+            Option<&[f64]>,
+            f64,
+            usize,
+        ) -> Result<SaturationResult, FlashError>;
+        let temperature: [(&str, TFn, TFrom); 2] = [
+            ("bubble T", bubble_temperature, bubble_temperature_from),
+            ("dew T", dew_temperature, dew_temperature_from),
+        ];
+        for (what, cold_fn, warm_fn) in temperature {
+            let cold = cold_fn(spec, p, z, tol, 200).unwrap();
+            let k_near: Vec<f64> = cold.k.iter().map(|k| k * 1.05).collect();
+            for (t0, k0) in [
+                (cold.value + 0.5, Some(k_near.as_slice())),
+                (cold.value - 2.0, None),
+                (cold.value, Some(cold.k.as_slice())),
+                (50.0, None),               // absurd T
+                (f64::NAN, None),           // unusable
+                (cold.value, Some(&bad_k)), // malformed K
+                (cold.value, Some(&nan_k)),
+            ] {
+                let warm = warm_fn(spec, p, z, t0, k0, tol, 200).unwrap();
+                close(warm.value, cold.value, what);
+                for (a, b) in warm.incipient.iter().zip(&cold.incipient) {
+                    close(*a, *b, what);
+                }
+            }
+        }
+        let pressure: [(&str, TFn, TFrom); 2] = [
+            ("bubble P", bubble_pressure, bubble_pressure_from),
+            ("dew P", dew_pressure, dew_pressure_from),
+        ];
+        for (what, cold_fn, warm_fn) in pressure {
+            let cold = cold_fn(spec, t, z, tol, 200).unwrap();
+            for (p0, k0) in [
+                (cold.value * 1.02, Some(cold.k.as_slice())),
+                (cold.value * 0.9, None),
+                (-1.0, None),
+                (cold.value, Some(&bad_k)),
+            ] {
+                let warm = warm_fn(spec, t, z, p0, k0, tol, 200).unwrap();
+                close(warm.value, cold.value, what);
+            }
+        }
+    }
+
+    #[test]
+    fn warm_start_matches_cold_phi_phi_binary() {
+        let comps = [
+            comp("n-butane", 425.12, 3796.0, 0.200),
+            comp("n-heptane", 540.2, 2740.0, 0.350),
+        ];
+        let spec = rks(&comps);
+        for (p, t) in [(101.325, 330.0), (1000.0, 420.0)] {
+            for x1 in [0.1, 0.5, 0.9] {
+                assert_warm_matches_cold(&spec, p, t, &[x1, 1.0 - x1]);
+            }
+        }
+    }
+
+    #[test]
+    fn warm_start_falls_back_from_a_trivial_guess() {
+        // Methane/n-pentane at 350 K: a warm start from the trivial solution
+        // (the 27 479 kPa the pre-v0.17.1 solver returned, K ≡ 1) must not
+        // be accepted — it must fall back and find the real 12 383 kPa.
+        let comps = [
+            comp("methane", 190.56, 4599.0, 0.011),
+            comp("n-pentane", 469.7, 3370.0, 0.252),
+        ];
+        let spec = rks(&comps);
+        let z = [0.5, 0.5];
+        let cold = crate::flash::bubble::bubble_pressure(&spec, 350.0, &z, 1e-9, 200).unwrap();
+        let warm = crate::flash::bubble::bubble_pressure_from(
+            &spec,
+            350.0,
+            &z,
+            27_479.0,
+            Some(&[1.0, 1.0]),
+            1e-9,
+            200,
+        )
+        .unwrap();
+        assert!(cold.k[0] > 1.5, "cold K {:?}", cold.k);
+        assert!(
+            (warm.value - cold.value).abs() < 1e-3,
+            "warm {} cold {}",
+            warm.value,
+            cold.value
+        );
+    }
+
+    #[cfg(feature = "component-db")]
+    #[test]
+    fn warm_start_matches_cold_ten_component_srk() {
+        let names = [
+            "propane",
+            "isobutane",
+            "n-butane",
+            "isopentane",
+            "n-pentane",
+            "n-hexane",
+            "n-heptane",
+            "n-octane",
+            "n-nonane",
+            "n-decane",
+        ];
+        let comps: Vec<Component> = names
+            .iter()
+            .map(|n| crate::db::component(n).unwrap())
+            .collect();
+        let spec = rks(&comps);
+        assert_warm_matches_cold(&spec, 1000.0, 400.0, &[0.1; 10]);
     }
 }

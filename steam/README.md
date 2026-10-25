@@ -46,7 +46,7 @@ canon via `M_water = 18.015268 kg/kmol`.
 
 ```toml
 [dependencies]
-vle-steam = "0.17"
+vle-steam = "0.18"
 ```
 
 ## Example

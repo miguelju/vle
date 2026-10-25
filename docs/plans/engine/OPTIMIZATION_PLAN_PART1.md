@@ -397,7 +397,8 @@ MODERNIZATION_PLAN §K (the 1/T step ignores ∂K/∂composition, so the
 composition converges linearly — ≈ 8 iterations at N = 10); a Newton on ln P
 for the pressure solves (already 15–40 µs, not worth it on this evidence); and
 a warm-start entry point (`T₀`, `K₀`) for callers that re-solve near a known
-point.
+point *(shipped in v0.18.0 — §11, with the measurement showing why it pays
+little until the simultaneous Newton exists)*.
 
 ---
 
@@ -578,6 +579,56 @@ single-phase answers at no cost on the normal path. That fallback is the
 recommendation; it is not implemented yet. Caveat: hydrocarbons with
 classical mixing only — liquid–liquid-prone systems (water/hydrocarbon, γ-φ)
 were not swept, and that is where stability matters most.
+
+---
+
+## 11. Addendum (v0.18.0, 2026-10-25): warm-started saturation points
+
+§8 and §9 left a warm-start entry point open, and the downstream
+staged-separation consumer had asked for one: its column solvers always know
+the previous stage's or iteration's temperature, and vle-thermo's saturation
+functions could not use it. v0.18.0 adds `bubble_temperature_from`,
+`dew_temperature_from`, `bubble_pressure_from` and `dew_pressure_from` (Rust),
+and `t_guess=` / `p_guess=` / `k_guess=` on the four `vle.System` methods.
+Contract: the same equation and tolerance as the cold function, so the same
+answer; the guess (a value plus optional K-values) only seeds the solve — the
+Newton-on-1/T iteration (`newton_temperature_from`) or the `P ← P·S`
+iteration — and anything unusable (non-finite, non-positive, wrong length) or
+any warm result that is the trivial solution falls back to the cold path.
+Tests assert warm ≡ cold from near, far, absurd, malformed and trivial
+guesses, on a binary and the 10-component mixture, in Rust and through the
+wheel.
+
+**What it buys, measured** (10-component RKS alkanes, 1000 kPa, release
+build, mean of 3000 calls; guess = the converged answer nudged):
+
+| Guess (ΔT, ΔK) | bubble T | dew T |
+|---|---|---|
+| cold (Wilson seed) | 17.2 µs | 12.6 µs |
+| exact (0, 0) | **2.6 µs** | **2.4 µs** |
+| 0.05 K, 0.2 % | 12.6 µs | 12.0 µs |
+| 0.2 K, 1 % | 12.7 µs | 12.2 µs |
+| 0.5 K, 5 % | 12.8 µs | 12.1 µs |
+| 2 K, 10 % | 14.7 µs | 14.0 µs |
+
+A temperature guess without K-values saves the same as one with them.
+Criterion (`flash_multi/{bubble,dew}_temperature_warm_n*`, 0.5 K / 5 %):
+bubble 3.2 / 5.9 / 7.8 / 8.5 µs against 4.3 / 6.1 / 9.1 / 10.1 µs cold
+(N = 2/4/6/8); dew 7.1 / 9.3 / 10.2 / 11.2 µs against 7.3 / 8.4 / 9.2 /
+11.6 µs — i.e. no gain, and up to ≈ 10 % worse, for dew at N = 4 and 6.
+
+**Why so little from a realistic guess.** The Newton step corrects T with
+the exact `∂ln K/∂T` but moves the incipient composition by one
+successive-substitution step per iteration (§8), so composition converges
+linearly. From a 0.2 % K error to the 1e-9 tolerance is ln(5·10⁻⁷)/ln ρ steps
+against ln(3·10⁻⁹)/ln ρ from Wilson — about 30 % fewer, which is what the
+table shows. Only a guess already at tolerance skips the iteration. So this
+release delivers the *entry point* — callers can now hand over what they
+know, and an exact neighbor is 6.7× cheaper — while the change that makes a
+realistic warm start pay is the simultaneous (n+1)-variable Newton, which
+converges composition quadratically. That stays the open follow-up, now with
+a measured reason. A downstream caller with its own Newton warm path should
+measure before replacing it with this one.
 
 ---
 

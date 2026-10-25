@@ -400,24 +400,92 @@ class System:
             two_phase=0.0 < beta < 1.0, t=t, p=pk, enthalpy=h,
         )
 
-    def bubble_pressure(self, x: Sequence[float], t: Scalar, *, tol: float = 1e-9, max_iter: int = 200) -> BubbleResult:
-        """Bubble pressure (**kPa**) at fixed T (**K**) and liquid ``x``."""
-        val, y, k = self._engine.bubble_pressure(list(x), _as_temperature(t), tol, max_iter)
+    def bubble_pressure(
+        self,
+        x: Sequence[float],
+        t: Scalar,
+        *,
+        tol: float = 1e-9,
+        max_iter: int = 200,
+        p_guess: Scalar | None = None,
+        k_guess: Sequence[float] | None = None,
+    ) -> BubbleResult:
+        """Bubble pressure (**kPa**) at fixed T (**K**) and liquid ``x``.
+
+        ``p_guess`` (**kPa**, or a unit string) and ``k_guess`` warm-start the
+        solve from a nearby answer — the previous stage, iteration or sweep
+        point. The result is the same as without them; only the cost changes,
+        and an unusable guess silently falls back to the cold solve.
+        """
+        guess = None if p_guess is None else _as_pressure(p_guess)
+        kg = None if k_guess is None else list(k_guess)
+        val, y, k = self._engine.bubble_pressure(list(x), _as_temperature(t), tol, max_iter, guess, kg)
         return BubbleResult(value=val, y=y, k=k)
 
-    def bubble_temperature(self, x: Sequence[float], p: Scalar, *, tol: float = 1e-9, max_iter: int = 200) -> BubbleResult:
-        """Bubble temperature (**K**) at fixed P (**kPa**) and liquid ``x``."""
-        val, y, k = self._engine.bubble_temperature(list(x), _as_pressure(p), tol, max_iter)
+    def bubble_temperature(
+        self,
+        x: Sequence[float],
+        p: Scalar,
+        *,
+        tol: float = 1e-9,
+        max_iter: int = 200,
+        t_guess: Scalar | None = None,
+        k_guess: Sequence[float] | None = None,
+    ) -> BubbleResult:
+        """Bubble temperature (**K**) at fixed P (**kPa**) and liquid ``x``.
+
+        ``t_guess`` (**K**, or a unit string) and ``k_guess`` warm-start the
+        solve from a nearby answer — the previous stage, iteration or sweep
+        point. The result is the same as without them; only the cost changes,
+        and an unusable guess silently falls back to the cold solve.
+        """
+        guess = None if t_guess is None else _as_temperature(t_guess)
+        kg = None if k_guess is None else list(k_guess)
+        val, y, k = self._engine.bubble_temperature(list(x), _as_pressure(p), tol, max_iter, guess, kg)
         return BubbleResult(value=val, y=y, k=k)
 
-    def dew_pressure(self, y: Sequence[float], t: Scalar, *, tol: float = 1e-9, max_iter: int = 200) -> DewResult:
-        """Dew pressure (**kPa**) at fixed T (**K**) and vapor ``y``."""
-        val, x, k = self._engine.dew_pressure(list(y), _as_temperature(t), tol, max_iter)
+    def dew_pressure(
+        self,
+        y: Sequence[float],
+        t: Scalar,
+        *,
+        tol: float = 1e-9,
+        max_iter: int = 200,
+        p_guess: Scalar | None = None,
+        k_guess: Sequence[float] | None = None,
+    ) -> DewResult:
+        """Dew pressure (**kPa**) at fixed T (**K**) and vapor ``y``.
+
+        ``p_guess`` (**kPa**, or a unit string) and ``k_guess`` warm-start the
+        solve from a nearby answer — the previous stage, iteration or sweep
+        point. The result is the same as without them; only the cost changes,
+        and an unusable guess silently falls back to the cold solve.
+        """
+        guess = None if p_guess is None else _as_pressure(p_guess)
+        kg = None if k_guess is None else list(k_guess)
+        val, x, k = self._engine.dew_pressure(list(y), _as_temperature(t), tol, max_iter, guess, kg)
         return DewResult(value=val, x=x, k=k)
 
-    def dew_temperature(self, y: Sequence[float], p: Scalar, *, tol: float = 1e-9, max_iter: int = 200) -> DewResult:
-        """Dew temperature (**K**) at fixed P (**kPa**) and vapor ``y``."""
-        val, x, k = self._engine.dew_temperature(list(y), _as_pressure(p), tol, max_iter)
+    def dew_temperature(
+        self,
+        y: Sequence[float],
+        p: Scalar,
+        *,
+        tol: float = 1e-9,
+        max_iter: int = 200,
+        t_guess: Scalar | None = None,
+        k_guess: Sequence[float] | None = None,
+    ) -> DewResult:
+        """Dew temperature (**K**) at fixed P (**kPa**) and vapor ``y``.
+
+        ``t_guess`` (**K**, or a unit string) and ``k_guess`` warm-start the
+        solve from a nearby answer — the previous stage, iteration or sweep
+        point. The result is the same as without them; only the cost changes,
+        and an unusable guess silently falls back to the cold solve.
+        """
+        guess = None if t_guess is None else _as_temperature(t_guess)
+        kg = None if k_guess is None else list(k_guess)
+        val, x, k = self._engine.dew_temperature(list(y), _as_pressure(p), tol, max_iter, guess, kg)
         return DewResult(value=val, x=x, k=k)
 
     def critical_point(self, z: Sequence[float], *, t_init: Scalar = 0.0, max_iter: int = 200) -> CriticalResult:

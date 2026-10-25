@@ -7,9 +7,14 @@
 //!
 //! - [`bubble_pressure`] — given `(T, x)`, find `(P, y)`.
 //! - [`bubble_temperature`] — given `(P, x)`, find `(T, y)`.
+//! - [`bubble_pressure_from`] / [`bubble_temperature_from`] — the same,
+//!   warm-started from a guess (e.g. the previous stage's or iteration's
+//!   result). Same answer, lower cost.
 
 use super::FlashError;
-use super::incipient::{Point, solve_pressure, solve_temperature};
+use super::incipient::{
+    Point, solve_pressure, solve_pressure_from, solve_temperature, solve_temperature_from,
+};
 use super::system::SystemSpec;
 
 /// A converged bubble/dew point.
@@ -83,6 +88,95 @@ pub fn bubble_temperature(
 ) -> Result<SaturationResult, FlashError> {
     check_len(spec, x)?;
     let sp = solve_temperature(spec, p, x, Point::Bubble, tol, max_iter)?;
+    Ok(SaturationResult {
+        value: sp.var,
+        incipient: sp.incipient,
+        k: sp.k,
+    })
+}
+
+/// Bubble-point **pressure** at fixed temperature, **warm-started**
+/// from a caller's guess.
+///
+/// Same equation, tolerance and answer as [`bubble_pressure`]; the guess only
+/// changes the cost. Use it when a nearby solution is at hand — the previous
+/// column stage or iteration, the neighboring point of a sweep. The `P ← P·S`
+/// iteration runs from `p0` (and `k0`); if it does not converge to a genuine
+/// (non-trivial) saturation point, or the guess is unusable (non-finite,
+/// non-positive, wrong length), the cold [`bubble_pressure`] runs instead.
+///
+/// # Arguments
+/// * `spec` — the mixture model.
+/// * `t` — Temperature in **K**.
+/// * `x` — liquid mole fractions (length N, sum to 1).
+/// * `p0` — pressure guess in **kPa absolute**.
+/// * `k0` — optional K-value guess (length N), e.g. the previous result's
+///   `k`; `None` uses Wilson K at `(t, p0)`.
+/// * `tol` — tolerance on `|Σ Kᵢxᵢ − 1|`.
+/// * `max_iter` — outer iteration cap (warm attempt and fallback each).
+///
+/// # Returns
+/// [`SaturationResult`] with `value` = bubble pressure in **kPa** and
+/// `incipient` = the incipient vapor `y`.
+///
+/// # Errors
+/// As [`bubble_pressure`].
+pub fn bubble_pressure_from(
+    spec: &SystemSpec,
+    t: f64,
+    x: &[f64],
+    p0: f64,
+    k0: Option<&[f64]>,
+    tol: f64,
+    max_iter: usize,
+) -> Result<SaturationResult, FlashError> {
+    check_len(spec, x)?;
+    let sp = solve_pressure_from(spec, t, x, Point::Bubble, p0, k0, tol, max_iter)?;
+    Ok(SaturationResult {
+        value: sp.var,
+        incipient: sp.incipient,
+        k: sp.k,
+    })
+}
+
+/// Bubble-point **temperature** at fixed pressure, **warm-started**
+/// from a caller's guess.
+///
+/// Same equation, tolerance and answer as [`bubble_temperature`]; the guess
+/// only changes the cost. The Newton-on-`1/T` solve starts from `t0` (and
+/// `k0`) instead of the Wilson estimate; if it declines, or the guess is
+/// unusable, the cold [`bubble_temperature`] runs instead (Newton from Wilson,
+/// then bisection). With the previous result as the guess this is the
+/// cheapest saturation solve the engine offers — see
+/// `OPTIMIZATION_PLAN_PART1.md` §11 for measurements.
+///
+/// # Arguments
+/// * `spec` — the mixture model.
+/// * `p` — Pressure in **kPa absolute**.
+/// * `x` — liquid mole fractions (length N, sum to 1).
+/// * `t0` — temperature guess in **K**.
+/// * `k0` — optional K-value guess (length N), e.g. the previous result's
+///   `k`; `None` uses Wilson K at `(t0, p)`.
+/// * `tol` — tolerance on `|ln Σ Kᵢxᵢ|`.
+/// * `max_iter` — iteration cap (warm attempt and fallback each).
+///
+/// # Returns
+/// [`SaturationResult`] with `value` = bubble temperature in **K** and
+/// `incipient` = the incipient vapor `y`.
+///
+/// # Errors
+/// As [`bubble_temperature`].
+pub fn bubble_temperature_from(
+    spec: &SystemSpec,
+    p: f64,
+    x: &[f64],
+    t0: f64,
+    k0: Option<&[f64]>,
+    tol: f64,
+    max_iter: usize,
+) -> Result<SaturationResult, FlashError> {
+    check_len(spec, x)?;
+    let sp = solve_temperature_from(spec, p, x, Point::Bubble, t0, k0, tol, max_iter)?;
     Ok(SaturationResult {
         value: sp.var,
         incipient: sp.incipient,

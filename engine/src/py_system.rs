@@ -48,9 +48,12 @@ use rayon::prelude::*;
 use crate::activity::ActivityModel;
 use crate::eos::{CubicEos, LiquidModel, PhaseId, VaporModel};
 use crate::flash::adiabatic::flash_adiabatic;
-use crate::flash::bubble::{SaturationResult, bubble_pressure, bubble_temperature};
+use crate::flash::bubble::{
+    SaturationResult, bubble_pressure, bubble_pressure_from, bubble_temperature,
+    bubble_temperature_from,
+};
 use crate::flash::critical::critical_point;
-use crate::flash::dew::{dew_pressure, dew_temperature};
+use crate::flash::dew::{dew_pressure, dew_pressure_from, dew_temperature, dew_temperature_from};
 use crate::flash::envelope::trace_envelope;
 use crate::flash::isothermal::flash_isothermal_warm;
 use crate::flash::stability::{Stability, stability_analysis};
@@ -487,56 +490,100 @@ impl System {
 
     /// Bubble pressure at fixed `t` [K] and liquid `x`.
     /// Returns `(p [kPa], y, k)`.
-    #[pyo3(signature = (x, t, tol=1e-9, max_iter=200))]
+    ///
+    /// `guess` (kPa) and `k_guess` warm-start the solve from a nearby
+    /// answer (e.g. the previous stage's); the result is the same as the
+    /// cold solve, only the cost changes.
+    #[pyo3(signature = (x, t, tol=1e-9, max_iter=200, guess=None, k_guess=None))]
     fn bubble_pressure(
         &self,
         x: Vec<f64>,
         t: f64,
         tol: f64,
         max_iter: usize,
+        guess: Option<f64>,
+        k_guess: Option<Vec<f64>>,
     ) -> PyResult<(f64, Vec<f64>, Vec<f64>)> {
-        let r = bubble_pressure(&self.spec(), t, &x, tol, max_iter).map_err(flash_err)?;
+        let spec = self.spec();
+        let r = match guess {
+            Some(g) => bubble_pressure_from(&spec, t, &x, g, k_guess.as_deref(), tol, max_iter),
+            None => bubble_pressure(&spec, t, &x, tol, max_iter),
+        }
+        .map_err(flash_err)?;
         Ok((r.value, r.incipient, r.k))
     }
 
     /// Bubble temperature at fixed `p` [kPa abs] and liquid `x`.
     /// Returns `(t [K], y, k)`.
-    #[pyo3(signature = (x, p, tol=1e-9, max_iter=200))]
+    ///
+    /// `guess` (K) and `k_guess` warm-start the solve from a nearby
+    /// answer (e.g. the previous stage's); the result is the same as the
+    /// cold solve, only the cost changes.
+    #[pyo3(signature = (x, p, tol=1e-9, max_iter=200, guess=None, k_guess=None))]
     fn bubble_temperature(
         &self,
         x: Vec<f64>,
         p: f64,
         tol: f64,
         max_iter: usize,
+        guess: Option<f64>,
+        k_guess: Option<Vec<f64>>,
     ) -> PyResult<(f64, Vec<f64>, Vec<f64>)> {
-        let r = bubble_temperature(&self.spec(), p, &x, tol, max_iter).map_err(flash_err)?;
+        let spec = self.spec();
+        let r = match guess {
+            Some(g) => bubble_temperature_from(&spec, p, &x, g, k_guess.as_deref(), tol, max_iter),
+            None => bubble_temperature(&spec, p, &x, tol, max_iter),
+        }
+        .map_err(flash_err)?;
         Ok((r.value, r.incipient, r.k))
     }
 
     /// Dew pressure at fixed `t` [K] and vapor `y`. Returns `(p [kPa], x, k)`.
-    #[pyo3(signature = (y, t, tol=1e-9, max_iter=200))]
+    ///
+    /// `guess` (kPa) and `k_guess` warm-start the solve from a nearby
+    /// answer (e.g. the previous stage's); the result is the same as the
+    /// cold solve, only the cost changes.
+    #[pyo3(signature = (y, t, tol=1e-9, max_iter=200, guess=None, k_guess=None))]
     fn dew_pressure(
         &self,
         y: Vec<f64>,
         t: f64,
         tol: f64,
         max_iter: usize,
+        guess: Option<f64>,
+        k_guess: Option<Vec<f64>>,
     ) -> PyResult<(f64, Vec<f64>, Vec<f64>)> {
-        let r = dew_pressure(&self.spec(), t, &y, tol, max_iter).map_err(flash_err)?;
+        let spec = self.spec();
+        let r = match guess {
+            Some(g) => dew_pressure_from(&spec, t, &y, g, k_guess.as_deref(), tol, max_iter),
+            None => dew_pressure(&spec, t, &y, tol, max_iter),
+        }
+        .map_err(flash_err)?;
         Ok((r.value, r.incipient, r.k))
     }
 
     /// Dew temperature at fixed `p` [kPa abs] and vapor `y`.
     /// Returns `(t [K], x, k)`.
-    #[pyo3(signature = (y, p, tol=1e-9, max_iter=200))]
+    ///
+    /// `guess` (K) and `k_guess` warm-start the solve from a nearby
+    /// answer (e.g. the previous stage's); the result is the same as the
+    /// cold solve, only the cost changes.
+    #[pyo3(signature = (y, p, tol=1e-9, max_iter=200, guess=None, k_guess=None))]
     fn dew_temperature(
         &self,
         y: Vec<f64>,
         p: f64,
         tol: f64,
         max_iter: usize,
+        guess: Option<f64>,
+        k_guess: Option<Vec<f64>>,
     ) -> PyResult<(f64, Vec<f64>, Vec<f64>)> {
-        let r = dew_temperature(&self.spec(), p, &y, tol, max_iter).map_err(flash_err)?;
+        let spec = self.spec();
+        let r = match guess {
+            Some(g) => dew_temperature_from(&spec, p, &y, g, k_guess.as_deref(), tol, max_iter),
+            None => dew_temperature(&spec, p, &y, tol, max_iter),
+        }
+        .map_err(flash_err)?;
         Ok((r.value, r.incipient, r.k))
     }
 

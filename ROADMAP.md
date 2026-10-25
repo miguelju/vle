@@ -263,7 +263,7 @@ Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](docs
   - `notebooks/09_3d_phase_surfaces.ipynb` — 3-D showcase: methane/ethane phase-envelope dome + critical locus and the methanol/water P–x–y sail (pre-computed CSVs in `notebooks/data/`), plus the README hero image (`docs/assets/phase_surfaces_hero.png`)
 - [x] Update the notebook catalogue (`deploy/NOTEBOOKS.md`) + rebuilt the landing index (`notebooks/index.ipynb`)
 
-### Milestone 9.1 — Newton Saturation Temperatures — **done — ships in v0.17.0**
+### Milestone 9.1 — Newton Saturation Temperatures — **done — ships in v0.17.0** (follow-up fixes v0.17.1, warm-start API v0.18.0)
 *Executed by Claude Code using Claude Opus 5.5*
 
 Opened by a downstream staged-separation (distillation) consumer, whose 40-stage
@@ -282,8 +282,9 @@ evaluations per call. Record: [OPTIMIZATION_PLAN_PART1.md](docs/plans/engine/OPT
 - [x] **Phase-envelope fixes (v0.17.1)** — `trace_envelope` seeds from `bubble_temperature` (traces from 50–1000 kPa for every §9 pair), orients the tangent along the direction of travel (it used to oscillate at the critical point and never reach the dew branch), retries a failed step from the last accepted point, and stops when the dew branch returns to `p_start`. Tests check every envelope point the bubble/dew solvers answer against them
 - [x] **`bubble_pressure` trivial-solution fix (v0.17.1)** — the multiplicative update could converge to `K ≡ 1` and return it as `Ok` (methane/n-pentane at 350 K: 27 479 kPa for a 12 386 kPa bubble point; CO₂/n-butane x = 0.8 at 310 K: 6 753 for ≈ 6 200 kPa). Converged points with equal phase densities are rejected; the solver restarts lower, then inverts the Newton bubble-T by a secant on ln P; near the critical point it declines (`NoConvergence`) instead of answering wrongly. The bisection fallback's bracket-collapse exit now checks the residual. Record: `OPTIMIZATION_PLAN_PART1.md` §10
 - [x] **Stability-in-flash decision, measured** — 21 600-point T–P grids on six hydrocarbon mixtures: zero missed phase splits by the cold flash, so stability is **not** run before every flash. Recommended instead (not yet built): run it when the flash fails to converge (55 grid points, all stable single-phase)
-- [ ] *Open:* stability check on flash non-convergence; near-critical bubble/dew pressure (Newton on ln P); liquid–liquid systems not yet swept
-- [ ] *Not in scope, recorded:* the fully simultaneous (n+1)-variable Newton (the 1/T step ignores ∂K/∂composition, so composition converges linearly — ≈ 8 iterations at N = 10), Newton on ln P for the pressure solves (already 15–40 µs), and a warm-start (`T₀`, `K₀`) entry point
+- [x] **Warm-start entry point (v0.18.0)** — `bubble_temperature_from` / `dew_temperature_from` / `bubble_pressure_from` / `dew_pressure_from` take a guess (value + optional K) and return exactly the cold answer; `t_guess=` / `p_guess=` / `k_guess=` on the `vle.System` methods. Measured: 17.2 → 2.6 µs from an exact neighbor on 10 components, but only ≈ 25 % (bubble) / ≈ 0 % (dew) from a realistic 0.05–0.5 K guess — the composition converges linearly (`OPTIMIZATION_PLAN_PART1.md` §11). Not bound in the Swift/Kotlin/wasm wrappers or the `_batch` API
+- [ ] *Open:* stability check on flash non-convergence; near-critical bubble/dew pressure (Newton on ln P); liquid–liquid systems not yet swept; the simultaneous (n+1)-variable Newton (now also the thing that would make warm starts pay)
+- [ ] *Not in scope, recorded:* the fully simultaneous (n+1)-variable Newton (the 1/T step ignores ∂K/∂composition, so composition converges linearly — ≈ 8 iterations at N = 10), Newton on ln P for the pressure solves (already 15–40 µs) — *(the warm-start entry point shipped in v0.18.0, see above)*
 
 ## Milestone 10: Python Bindings, Wrapper & Batch API (shipped in v0.8.0)
 **Goal**: Python package installable, high-level API usable, batch numpy API makes it "numpy for thermo".

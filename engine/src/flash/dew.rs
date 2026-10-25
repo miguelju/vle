@@ -7,10 +7,14 @@
 //!
 //! - [`dew_pressure`] — given `(T, y)`, find `(P, x)`.
 //! - [`dew_temperature`] — given `(P, y)`, find `(T, x)`.
+//! - [`dew_pressure_from`] / [`dew_temperature_from`] — the same,
+//!   warm-started from a guess. Same answer, lower cost.
 
 use super::FlashError;
 use super::bubble::SaturationResult;
-use super::incipient::{Point, solve_pressure, solve_temperature};
+use super::incipient::{
+    Point, solve_pressure, solve_pressure_from, solve_temperature, solve_temperature_from,
+};
 use super::system::SystemSpec;
 
 /// Dew-point **pressure** at fixed temperature.
@@ -71,6 +75,95 @@ pub fn dew_temperature(
 ) -> Result<SaturationResult, FlashError> {
     check_len(spec, y)?;
     let sp = solve_temperature(spec, p, y, Point::Dew, tol, max_iter)?;
+    Ok(SaturationResult {
+        value: sp.var,
+        incipient: sp.incipient,
+        k: sp.k,
+    })
+}
+
+/// Dew-point **pressure** at fixed temperature, **warm-started**
+/// from a caller's guess.
+///
+/// Same equation, tolerance and answer as [`dew_pressure`]; the guess only
+/// changes the cost. Use it when a nearby solution is at hand — the previous
+/// column stage or iteration, the neighboring point of a sweep. The `P ← P·S`
+/// iteration runs from `p0` (and `k0`); if it does not converge to a genuine
+/// (non-trivial) saturation point, or the guess is unusable (non-finite,
+/// non-positive, wrong length), the cold [`dew_pressure`] runs instead.
+///
+/// # Arguments
+/// * `spec` — the mixture model.
+/// * `t` — Temperature in **K**.
+/// * `y` — vapor mole fractions (length N, sum to 1).
+/// * `p0` — pressure guess in **kPa absolute**.
+/// * `k0` — optional K-value guess (length N), e.g. the previous result's
+///   `k`; `None` uses Wilson K at `(t, p0)`.
+/// * `tol` — tolerance on `|Σ yᵢ/Kᵢ − 1|`.
+/// * `max_iter` — outer iteration cap (warm attempt and fallback each).
+///
+/// # Returns
+/// [`SaturationResult`] with `value` = dew pressure in **kPa** and
+/// `incipient` = the incipient liquid `x`.
+///
+/// # Errors
+/// As [`dew_pressure`].
+pub fn dew_pressure_from(
+    spec: &SystemSpec,
+    t: f64,
+    y: &[f64],
+    p0: f64,
+    k0: Option<&[f64]>,
+    tol: f64,
+    max_iter: usize,
+) -> Result<SaturationResult, FlashError> {
+    check_len(spec, y)?;
+    let sp = solve_pressure_from(spec, t, y, Point::Dew, p0, k0, tol, max_iter)?;
+    Ok(SaturationResult {
+        value: sp.var,
+        incipient: sp.incipient,
+        k: sp.k,
+    })
+}
+
+/// Dew-point **temperature** at fixed pressure, **warm-started**
+/// from a caller's guess.
+///
+/// Same equation, tolerance and answer as [`dew_temperature`]; the guess
+/// only changes the cost. The Newton-on-`1/T` solve starts from `t0` (and
+/// `k0`) instead of the Wilson estimate; if it declines, or the guess is
+/// unusable, the cold [`dew_temperature`] runs instead (Newton from Wilson,
+/// then bisection). With the previous result as the guess this is the
+/// cheapest saturation solve the engine offers — see
+/// `OPTIMIZATION_PLAN_PART1.md` §11 for measurements.
+///
+/// # Arguments
+/// * `spec` — the mixture model.
+/// * `p` — Pressure in **kPa absolute**.
+/// * `y` — vapor mole fractions (length N, sum to 1).
+/// * `t0` — temperature guess in **K**.
+/// * `k0` — optional K-value guess (length N), e.g. the previous result's
+///   `k`; `None` uses Wilson K at `(t0, p)`.
+/// * `tol` — tolerance on `|ln Σ yᵢ/Kᵢ|`.
+/// * `max_iter` — iteration cap (warm attempt and fallback each).
+///
+/// # Returns
+/// [`SaturationResult`] with `value` = dew temperature in **K** and
+/// `incipient` = the incipient liquid `x`.
+///
+/// # Errors
+/// As [`dew_temperature`].
+pub fn dew_temperature_from(
+    spec: &SystemSpec,
+    p: f64,
+    y: &[f64],
+    t0: f64,
+    k0: Option<&[f64]>,
+    tol: f64,
+    max_iter: usize,
+) -> Result<SaturationResult, FlashError> {
+    check_len(spec, y)?;
+    let sp = solve_temperature_from(spec, p, y, Point::Dew, t0, k0, tol, max_iter)?;
     Ok(SaturationResult {
         value: sp.var,
         incipient: sp.incipient,

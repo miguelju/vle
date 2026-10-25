@@ -354,9 +354,9 @@ const FLASH_P: f64 = 2000.0;
 fn bench_flash_multi(c: &mut Criterion) {
     use vle_thermo::eos::{LiquidModel, VaporModel};
     use vle_thermo::flash::SystemSpec;
-    use vle_thermo::flash::bubble::{bubble_pressure, bubble_temperature};
+    use vle_thermo::flash::bubble::{bubble_pressure, bubble_temperature, bubble_temperature_from};
     use vle_thermo::flash::critical::critical_point;
-    use vle_thermo::flash::dew::{dew_pressure, dew_temperature};
+    use vle_thermo::flash::dew::{dew_pressure, dew_temperature, dew_temperature_from};
     use vle_thermo::flash::isothermal::{flash_isothermal, flash_isothermal_warm, rachford_rice};
     use vle_thermo::flash::stability::stability_analysis;
     use vle_thermo::flash::{init::wilson_k_values, k_values};
@@ -418,6 +418,43 @@ fn bench_flash_multi(c: &mut Criterion) {
         });
         g.bench_function(format!("dew_temperature_n{n}"), |b| {
             b.iter(|| dew_temperature(black_box(&spec), FLASH_P, black_box(&z), 1e-9, 200).unwrap())
+        });
+
+        // --- Warm-started saturation temperatures (v0.18.0): the guess is
+        // the converged answer nudged as a neighboring column stage would
+        // supply it — T off by 0.5 K, K off by 5 %. Same answer as the cold
+        // solve; this measures what the guess saves. ---
+        let bt = bubble_temperature(&spec, FLASH_P, &z, 1e-9, 200).unwrap();
+        let bt_k: Vec<f64> = bt.k.iter().map(|k| k * 1.05).collect();
+        g.bench_function(format!("bubble_temperature_warm_n{n}"), |b| {
+            b.iter(|| {
+                bubble_temperature_from(
+                    black_box(&spec),
+                    FLASH_P,
+                    black_box(&z),
+                    bt.value + 0.5,
+                    Some(&bt_k),
+                    1e-9,
+                    200,
+                )
+                .unwrap()
+            })
+        });
+        let dt = dew_temperature(&spec, FLASH_P, &z, 1e-9, 200).unwrap();
+        let dt_k: Vec<f64> = dt.k.iter().map(|k| k * 1.05).collect();
+        g.bench_function(format!("dew_temperature_warm_n{n}"), |b| {
+            b.iter(|| {
+                dew_temperature_from(
+                    black_box(&spec),
+                    FLASH_P,
+                    black_box(&z),
+                    dt.value + 0.5,
+                    Some(&dt_k),
+                    1e-9,
+                    200,
+                )
+                .unwrap()
+            })
         });
 
         // --- Saturation pressures at FLASH_T (multiplicative P ← P·S around

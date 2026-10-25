@@ -260,7 +260,7 @@ Claude Code using Claude Fable 5.*
   - `notebooks/09_3d_phase_surfaces.ipynb` — 3-D showcase (phase-envelope dome + critical locus + P–x–y sail from pre-computed CSVs) + README hero image
 - [x] **Update the notebook catalogue** — `deploy/NOTEBOOKS.md` rows present; rebuilt `notebooks/index.ipynb`
 
-### Milestone 9.1 — Newton Saturation Temperatures (~3–4h) — **Done — ships in v0.17.0**
+### Milestone 9.1 — Newton Saturation Temperatures (~3–4h) — **Done — ships in v0.17.0** (follow-up fixes v0.17.1, warm-start API v0.18.0)
 *Executed by Claude Code using Claude Opus 5.5*
 
 - [x] **Newton on 1/T** in `flash/incipient.rs` (`newton_temperature`), exact `∂ln K/∂T`, Wilson seed, 20 % step limit; tried first by `solve_temperature`
@@ -276,7 +276,8 @@ Claude Code using Claude Fable 5.*
 - [x] **Decide: wire `stability_analysis` into `flash_isothermal`** — measured on 21 600 grid points: zero missed splits, so no; recommend a stability check on flash non-convergence instead (`OPTIMIZATION_PLAN_PART1.md` §10)
 - [ ] **Stability check on flash non-convergence** — 55/21 600 grid points fail to converge near the critical locus and are all stable single-phase
 - [ ] **Sweep liquid–liquid-prone systems** (water/hydrocarbon, γ-φ) for missed splits before closing the stability question
-- [ ] *Follow-ups:* simultaneous (n+1)-variable Newton; warm-start entry point (`T₀`, `K₀`); Newton on ln P for `bubble_pressure`/`dew_pressure`
+- [x] **Warm-start entry point** — `{bubble,dew}_{temperature,pressure}_from` (Rust) + `t_guess`/`p_guess`/`k_guess` (Python); warm ≡ cold tests in `flash::incipient::tests` and `python/tests/test_warm_start.py`; benches `flash_multi/{bubble,dew}_temperature_warm_n*`; measured gain small except from an exact neighbor (`OPTIMIZATION_PLAN_PART1.md` §11) (v0.18.0)
+- [ ] *Follow-ups:* simultaneous (n+1)-variable Newton (also what would make warm starts pay, §11); Newton on ln P for `bubble_pressure`/`dew_pressure` — *(the warm-start entry point shipped in v0.18.0)*
 
 ## Milestone 10: Python Bindings, Wrapper & Batch API
 
@@ -789,7 +790,7 @@ lessons: [OPTIMIZATION_AUDIT_HISTORY.md](docs/plans/engine/OPTIMIZATION_AUDIT_HI
 | 6. Numerics | ~16–20h | **Done** |
 | 7. Pure Component Models | ~28–37h | **Done** (7.1–7.4 shipped; v0.3.0–v0.6.0) |
 | 8. Mixture Models + Performance Foundation | ~41–57h | **Done** (8.1 in v0.7.0; 8.2–8.4 in v0.8.0) |
-| 9. Flash & Regression | ~44–62h | **Done** (all algorithms + bindings + tests + Ch. IV validation + notebooks 04–09; shipped in v0.8.0); **M9.1** (Newton saturation temperatures, bisection as fallback) ships in **v0.17.0** |
+| 9. Flash & Regression | ~44–62h | **Done** (all algorithms + bindings + tests + Ch. IV validation + notebooks 04–09; shipped in v0.8.0); **M9.1** (Newton saturation temperatures, bisection as fallback) ships in **v0.17.0**; envelope + trivial-bubble-P fixes **v0.17.1**; warm-start API **v0.18.0** |
 | 10. Python Bindings, Wrapper & Batch API | ~25–36h | **Done** (System wrapper + batch API + component DB + plots + tests + intro notebook; external thermo/CoolProp bench deferred; shipped in v0.8.0) |
 | 11. Chapter IV Walkthrough | ~5–8h | **Done** (walkthrough notebook 10 + all 15 then-existing notebooks re-verified + catalogue complete; shipped in v0.8.0) |
 | 12. Downstream Derivative & Database Release | ~25–38h | **Done** — M12.1 (v0.8.2: 24-compound DB + Cp), M12.2 (Rust-side `component-db` DB), M12.3 (T/P derivatives of fugacity + K), M12.4 (real Cp + partial molar H + γ-φ enthalpy), M12.5 (notebook 11 + benches); shipped as **v0.9.0**, plus **v0.9.1** patch (WS departure-enthalpy fix); **M12.6** (γ-φ heat capacity + dual-generic saturation derivatives, opened by the downstream consumer) ships in **v0.16.0** |
