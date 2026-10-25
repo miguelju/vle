@@ -24,16 +24,8 @@ amount              **kmol**
 
 from __future__ import annotations
 
-import sys
+import tomllib  # stdlib since 3.11, which is our wheel's abi3 floor
 from typing import Final
-
-# tomllib joined the stdlib in 3.11; on 3.10 (our wheel's abi3 floor)
-# we fall back to the `tomli` backport, which has an identical API.
-# The dependency is declared conditionally in pyproject.toml.
-if sys.version_info >= (3, 11):
-    import tomllib
-else:  # pragma: no cover — only exercised on 3.10
-    import tomli as tomllib
 
 from pint import UnitRegistry
 

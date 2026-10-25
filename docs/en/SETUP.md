@@ -24,7 +24,7 @@ cargo --version
 
 ### Python Environment (conda)
 
-Requires Python 3.10+. We use conda for environment management:
+Requires Python 3.11+. We use conda for environment management:
 
 ```bash
 # Install Miniconda if not already installed

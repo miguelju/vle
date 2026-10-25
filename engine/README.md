@@ -93,6 +93,8 @@ virial path gains flat row-major `b_mix_matrix_flat` +
 −24…−28 %, tangent-plane stability −44…−51 %. Details in
 [`OPTIMIZATION_PLAN_PART2.md`](https://github.com/miguelju/vle/blob/main/docs/plans/engine/OPTIMIZATION_PLAN_PART2.md).
 
+`0.17.0` — the **saturation-temperature release**. `flash::bubble::bubble_temperature` and `flash::dew::dew_temperature` now solve by **Newton on 1/T** with the exact `∂ln Kᵢ/∂T` of `k_values_with_derivs`, updating the incipient composition by successive substitution each step; the previous solver (bisection over full saturation-pressure solves) remains as the automatic fallback for model pairs without `∂ln K/∂T` (virial vapor, Chao–Seader / Grayson–Streed / Braun K10 liquids), for pure components and azeotropes (which look like the trivial `K ≡ 1` solution), and for any Newton failure. Same answers, measured at 2000 kPa on RKS alkanes: bubble T **483 µs → 4.2 µs** (N = 2) and **927 µs → 10.0 µs** (N = 8); dew T **7.15 ms → 7.3 µs** and **21.7 ms → 11.4 µs**. No signature changed. **Fix:** `flash::adiabatic::flash_adiabatic` could return `Ok` with a wrong temperature (385.67 K for a 432.11 K state on a 10-component RKS mixture) by warm-starting from a single-phase result's K-values; `flash_isothermal_warm` now re-seeds from Wilson when a warm K gives no Rachford–Rice root, warm starts are carried only from two-phase results, and a collapsed bracket with a large enthalpy residual is an error. Built against the Python 3.11 stable ABI (`abi3-py311`); the workspace MSRV is unchanged at 1.85.
+
 `0.16.0` — the **γ-φ heat-capacity release** (Milestone 12.6, the last downstream-gap item of the derivative release, opened by a downstream staged-separation (distillation) consumer). **`flash::phase_cp`** is the SystemSpec-level heat capacity next to `phase_enthalpy_entropy`: cubic phases as before, ideal-gas vapor `Σy Cp°`, and the **γ-φ liquid** `Σx Cp° − Σx d(ΔH_vap)/dT + Cpᴱ` — the exact temperature derivative of the shipped γ-φ enthalpy, asserted against it for every model pair. Underneath: **`saturation::psat_generic`** makes every saturation correlation (Antoine, Riedel, Müller, RPM, Polynomial) generic over `num_dual`, so `d_psat_dt` is now analytic for every model (it was a central difference for the corresponding-states fits), with new `d2_psat_dt2` and `condensation_cp`; and **`activity::excess_cp`** differentiates each activity model's *own* Hᴱ convention. `System.phase_cp` on the Python side routes through the new dispatch (a γ-φ system no longer errors). No other API changed.
 
 `0.15.0` — the **petroleum and refinery release** (Milestones 19 + 20). **`vle_thermo::refinery`** (M20): Lee–Kesler departure (pure + mixture, validated by thermodynamic identities), Peneloux volume translation, `LiquidModel::{GraysonStreed, BraunK10}` with their (T, P)-constant parts cached, `flash::free_water::flash_free_water` (the water-decant flash — the industry approximation, not a three-liquid stability search), and a closed-form Maxwell–Bonnell inversion; the legacy `ChaoSeader` path was found to carry the Grayson–Streed 1963 table without γ and is kept as is, documented. `Component` gains `watson_k`. And **`vle_thermo::petroleum`** (M19) — petroleum
@@ -139,7 +141,7 @@ for the phase-by-phase technical detail.
 
 ```toml
 [dependencies]
-vle-thermo = "0.16"
+vle-thermo = "0.17"
 ```
 
 Or with `cargo add`:

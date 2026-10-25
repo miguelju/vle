@@ -72,7 +72,7 @@ jupyter lab notebooks/        # or the file/folder you fetched
 
 **Kernel:** nothing custom is required. The notebooks declare their
 kernel as `python3` (the standard `ipykernel` name), so any Jupyter
-install with a Python 3.10+ environment that has `vle-thermo` installed
+install with a Python 3.11+ environment that has `vle-thermo` installed
 will run them. There's nothing `vle`-specific about the kernel itself.
 
 For the full host-agnostic prerequisites, install options, the notebook

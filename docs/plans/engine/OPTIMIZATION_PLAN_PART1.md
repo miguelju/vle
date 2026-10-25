@@ -323,6 +323,171 @@ Carried forward, in the order the evidence supports:
 
 ---
 
+## 8. Addendum (v0.17.0, 2026-10-25): saturation temperatures
+
+Not one of the audit's nine recommendations — found by the downstream
+staged-separation (distillation) consumer, whose own performance plan recorded
+that a single vle-thermo bubble point (the feed state) was **10.4 ms of a
+24.8 ms** 40-stage × 10-component SRK column solve, with `mixture_params` at
+~65 % of the instructions.
+
+**Root cause.** `flash::incipient::solve_temperature` found T by **bisection
+on the saturation-pressure solver**: up to 97 scan points on a 50–1000 K grid,
+then ~30 bisection steps, each running a full cold-started `solve_pressure`
+(an outer multiplicative-P loop around an inner SS loop) — thousands of K
+evaluations per call. Its doc comment said the scan used "the cheap
+closed-form Wilson pressure estimate (no inner iteration)"; it did not. The
+per-call cost of `mixture_params` was fine (M18 made it cheap); the call
+*count* was the problem.
+
+**Fix (Milestone 9.1).** `newton_temperature` — Newton on `u = 1/T`
+(ln K is near-linear in 1/T) with the exact `∂ln Kᵢ/∂T` from
+`k_values_with_derivs`, the incipient composition updated by one SS step per
+Newton step, Wilson-seeded, step limited to 20 % of `u`. It returns `None`
+rather than an error whenever it cannot vouch for the answer — unsupported
+model pair, non-finite or wrong-signed slope, `max_iter`, or convergence onto
+`max |ln Kᵢ| < 10⁻⁶` (the trivial solution; a pure component or an exact
+azeotrope also lands there) — and `solve_temperature` then runs the old
+bisection, renamed `bisect_temperature`. The bisection is the in-tree oracle:
+`flash::incipient::tests` asserts Newton ≡ bisection (T to 1e-6 K, incipient
+composition to 1e-6) on an RKS binary over three pressures × three
+compositions, a close-boiling pair (benzene/cyclohexane, α ≈ 1.02), a γ-φ van
+Laar system, and the downstream 10-component SRK mixture, and that the pure
+component and virial-vapor cases fall back and still solve.
+
+**Results** (criterion, `flash_multi`, RKS alkanes at 2000 kPa, equimolar;
+"before" measured in the same session by forcing the fallback path):
+
+| Benchmark | Bisection | Newton | Speed-up |
+|---|---|---|---|
+| `bubble_temperature_n2` | 483 µs | 4.18 µs | 116× |
+| `bubble_temperature_n4` | 603 µs | 5.95 µs | 101× |
+| `bubble_temperature_n6` | 788 µs | 9.06 µs | 87× |
+| `bubble_temperature_n8` | 927 µs | 9.98 µs | 93× |
+| `dew_temperature_n2` | 7.15 ms | 7.29 µs | 981× |
+| `dew_temperature_n4` | 16.7 ms | 8.29 µs | 2 012× |
+| `dew_temperature_n6` | 17.3 ms | 9.11 µs | 1 901× |
+| `dew_temperature_n8` | 21.7 ms | 11.4 µs | 1 899× |
+
+At N = 10 (the downstream mixture, 1000 kPa, standalone harness): bubble T
+3.83 ms → 15.8 µs, same T to 8e-9 K. Through the Python wheel: 16.3 µs
+(bubble) and 13.7 µs (dew).
+
+**Downstream effect** — the consumer's own criterion suite, run on one machine
+against vle-thermo 0.16.0 from crates.io and then against this tree via
+`[patch.crates-io]` (a scratch copy; its 134 tests pass unchanged on both):
+
+| Downstream bench | vle-thermo 0.16.0 | this change | Change |
+|---|---|---|---|
+| Wang–Henke bubble-point solver, SRK 5 stages × 3 | 100.9 ms | 0.405 ms | **249×** |
+| inside-out, SRK 5 × 3 | 2.55 ms | 0.274 ms | **9.3×** |
+| inside-out, SRK 40 stages × 10 components | 9.86 ms | 5.33 ms | **−46 %** |
+| feed state (one bubble point), SRK 40 × 10 | 4.50 ms | 16.6 µs | 271× |
+| batch of 8 SRK 40 × 10, serial loop | 78.6 ms | 43.1 ms | −45 % |
+| batch of 8 SRK 40 × 10, `solve_batch` (rayon) | 46.8 ms | 42.4 ms | −9 % |
+| sum-rates, SRK Example 10.3 (no saturation-T calls) | 0.873 ms | 0.881 ms | noise (control) |
+
+Wang–Henke calls a bubble temperature per stage per iteration, which is why it
+moves most. The last batch row says the consumer's parallel batch no longer
+beats its serial loop once the saturation cost is gone — a finding for that
+repository, not this one.
+
+**Not done, recorded:** the fully simultaneous `(n+1)`-variable Newton of
+MODERNIZATION_PLAN §K (the 1/T step ignores ∂K/∂composition, so the
+composition converges linearly — ≈ 8 iterations at N = 10); a Newton on ln P
+for the pressure solves (already 15–40 µs, not worth it on this evidence); and
+a warm-start entry point (`T₀`, `K₀`) for callers that re-solve near a known
+point.
+
+---
+
+## 9. Solver benchmark sweep (2026-10-25)
+
+§8's lesson was that a solver with no bench is invisible to every performance
+pass. So every public `flash::*` solver now has one: `flash_multi` gained
+`bubble_pressure`, `dew_pressure`, `critical_point` and `isothermal_warm` at
+N = 2/4/6/8, and a new `flash_solvers` group covers the adiabatic flash, the
+phase envelope, both regressions and the free-water flash. A scratch harness
+ran the same solvers on the 10-component SRK alkane mixture from §8 at 1000 kPa,
+expressing each as a multiple of one `k_values` call — anything far above a
+few dozen K-evaluations was the signal to look.
+
+**Per-call cost** (criterion medians; RKS alkane fixtures at 350 K /
+2000 kPa for `flash_multi`):
+
+| Solver | N = 2 | N = 4 | N = 6 | N = 8 | N = 10 (harness) |
+|---|---|---|---|---|---|
+| `k_values` (the unit) | 0.26 µs | — | 0.35 µs | — | 0.52 µs |
+| `flash_isothermal` (cold) | 2.44 µs | 3.17 µs | 3.88 µs | 4.42 µs | 3.60 µs |
+| `flash_isothermal_warm` (converged K) | 0.43 µs | 0.58 µs | 0.66 µs | 0.72 µs | 0.84 µs |
+| `bubble_temperature` | 3.98 µs | 5.82 µs | 8.94 µs | 9.89 µs | 13.9 µs |
+| `dew_temperature` | 6.92 µs | 8.11 µs | 8.99 µs | 11.2 µs | 11.6 µs |
+| `bubble_pressure` | 6.48 µs | 6.28 µs | 6.99 µs | 7.16 µs | 67.2 µs |
+| `dew_pressure` | 16.5 µs | 9.84 µs | 22.0 µs | 12.6 µs | 24.0 µs |
+| `critical_point` | 5.52 µs | 20.6 µs | 50.0 µs | 111 µs | 206 µs |
+
+| `flash_solvers` case | Median |
+|---|---|
+| `adiabatic_pr_binary` (pentane/decane) | 10.7 µs |
+| `envelope_pr_methane_ethane_40pts` | 541 µs (13.5 µs/point) |
+| `fit_kij_pr_4pts` | 2.16 ms (≈ 50 bubble-P solves) |
+| `fit_aij_van_laar_5pts` | 276 µs (≈ 700 γ-φ bubble-P solves) |
+| `free_water_pr_ternary` | 2.19 µs |
+
+No second §8 — nothing costs thousands of K evaluations by construction. The
+sweep's real yield was **correctness**:
+
+1. **`flash_adiabatic` returns a silently wrong answer** on the 10-component
+   mixture: asked to recover the 432.11 K two-phase state from its enthalpy, it
+   returns `Ok` at **385.67 K** with an enthalpy 19 700 kJ/kmol off target.
+   Mechanism: the bisection evaluates the superheated `t_hi` end first, carries
+   that single-phase result's K (all > 1) as the next warm start, and
+   `flash_isothermal_warm` — which decides the phase count from Rachford–Rice
+   under the *current* K, with no stability test — declares every later
+   two-phase trial "all vapor" at iteration 0. H(T) acquires a jump, the
+   bisection homes in on it, and the `(hi − lo) < 1e-8` exit returns `Ok`
+   without checking the residual. The binary test case passes only because
+   its bracket happens not to trigger it. `flash_pt_batch` already guards
+   against exactly this ("only reuse K from a genuinely two-phase solve");
+   `flash_adiabatic` and `flash_free_water` (which also carries K
+   unconditionally) did not. **Fixed in v0.17.0**, three ways, each
+   sufficient on this case and kept together as defence in depth:
+   `flash_isothermal_warm` discards a warm-start K that gives Rachford–Rice no
+   root at iteration 0 and re-seeds from Wilson (so a stale K can no longer
+   declare "single phase" on its own); `flash_adiabatic` and `flash_free_water`
+   carry K only from `two_phase` results; and the adiabatic bracket-collapse
+   exit returns `NoConvergence` when `|H − H_feed|` is still above `tol`.
+   Regression tests: `adiabatic_recovers_temperature_ten_component_rks` (now
+   432.1142 K) and `warm_start_from_a_single_phase_k_does_not_force_single_phase`;
+   both fail with the fix disabled. Cost, measured: none —
+   `isothermal_warm_n2…n8` 427–704 ns (was 430–720), `adiabatic_pr_binary`
+   10.1 µs (was 10.7), `free_water_pr_ternary` 2.11 µs (was 2.19).
+2. **Stability analysis is not run before the flash** — MODERNIZATION_PLAN §I
+   and CLAUDE.md said it was. It is the underlying reason (1) was possible.
+   Doc corrected; wiring it in is a design + cost decision. **Open** — the
+   (1) fix closes the stale-warm-start route, but a cold flash whose Wilson K
+   gives no RR root still returns single-phase without a stability test.
+3. **`trace_envelope` fails from the Python default `p_start = 100 kPa`** for
+   ordinary pairs: n-butane/n-heptane and propane/n-pentane fail at 50, 100
+   and 1000 kPa on both PR and RKS (corrector does not converge), and trace
+   only from 300 kPa; methane/ethane and ethane/n-heptane trace from every
+   start. `System.phase_envelope(["n-butane","n-heptane"])` with defaults
+   raises. **Open.**
+4. **The Aij regression Jacobian is a finite difference**, not the analytic
+   Jacobian MODERNIZATION_PLAN / CLAUDE.md / README claimed (the module's own
+   docs were honest). At 0.28 ms per fit it is not a performance problem. Doc
+   corrected.
+
+Performance leads, none urgent: `critical_point` grows ≈ N²·² (5.5 µs → 206 µs
+from N = 2 to 10), which matters only if a pseudocomponent-scale critical
+point is ever needed; `bubble_pressure` is state-sensitive (7 µs on the bench
+fixture, 67 µs on the wide-boiling 10-component mixture — the multiplicative
+`P ← P·S` update converges linearly), so a Newton on ln P with the exact
+`∂ln K/∂P` (already returned by `k_values_with_derivs`) would mirror §8; both
+regressions inherit any bubble-P speed-up.
+
+---
+
 ## References
 
 - [`optimizations_audit.md`](optimizations_audit.md) — the external audit this responds to

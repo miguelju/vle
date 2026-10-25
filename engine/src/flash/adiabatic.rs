@@ -14,8 +14,16 @@
 //!   `T` (positive heat capacity), so a bracketed bisection converges
 //!   reliably.
 //! - **Inner** — an isothermal flash at each trial `T`, **warm-started**
-//!   with the previous temperature's converged K-values (§M's improvement
-//!   over flashing from cold every time).
+//!   with the most recent **two-phase** K-values (§M's improvement over
+//!   flashing from cold every time). A single-phase result's K is never
+//!   carried: it is not an equilibrium ratio, and seeding the next flash
+//!   with it made every later trial report "single phase" too (v0.17.0
+//!   fix, `OPTIMIZATION_PLAN_PART1.md` §9).
+//!
+//! `H(T)` is continuous, so the bisection's bracket can only collapse onto
+//! a point where `|H − H_feed|` is still large if an inner flash picked the
+//! wrong phase state. That case is reported as
+//! [`FlashError::NoConvergence`], never returned as a solution.
 //!
 //! The stream enthalpy is the phase-fraction-weighted sum of the liquid and
 //! vapor molar enthalpies from the energy layer (ideal + EOS departure).
@@ -112,8 +120,10 @@ fn stream_enthalpy(
 /// # Errors
 /// [`FlashError::Unsupported`] for a non-cubic system;
 /// [`FlashError::NoConvergence`] if `h_feed` is not bracketed by
-/// `[H(t_lo), H(t_hi)]` or the cap is hit; [`FlashError::Thermo`] on a
-/// thermodynamic failure.
+/// `[H(t_lo), H(t_hi)]`, the cap is hit, or the temperature bracket collapses
+/// (below 1e-8 K) while `|H − H_feed|` is still above `tol` — a jump in
+/// `H(T)`, which only an inconsistent phase decision can produce;
+/// [`FlashError::Thermo`] on a thermodynamic failure.
 #[allow(clippy::too_many_arguments)]
 pub fn flash_adiabatic(
     spec: &SystemSpec,
@@ -136,12 +146,15 @@ pub fn flash_adiabatic(
     }
     cubic_pair(spec)?; // fail fast on an unsupported model
 
-    // Warm-start K carried across temperatures.
+    // Warm-start K carried across temperatures — from two-phase results
+    // only (the same rule `flash_pt_batch` in py_system.rs follows).
     let mut warm: Option<Vec<f64>> = None;
     // Enthalpy residual + flash at a trial T (updates the warm start).
     let eval = |t: f64, warm: &mut Option<Vec<f64>>| -> Result<(f64, FlashResult), FlashError> {
         let res = flash_isothermal_warm(spec, t, p, z, warm.as_deref(), 1e-10, 200)?;
-        *warm = Some(res.k.clone());
+        if res.two_phase {
+            *warm = Some(res.k.clone());
+        }
         let h = stream_enthalpy(spec, t, p, &res, t_ref, p_ref)?;
         Ok((h - h_feed, res))
     };
@@ -161,7 +174,16 @@ pub fn flash_adiabatic(
     for iter in 0..max_iter {
         let mid = 0.5 * (lo + hi);
         let (g_mid, res) = eval(mid, &mut warm)?;
-        if g_mid.abs() < tol || (hi - lo) < 1e-8 {
+        if g_mid.abs() >= tol && (hi - lo) < 1e-8 {
+            // The bracket has shrunk to nothing but the residual has not:
+            // H(T) jumps here. Report it rather than return a wrong T.
+            return Err(FlashError::NoConvergence {
+                what: "adiabatic flash (bracket collapsed on an enthalpy jump)",
+                iters: iter + 1,
+                residual: g_mid.abs(),
+            });
+        }
+        if g_mid.abs() < tol {
             let h = g_mid + h_feed;
             return Ok(AdiabaticResult {
                 t: mid,
@@ -277,6 +299,78 @@ mod tests {
         .unwrap();
         assert!((out.enthalpy - target).abs() < 1e-3);
         assert!(out.t > 420.0 && out.t < 480.0);
+    }
+
+    #[test]
+    fn warm_start_from_a_single_phase_k_does_not_force_single_phase() {
+        // Regression (v0.17.0): the K of a superheated-vapor result, used to
+        // warm-start a flash at a two-phase temperature, made Rachford-Rice
+        // find no root at iteration 0 and the flash returned "all vapor"
+        // without evaluating a single fugacity. It must now re-seed from
+        // Wilson and agree with the cold flash.
+        let comps = [n_pentane(), n_decane()];
+        let spec = pr(&comps);
+        let z = [0.5, 0.5];
+        let p = 500.0;
+        let vapor = flash_isothermal(&spec, 600.0, p, &z, 1e-10, 200).unwrap();
+        assert!(
+            !vapor.two_phase && vapor.beta == 1.0,
+            "600 K is superheated"
+        );
+        let cold = flash_isothermal(&spec, 450.0, p, &z, 1e-10, 200).unwrap();
+        let warm = flash_isothermal_warm(&spec, 450.0, p, &z, Some(&vapor.k), 1e-10, 200).unwrap();
+        assert!(cold.two_phase && warm.two_phase);
+        assert!(
+            (warm.beta - cold.beta).abs() < 1e-8,
+            "β {} vs {}",
+            warm.beta,
+            cold.beta
+        );
+    }
+
+    #[cfg(feature = "component-db")]
+    #[test]
+    fn adiabatic_recovers_temperature_ten_component_rks() {
+        // Regression (v0.17.0): on this mixture the adiabatic flash returned
+        // Ok at 385.67 K for a 432.11 K state, with H off by ~19,700 kJ/kmol.
+        // The superheated t_hi result's K was carried into every later trial,
+        // each of which then reported "all vapor"; the bisection closed on
+        // the resulting jump in H(T) and its bracket-collapse exit returned
+        // Ok without checking the residual.
+        let names = [
+            "propane",
+            "isobutane",
+            "n-butane",
+            "isopentane",
+            "n-pentane",
+            "n-hexane",
+            "n-heptane",
+            "n-octane",
+            "n-nonane",
+            "n-decane",
+        ];
+        let comps: Vec<Component> = names
+            .iter()
+            .map(|n| crate::db::component(n).unwrap())
+            .collect();
+        let mut spec = pr(&comps);
+        spec.vapor = VaporModel::Cubic(CubicEos::RKS1972);
+        spec.liquid = LiquidModel::Cubic(CubicEos::RKS1972);
+        let z = vec![0.1; 10];
+        let (p, t_star) = (1000.0, 432.1142);
+        let res_star = flash_isothermal(&spec, t_star, p, &z, 1e-10, 200).unwrap();
+        assert!(res_star.two_phase);
+        let h_star = stream_enthalpy(&spec, t_star, p, &res_star, 298.15, 101.325).unwrap();
+        let out = flash_adiabatic(
+            &spec, p, &z, h_star, 298.15, 101.325, 381.4, 482.8, 1e-4, 200,
+        )
+        .unwrap();
+        assert!(
+            (out.t - t_star).abs() < 1e-3,
+            "recovered T={} vs true {t_star}",
+            out.t
+        );
+        assert!((out.enthalpy - h_star).abs() < 1e-3);
     }
 
     #[test]

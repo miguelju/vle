@@ -354,7 +354,10 @@ const FLASH_P: f64 = 2000.0;
 fn bench_flash_multi(c: &mut Criterion) {
     use vle_thermo::eos::{LiquidModel, VaporModel};
     use vle_thermo::flash::SystemSpec;
-    use vle_thermo::flash::isothermal::{flash_isothermal, rachford_rice};
+    use vle_thermo::flash::bubble::{bubble_pressure, bubble_temperature};
+    use vle_thermo::flash::critical::critical_point;
+    use vle_thermo::flash::dew::{dew_pressure, dew_temperature};
+    use vle_thermo::flash::isothermal::{flash_isothermal, flash_isothermal_warm, rachford_rice};
     use vle_thermo::flash::stability::stability_analysis;
     use vle_thermo::flash::{init::wilson_k_values, k_values};
     use vle_thermo::mixing::MixingRule;
@@ -399,6 +402,55 @@ fn bench_flash_multi(c: &mut Criterion) {
                     FLASH_P,
                     black_box(&x),
                     black_box(&y),
+                )
+                .unwrap()
+            })
+        });
+
+        // --- Saturation temperatures: Newton on 1/T with analytic ∂ln K/∂T
+        // (bisection on the pressure solver is only the fallback). These
+        // were the dominant cost of a downstream column solve before the
+        // Newton path landed — see flash/incipient.rs.
+        g.bench_function(format!("bubble_temperature_n{n}"), |b| {
+            b.iter(|| {
+                bubble_temperature(black_box(&spec), FLASH_P, black_box(&z), 1e-9, 200).unwrap()
+            })
+        });
+        g.bench_function(format!("dew_temperature_n{n}"), |b| {
+            b.iter(|| dew_temperature(black_box(&spec), FLASH_P, black_box(&z), 1e-9, 200).unwrap())
+        });
+
+        // --- Saturation pressures at FLASH_T (multiplicative P ← P·S around
+        // an SS inner loop; no derivative needed). ---
+        g.bench_function(format!("bubble_pressure_n{n}"), |b| {
+            b.iter(|| bubble_pressure(black_box(&spec), FLASH_T, black_box(&z), 1e-9, 200).unwrap())
+        });
+        g.bench_function(format!("dew_pressure_n{n}"), |b| {
+            b.iter(|| dew_pressure(black_box(&spec), FLASH_T, black_box(&z), 1e-9, 200).unwrap())
+        });
+
+        // --- Mixture critical point (Heidemann–Khalil, dual-number Helmholtz
+        // derivatives), seeded at 0.9·Σ zᵢTc,ᵢ. ---
+        let t_crit0 = 0.9 * comps.iter().zip(&z).map(|(c, zi)| zi * c.tc).sum::<f64>();
+        g.bench_function(format!("critical_point_n{n}"), |b| {
+            b.iter(|| critical_point(black_box(&spec), black_box(&z), t_crit0, 200).unwrap())
+        });
+
+        // --- Warm-started flash from the converged K — the per-point cost a
+        // sweep pays when each point seeds the next (`flash_pt_batch`). ---
+        let k_conv = flash_isothermal(&spec, FLASH_T, FLASH_P, &z, 1e-10, 200)
+            .unwrap()
+            .k;
+        g.bench_function(format!("isothermal_warm_n{n}"), |b| {
+            b.iter(|| {
+                flash_isothermal_warm(
+                    black_box(&spec),
+                    FLASH_T,
+                    FLASH_P,
+                    black_box(&z),
+                    Some(&k_conv),
+                    1e-10,
+                    200,
                 )
                 .unwrap()
             })
@@ -952,6 +1004,217 @@ fn bench_mixture_scaling(c: &mut Criterion) {
     g.finish();
 }
 
+/// The flash-layer solvers that the `flash_multi` scaling series does not
+/// cover — one representative case each, so every public `flash::*` solver
+/// has a per-call cost on record (the 2026-10-25 sweep; see
+/// OPTIMIZATION_PLAN_PART1.md §9). Fixtures mirror each module's own tests.
+fn bench_flash_solvers(c: &mut Criterion) {
+    use vle_thermo::activity::ActivityModel;
+    use vle_thermo::eos::{LiquidModel, VaporModel};
+    use vle_thermo::flash::adiabatic::flash_adiabatic;
+    use vle_thermo::flash::aij_regression::{AijBubblePoint, fit_aij};
+    use vle_thermo::flash::bubble::bubble_pressure;
+    use vle_thermo::flash::envelope::trace_envelope;
+    use vle_thermo::flash::free_water::flash_free_water;
+    use vle_thermo::flash::isothermal::flash_isothermal;
+    use vle_thermo::flash::kij_regression::{BubblePoint, fit_kij};
+    use vle_thermo::flash::{SystemSpec, phase_enthalpy_entropy};
+    use vle_thermo::mixing::MixingRule;
+
+    // `..Component::default()` fills every field not named — the struct
+    // update syntax, so each fixture lists only what it needs.
+    let comp = |name: &str, tc: f64, pc: f64, omega: f64| Component {
+        name: name.into(),
+        tc,
+        pc,
+        omega,
+        ..Component::default()
+    };
+    // A plain nested `fn` rather than a closure: closures cannot tie the
+    // returned borrow's lifetime to their argument the way `'_` does here.
+    fn cubic(components: &[Component], eos: CubicEos) -> SystemSpec<'_> {
+        SystemSpec {
+            components,
+            vapor: VaporModel::Cubic(eos),
+            liquid: LiquidModel::Cubic(eos),
+            mixing_rule: MixingRule::Classical,
+            kij: &[],
+            aij: &[],
+            alpha: &[],
+            vl: &[],
+            delta: &[],
+            sat_models: &[],
+            ge_model: None,
+        }
+    }
+    let pentane = Component {
+        cp_coeffs: [1.5, 4.0e-2, -1.2e-5, 0.0, 0.0],
+        psat_coeffs: vec![4.30, 2600.0, -40.0],
+        ..comp("n-pentane", 469.7, 3370.0, 0.252)
+    };
+    let decane = Component {
+        cp_coeffs: [2.0, 8.0e-2, -2.4e-5, 0.0, 0.0],
+        psat_coeffs: vec![4.25, 3800.0, -75.0],
+        ..comp("n-decane", 617.7, 2110.0, 0.4884)
+    };
+
+    let mut g = c.benchmark_group("flash_solvers");
+
+    // --- Adiabatic (PH) flash, n-pentane/n-decane on PR at 500 kPa: recover
+    // the 450 K two-phase state from its enthalpy (bracket 400–500 K). ---
+    {
+        let comps = [pentane.clone(), decane.clone()];
+        let spec = cubic(&comps, CubicEos::PR1976);
+        let (z, p, t_star) = ([0.5, 0.5], 500.0, 450.0);
+        let r = flash_isothermal(&spec, t_star, p, &z, 1e-10, 200).unwrap();
+        let h = |comp: &[f64], ph| {
+            phase_enthalpy_entropy(&spec, t_star, p, comp, ph, 298.15, 101.325, &[], &[])
+                .unwrap()
+                .0
+        };
+        let h_feed = (1.0 - r.beta) * h(&r.x, PhaseId::Liquid) + r.beta * h(&r.y, PhaseId::Vapor);
+        g.bench_function("adiabatic_pr_binary", |b| {
+            b.iter(|| {
+                flash_adiabatic(
+                    black_box(&spec),
+                    p,
+                    &z,
+                    black_box(h_feed),
+                    298.15,
+                    101.325,
+                    400.0,
+                    500.0,
+                    1e-4,
+                    200,
+                )
+                .unwrap()
+            })
+        });
+    }
+
+    // --- Phase envelope, methane/ethane on PR from 300 kPa, 40 points. ---
+    {
+        let comps = [
+            comp("methane", 190.56, 4599.0, 0.011),
+            comp("ethane", 305.32, 4872.0, 0.099),
+        ];
+        let spec = cubic(&comps, CubicEos::PR1976);
+        g.bench_function("envelope_pr_methane_ethane_40pts", |b| {
+            b.iter(|| trace_envelope(black_box(&spec), &[0.5, 0.5], 300.0, 40).unwrap())
+        });
+    }
+
+    // --- kij regression, CO2/n-butane on PR: 4 synthetic points at k = 0.13. ---
+    {
+        let comps = [
+            Component {
+                psat_coeffs: vec![4.86, 1147.0, -8.0],
+                ..comp("CO2", 304.13, 7377.0, 0.2239)
+            },
+            Component {
+                psat_coeffs: vec![4.35, 2277.0, -30.0],
+                ..comp("n-butane", 425.12, 3796.0, 0.200)
+            },
+        ];
+        let kij = vec![vec![0.0, 0.13], vec![0.13, 0.0]];
+        let spec = SystemSpec {
+            kij: &kij,
+            ..cubic(&comps, CubicEos::PR1976)
+        };
+        let data: Vec<BubblePoint> = [0.1, 0.3, 0.5, 0.7]
+            .iter()
+            .map(|&x1| BubblePoint {
+                t: 310.0,
+                x1,
+                p_exp: bubble_pressure(&spec, 310.0, &[x1, 1.0 - x1], 1e-9, 200)
+                    .unwrap()
+                    .value,
+            })
+            .collect();
+        g.bench_function("fit_kij_pr_4pts", |b| {
+            b.iter(|| {
+                fit_kij(
+                    CubicEos::PR1976,
+                    &comps,
+                    black_box(&data),
+                    -0.1,
+                    0.3,
+                    1e-6,
+                    100,
+                )
+                .unwrap()
+            })
+        });
+    }
+
+    // --- Aij regression, methanol/water van Laar: 5 synthetic points. ---
+    {
+        let comps = [
+            Component {
+                liquid_volume: 40.7,
+                psat_coeffs: vec![5.20, 3200.0, -35.0],
+                ..comp("methanol", 512.6, 8097.0, 0.564)
+            },
+            Component {
+                liquid_volume: 18.07,
+                psat_coeffs: vec![5.11, 3800.0, -46.0],
+                ..comp("water", 647.1, 22064.0, 0.344)
+            },
+        ];
+        let aij = vec![vec![0.0, 0.85], vec![0.52, 0.0]];
+        let spec = SystemSpec {
+            vapor: VaporModel::IdealGas,
+            liquid: LiquidModel::Activity(ActivityModel::VanLaar),
+            aij: &aij,
+            ..cubic(&comps, CubicEos::PR1976)
+        };
+        let data: Vec<AijBubblePoint> = [0.2, 0.35, 0.5, 0.65, 0.8]
+            .iter()
+            .map(|&x1| AijBubblePoint {
+                t: 298.15,
+                x1,
+                p_exp: bubble_pressure(&spec, 298.15, &[x1, 1.0 - x1], 1e-9, 200)
+                    .unwrap()
+                    .value,
+            })
+            .collect();
+        g.bench_function("fit_aij_van_laar_5pts", |b| {
+            b.iter(|| {
+                fit_aij(
+                    ActivityModel::VanLaar,
+                    &comps,
+                    &[],
+                    &[],
+                    black_box(&data),
+                    0.3,
+                    0.3,
+                    1e-10,
+                    100,
+                )
+                .unwrap()
+            })
+        });
+    }
+
+    // --- Free-water decant flash: pentane/decane/water at 325 K, 40 kPa. ---
+    {
+        let water = Component {
+            psat_coeffs: vec![6.288, 3816.44, -46.13],
+            ..comp("water", 647.1, 22064.0, 0.344)
+        };
+        let comps = [pentane.clone(), decane.clone(), water];
+        let spec = cubic(&comps, CubicEos::PR1976);
+        let z = [0.25, 0.65, 0.10];
+        g.bench_function("free_water_pr_ternary", |b| {
+            b.iter(|| {
+                flash_free_water(black_box(&spec), 325.0, 40.0, &z, 2, None, 1e-10, 200).unwrap()
+            })
+        });
+    }
+
+    g.finish();
+}
+
 criterion_group!(
     benches,
     bench_alpha,
@@ -963,6 +1226,7 @@ criterion_group!(
     bench_flash_multi,
     bench_mixture_core,
     bench_mixture_scaling,
-    bench_derivatives
+    bench_derivatives,
+    bench_flash_solvers
 );
 criterion_main!(benches);

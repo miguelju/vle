@@ -192,7 +192,11 @@ pub fn flash_free_water(
         }
         let r = flash_isothermal_warm(spec, t, p_hc, &z_dry, k_warm.as_deref(), tol, max_iter)?;
         *iterations += r.iterations;
-        *k_warm = Some(r.k.clone());
+        // Carry K only from a two-phase result: a single-phase result's K is
+        // not an equilibrium ratio (see `flash_adiabatic`, v0.17.0 fix).
+        if r.two_phase {
+            *k_warm = Some(r.k.clone());
+        }
         Ok(r)
     };
 

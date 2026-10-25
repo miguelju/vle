@@ -112,18 +112,19 @@ pub fn solve_real(a: f64, b: f64, c: f64, d: f64) -> Result<([f64; 3], usize), C
     let scale = (half_q * half_q).max(third_p.abs().powi(3)).max(1.0);
     let delta_eps = 1e-14 * scale;
 
-    // `ys` is a stack array; `n` counts how many slots are live.
+    // `ys` is a stack array; `n` counts how many slots are live. Each
+    // branch fills `ys` and *evaluates to* its live-slot count (an `if`
+    // is an expression in Rust, so the last line of a block is its value).
     let mut ys = [0.0_f64; 3];
-    let n: usize;
-    if is_near_zero_eps(delta, delta_eps) {
-        n = repeated_roots(p, q, &mut ys);
+    let n: usize = if is_near_zero_eps(delta, delta_eps) {
+        repeated_roots(p, q, &mut ys)
     } else if delta > 0.0 {
         // One real root: y = ∛(−q/2 + √Δ) + ∛(−q/2 − √Δ)
         let sqrt_delta = delta.sqrt();
         let u = (-half_q + sqrt_delta).cbrt();
         let v = (-half_q - sqrt_delta).cbrt();
         ys[0] = u + v;
-        n = 1;
+        1
     } else {
         // Three real roots via trigonometric form.
         //   y_k = 2·√(−p/3) · cos((φ − 2πk)/3),  k = 0, 1, 2
@@ -140,8 +141,8 @@ pub fn solve_real(a: f64, b: f64, c: f64, d: f64) -> Result<([f64; 3], usize), C
         ys[0] = amp * (phi / 3.0).cos();
         ys[1] = amp * ((phi - two_pi) / 3.0).cos();
         ys[2] = amp * ((phi + two_pi) / 3.0).cos();
-        n = 3;
-    }
+        3
+    };
 
     // Shift back: x = y − b1/3
     for y in ys[..n].iter_mut() {

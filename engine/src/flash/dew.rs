@@ -52,15 +52,16 @@ pub fn dew_pressure(
 /// * `p` — Pressure in **kPa absolute**.
 /// * `y` — vapor mole fractions (length N, sum to 1).
 /// * `tol` — tolerance on `|ln Σ yᵢ/Kᵢ|`.
-/// * `max_iter` — bisection iteration cap.
+/// * `max_iter` — iteration cap for the Newton solve, and again for the
+///   bisection fallback if Newton declines (see [`super::incipient`]).
 ///
 /// # Returns
 /// [`SaturationResult`] with `value` = dew temperature in **K** and
 /// `incipient` = the incipient liquid `x`.
 ///
 /// # Errors
-/// [`FlashError`] on dimension mismatch, thermodynamic failure, or if no
-/// temperature bracket is found.
+/// [`FlashError`] on dimension mismatch, thermodynamic failure, or if
+/// Newton declines and the bisection fallback finds no temperature bracket.
 pub fn dew_temperature(
     spec: &SystemSpec,
     p: f64,

@@ -7,11 +7,11 @@ build-backend = "maturin"
 # python-source = "src" + the src/vle/ directory) following the common
 # "distribution != import" pattern (Pillow → PIL, python-dateutil → dateutil).
 name = "vle-thermo"
-version = "0.16.0"
+version = "0.17.0"
 description = "Vapor-liquid equilibrium (VLE) thermodynamic calculator: 22+ cubic EOS, activity models, flash algorithms"
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     { name = "Miguel Jackson", email = "admin@migueljackson.dev" },
 ]
@@ -30,10 +30,11 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Programming Language :: Rust",
     "Topic :: Scientific/Engineering",
     "Topic :: Scientific/Engineering :: Chemistry",
@@ -46,11 +47,8 @@ dependencies = [
     # in python/src/vle/units.py, so this is a hard runtime dependency —
     # not just a test dependency.
     "pint>=0.22",
-    # tomli is the stdlib `tomllib` backport for Python < 3.11. vle.units
-    # parses the unit catalog TOML at import time, and our wheel's abi3
-    # baseline is 3.10 (cp310-abi3-*), so on 3.10 we need the backport.
-    # On 3.11+ tomllib is in stdlib and this dep is skipped by pip.
-    'tomli>=2.0; python_version < "3.11"',
+    # No `tomli` backport: vle.units parses the unit catalog with the stdlib
+    # `tomllib`, which every supported Python (3.11+) ships.
 ]
 
 [project.optional-dependencies]
@@ -89,14 +87,14 @@ include = [
 ]
 
 [tool.cibuildwheel]
-# abi3 wheels: PyO3's abi3-py310 feature (set in engine/Cargo.toml) makes
-# one wheel per (os, arch) cover CPython 3.10, 3.11, 3.12, 3.13 and future
-# versions. The `cp310-` selector below is the lowest Python that abi3
-# targets; the resulting wheel filenames are tagged `cp310-abi3-*` and
-# pip installs them on any CPython >= 3.10. Result: ~4x faster wheel
+# abi3 wheels: PyO3's abi3-py311 feature (set in engine/Cargo.toml) makes
+# one wheel per (os, arch) cover CPython 3.11 through 3.15 and future
+# versions. The `cp311-` selector below is the lowest Python that abi3
+# targets; the resulting wheel filenames are tagged `cp311-abi3-*` and
+# pip installs them on any CPython >= 3.11. Result: ~4x faster wheel
 # matrix than per-CPython wheels with negligible runtime cost for this
 # workload (see the Performance analysis in MODERNIZATION_PLAN.md).
-build = "cp310-*"
+build = "cp311-*"
 skip = ["pp*", "*-musllinux_*"]
 # manylinux_2_28 ~ AlmaLinux 8 — needed for Rust edition 2024 / MSRV 1.85.
 manylinux-x86_64-image = "manylinux_2_28"

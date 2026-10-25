@@ -101,8 +101,8 @@ Wheels are built with [cibuildwheel](https://cibuildwheel.readthedocs.io/)
 using the configuration in `python/pyproject.toml`'s
 `[tool.cibuildwheel]` block.
 
-We ship **abi3 wheels** (PyO3 `abi3-py310` feature in
-`engine/Cargo.toml`). One wheel per `(OS, arch)` covers CPython 3.10+
+We ship **abi3 wheels** (PyO3 `abi3-py311` feature in
+`engine/Cargo.toml`). One wheel per `(OS, arch)` covers CPython 3.11+
 including future Python releases — there is no per-CPython-version
 fan-out. The tradeoff is documented in `MODERNIZATION_PLAN.md`'s
 M5 phase notes: for VLE's workload, the abi3 boundary overhead is
@@ -110,7 +110,9 @@ invisible against the pure-Rust compute kernel, and we trade it for a
 4× smaller matrix and zero rebuild on new Python releases.
 
 Resulting wheel filenames look like
-`vle_thermo-X.Y.Z-cp310-abi3-manylinux_2_28_x86_64.whl`.
+`vle_thermo-X.Y.Z-cp311-abi3-manylinux_2_28_x86_64.whl`. (The floor was
+`cp310` through v0.16.0; it moved to 3.11 in v0.17.0 after 3.10 reached end
+of life.)
 
 Tests run inside each built wheel via cibuildwheel's
 `test-command = "pytest {project}/tests"` setting, so a regression in

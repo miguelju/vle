@@ -89,10 +89,10 @@ SQLite-based property database with CLI, Jupyter notebook, and first deploy to t
 Hybrid CI/CD pipeline, first PyO3 bindings, and automatic sandbox redeploy on tag pushes (~16–22h total).
 
 - [x] **Doc renumber + README/PUBLISHING refactor** (~1h) — insert new M5 in ROADMAP/TODO/MODERNIZATION_PLAN; shift M5–M10 → M6–M11; update Phase pointers; drop README's Docker subsection; rewrite PUBLISHING.md; add the PyO3 Bindings Rule to CLAUDE.md
-- [x] **`.github/workflows/_build.yml`** (~2h) — reusable cibuildwheel matrix: Linux x64 (`ubuntu-latest`), Linux arm64 (`ubuntu-24.04-arm`), macOS arm64 (`macos-14`), Windows (`windows-latest`) — **all GitHub-hosted**, CPython 3.10+ abi3 *(originally Linux x64 + macOS arm64 on self-hosted runners; both moved to GitHub-hosted in v0.12.0 — see `OPTIMIZATION_PLAN_PART2.md` and `docs/ci.md`)*
+- [x] **`.github/workflows/_build.yml`** (~2h) — reusable cibuildwheel matrix: Linux x64 (`ubuntu-latest`), Linux arm64 (`ubuntu-24.04-arm`), macOS arm64 (`macos-14`), Windows (`windows-latest`) — **all GitHub-hosted**, CPython 3.10+ abi3 *(3.11+ since v0.17.0; originally Linux x64 + macOS arm64 on self-hosted runners; both moved to GitHub-hosted in v0.12.0 — see `OPTIMIZATION_PLAN_PART2.md` and `docs/ci.md`)*
 - [x] **`.github/workflows/ci.yml`** (~1h) — push/PR/dispatch: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`, call `_build.yml` (artifact-only) *(the per-job fork-PR guards went away with the self-hosted jobs in v0.12.0; only `bench-rust` remains on lab hardware and its `push || workflow_dispatch` condition is its own guard)*
 - [x] **`[tool.cibuildwheel]` block in `python/pyproject.toml`** (~0.5h) — abi3, manylinux_2_28, `pytest {package}/tests`, skip pp + musllinux
-- [x] **First `#[pymodule]` in engine/** (~3–4h) — add `pyo3` `abi3-py310` feature to `engine/Cargo.toml`; gate enums in `engine/src/types.rs` with `#[cfg_attr(feature = "python", pyo3::pyclass(eq, eq_int))]`; create `engine/src/py_bindings.rs` with `#[pymodule] fn _engine(...)` exposing `version()` + the four enums; add `python/tests/test_engine.py`
+- [x] **First `#[pymodule]` in engine/** (~3–4h) — add `pyo3` `abi3-py310` feature *(`abi3-py311` since v0.17.0)* to `engine/Cargo.toml`; gate enums in `engine/src/types.rs` with `#[cfg_attr(feature = "python", pyo3::pyclass(eq, eq_int))]`; create `engine/src/py_bindings.rs` with `#[pymodule] fn _engine(...)` exposing `version()` + the four enums; add `python/tests/test_engine.py`
 - [x] **`docs/ci.md`** (~1h) — developer overview, ephemerality table, fork-PR guard, retry flow, badges
 - [x] **`docs/runners/linux-setup.md`** (~1.5h) — Proxmox LXC + Docker + `myoung34/github-runner:latest` ephemeral container; PAT setup; verification; scaling
 - [x] **`docs/runners/macos-setup.md`** (~1.5h) — Mac mini M1 launchd service; toolchain bootstrap (Xcode CLT, rustup, four Pythons via python.org or `uv`, maturin); periodic-cleanup checklist *(**RETIRED** in v0.12.0 — doc kept for reference; `vle-mac-01` stopped via `svc.sh` and deregistered)*
@@ -242,7 +242,7 @@ Claude Code using Claude Fable 5.*
 
 - [x] **Implement Wilson init + stability analysis** — Wilson K-value correlation (29); tangent-plane-distance stability test (7) supplying phase count + non-trivial K estimates (§I) — `flash/init.rs`, `flash/stability.rs`
 - [x] **Implement isothermal flash** — GDEM-accelerated SS (25) (§J); Rachford-Rice via Halley inside the Leibovici–Neoschil window (23) with bisection safeguard (§F); φ-φ + γ-φ K-value dispatch in `flash/system.rs`. Newton-on-lnK polish is a follow-on refinement
-- [x] **Implement bubble point (T and P)** — Wilson-seeded SS with multiplicative-P / bisection-T outer solve (§K); φ-φ and γ-φ — `flash/bubble.rs`, shared core `flash/incipient.rs`
+- [x] **Implement bubble point (T and P)** — Wilson-seeded SS with multiplicative-P / bisection-T outer solve (§K); φ-φ and γ-φ — `flash/bubble.rs`, shared core `flash/incipient.rs` *(bisection-T is now the fallback behind Newton on 1/T — Milestone 9.1)*
 - [x] **Implement dew point (T and P)** — same structure (§K) — `flash/dew.rs`
 - [x] **Implement phase-envelope continuation** — Michelsen predictor-corrector (24), adaptive step through the critical point (§K) — `flash/envelope.rs`. Unified incipient-phase (n+2)-variable Newton with min-Gibbs root selection through the critical point; `trace_envelope_py` binding + tests
 - [x] **Implement adiabatic flash** — warm-started nested T-loop (bisection outer, K-seeded inner flash) (§M) — `flash/adiabatic.rs`, `flash_isothermal_warm`
@@ -259,6 +259,21 @@ Claude Code using Claude Fable 5.*
   - `notebooks/08_aij_regression.ipynb` — recovers the Table 4.5 van Laar parameters by LM
   - `notebooks/09_3d_phase_surfaces.ipynb` — 3-D showcase (phase-envelope dome + critical locus + P–x–y sail from pre-computed CSVs) + README hero image
 - [x] **Update the notebook catalogue** — `deploy/NOTEBOOKS.md` rows present; rebuilt `notebooks/index.ipynb`
+
+### Milestone 9.1 — Newton Saturation Temperatures (~3–4h) — **Done — ships in v0.17.0**
+*Executed by Claude Code using Claude Opus 5.5*
+
+- [x] **Newton on 1/T** in `flash/incipient.rs` (`newton_temperature`), exact `∂ln K/∂T`, Wilson seed, 20 % step limit; tried first by `solve_temperature`
+- [x] **Bisection fallback** (`bisect_temperature`, the old solver) on `None`: no `∂ln K/∂T` for the model pair, trivial `K ≡ 1` (incl. pure components / azeotropes), bad slope, `max_iter`
+- [x] **Tests** — Newton ≡ bisection on RKS binary, close-boiling, γ-φ van Laar, 10-component SRK; fallback cases still solve
+- [x] **Benches** — `flash_multi/{bubble,dew}_temperature_n*`; before/after in `OPTIMIZATION_PLAN_PART1.md` §8 (bubble 93–116×, dew ≈ 1 000–2 000×)
+- [x] **Doc correction** — MODERNIZATION_PLAN §K / Phase 15, CLAUDE.md *Algorithm Choices*, `incipient.rs` comments
+- [x] **Release** — 0.17.0, together with the Python floor move to 3.11 (`abi3-py311`, `cp311-*`, `tomli` dropped)
+- [x] **Solver benchmark sweep** — benches for every public `flash::*` solver; findings in `OPTIMIZATION_PLAN_PART1.md` §9; stability-before-flash and Aij-analytic-Jacobian doc claims corrected
+- [x] **Fix `flash_adiabatic`** — `flash_isothermal_warm` re-seeds from Wilson when a warm K yields no RR root at iteration 0; `flash_adiabatic` and `flash_free_water` carry K only from `two_phase` results (as `flash_pt_batch` does); the adiabatic bracket-collapse exit returns `NoConvergence` instead of `Ok` when the residual is above `tol`. Tests `adiabatic_recovers_temperature_ten_component_rks` (432.1142 K, was 385.67 K) and `warm_start_from_a_single_phase_k_does_not_force_single_phase`, both failing with the fix disabled; no measured cost (`OPTIMIZATION_PLAN_PART1.md` §9)
+- [ ] **Fix `trace_envelope` seeding** — fails from `p_start` 50/100/1000 kPa for n-butane/n-heptane and propane/n-pentane (the Python default is 100 kPa)
+- [ ] **Decide: wire `stability_analysis` into `flash_isothermal`** (correctness vs ≈ 2× cold-flash cost; measure)
+- [ ] *Follow-ups:* simultaneous (n+1)-variable Newton; warm-start entry point (`T₀`, `K₀`); Newton on ln P for `bubble_pressure`/`dew_pressure`
 
 ## Milestone 10: Python Bindings, Wrapper & Batch API
 
@@ -771,7 +786,7 @@ lessons: [OPTIMIZATION_AUDIT_HISTORY.md](docs/plans/engine/OPTIMIZATION_AUDIT_HI
 | 6. Numerics | ~16–20h | **Done** |
 | 7. Pure Component Models | ~28–37h | **Done** (7.1–7.4 shipped; v0.3.0–v0.6.0) |
 | 8. Mixture Models + Performance Foundation | ~41–57h | **Done** (8.1 in v0.7.0; 8.2–8.4 in v0.8.0) |
-| 9. Flash & Regression | ~44–62h | **Done** (all algorithms + bindings + tests + Ch. IV validation + notebooks 04–09; shipped in v0.8.0) |
+| 9. Flash & Regression | ~44–62h | **Done** (all algorithms + bindings + tests + Ch. IV validation + notebooks 04–09; shipped in v0.8.0); **M9.1** (Newton saturation temperatures, bisection as fallback) ships in **v0.17.0** |
 | 10. Python Bindings, Wrapper & Batch API | ~25–36h | **Done** (System wrapper + batch API + component DB + plots + tests + intro notebook; external thermo/CoolProp bench deferred; shipped in v0.8.0) |
 | 11. Chapter IV Walkthrough | ~5–8h | **Done** (walkthrough notebook 10 + all 15 then-existing notebooks re-verified + catalogue complete; shipped in v0.8.0) |
 | 12. Downstream Derivative & Database Release | ~25–38h | **Done** — M12.1 (v0.8.2: 24-compound DB + Cp), M12.2 (Rust-side `component-db` DB), M12.3 (T/P derivatives of fugacity + K), M12.4 (real Cp + partial molar H + γ-φ enthalpy), M12.5 (notebook 11 + benches); shipped as **v0.9.0**, plus **v0.9.1** patch (WS departure-enthalpy fix); **M12.6** (γ-φ heat capacity + dual-generic saturation derivatives, opened by the downstream consumer) ships in **v0.16.0** |

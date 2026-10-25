@@ -250,6 +250,22 @@ The lesson generalizes past this repo: **a milestone marked complete in a plan
 document is a claim, not a fact.** The code is the fact. An outside auditor with
 no stake in the plan found the gap in one pass.
 
+**It recurred, in the same file (found 2026-10-25).** The same Phase 15
+summary also described bubble/dew as *"full Newton on {ln K, ln T or ln P} with
+analytic Jacobian"* and the legacy two-stage scheme as a kept *"validation
+oracle"*. Neither existed: the temperature solve was bisection over
+cold-started saturation-pressure solves, and nothing in the tree implements the
+two-stage scheme. ROADMAP's checkbox ("bisection-T outer solve") had been
+accurate all along — again the summary, not the checkbox, was wrong. This one
+was not found by reading: a downstream consumer's profile said a single bubble
+point cost 10 ms, and opening the solver to see why exposed the claim. A
+measurement found what a read-only audit had missed. Milestone 9.1 fixed both
+the solver and the text; see `OPTIMIZATION_PLAN_PART1.md` §8. The follow-up
+sweep — a bench for every public solver — then found two more summaries the
+code contradicts (stability analysis "before every flash"; an "analytical"
+Aij Jacobian that is a finite difference) and a silently wrong adiabatic flash,
+fixed in the same release (`OPTIMIZATION_PLAN_PART1.md` §9).
+
 ---
 
 ## 4. What this says about AI-reviewing-AI

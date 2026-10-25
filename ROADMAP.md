@@ -89,7 +89,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 *Executed by Claude Code using Claude Opus 4.7 (1M context)*
 
 - [x] Insert M5 in ROADMAP / TODO / MODERNIZATION_PLAN; renumber M5–M10 → M6–M11 (this milestone's first commit)
-- [x] `.github/workflows/_build.yml` — reusable cibuildwheel matrix (Linux x64, Linux arm64, macOS arm64, Windows — **all GitHub-hosted**), CPython 3.10+ abi3 wheels *(originally Linux x64 + macOS arm64 on self-hosted runners; both moved to GitHub-hosted in v0.12.0 — see `OPTIMIZATION_PLAN_PART2.md` and `docs/ci.md`)*
+- [x] `.github/workflows/_build.yml` — reusable cibuildwheel matrix (Linux x64, Linux arm64, macOS arm64, Windows — **all GitHub-hosted**), CPython 3.10+ abi3 wheels *(3.11+ since v0.17.0; originally Linux x64 + macOS arm64 on self-hosted runners; both moved to GitHub-hosted in v0.12.0 — see `OPTIMIZATION_PLAN_PART2.md` and `docs/ci.md`)*
 - [x] `.github/workflows/ci.yml` — push/PR/dispatch: cargo fmt + clippy + cargo test + wheel matrix as artifact
 - [x] `.github/workflows/release.yml` — `v*` tag: PyPI Trusted Publishing, crates.io publish (1Password-loaded token), GitHub Release *(an M5 auto-deploy job was later removed when the deployment moved to a separate private operator repository — see MODERNIZATION_PLAN.md)*
 - [x] `[tool.cibuildwheel]` block in `python/pyproject.toml` (abi3, manylinux_2_28, pytest against the wheel)
@@ -245,7 +245,7 @@ Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](docs
 
 - [x] Wilson K-value initialization (29) + tangent-plane-distance stability analysis (7) (§I) — `flash/init.rs`, `flash/stability.rs`
 - [x] Isothermal flash — GDEM-accelerated SS (§J); Rachford-Rice via Halley inside the Leibovici–Neoschil window (§F, guaranteed convergence + negative flash) — `flash/isothermal.rs` (analytic-Jacobian Newton polish is a follow-on refinement)
-- [x] Bubble point (T and P) — Wilson-seeded SS with multiplicative-P / bisection-T outer solve (§K); φ-φ and γ-φ paths — `flash/bubble.rs`
+- [x] Bubble point (T and P) — Wilson-seeded SS with multiplicative-P / bisection-T outer solve (§K); φ-φ and γ-φ paths — `flash/bubble.rs` *(bisection-T is now the fallback behind a Newton-on-1/T solve — Milestone 9.1)*
 - [x] Dew point (T and P) — same structure (§K) — `flash/dew.rs`
 - [x] Phase-envelope continuation through the critical point (24) (§K) — `flash/envelope.rs`; Michelsen unified incipient-phase formulation with min-Gibbs root selection through the critical point + tangent-predictor/Newton-corrector continuation
 - [x] Adiabatic flash — warm-started nested loop (§M) — `flash/adiabatic.rs`
@@ -262,6 +262,25 @@ Algorithm suite modernized 2026-07-01 (Track A of [PERFORMANCE_PROPOSAL.md](docs
   - `notebooks/08_aij_regression.ipynb` — Levenberg-Marquardt recovers the Table 4.5 van Laar parameters from the Table 4.6 data
   - `notebooks/09_3d_phase_surfaces.ipynb` — 3-D showcase: methane/ethane phase-envelope dome + critical locus and the methanol/water P–x–y sail (pre-computed CSVs in `notebooks/data/`), plus the README hero image (`docs/assets/phase_surfaces_hero.png`)
 - [x] Update the notebook catalogue (`deploy/NOTEBOOKS.md`) + rebuilt the landing index (`notebooks/index.ipynb`)
+
+### Milestone 9.1 — Newton Saturation Temperatures — **done — ships in v0.17.0**
+*Executed by Claude Code using Claude Opus 5.5*
+
+Opened by a downstream staged-separation (distillation) consumer, whose 40-stage
+× 10-component SRK column solve spent 10.4 of its 24.8 ms in one vle-thermo
+bubble point. Root cause: Milestone 9's bubble/dew **temperature** solve was
+bisection over cold-started saturation-pressure solves — thousands of K
+evaluations per call. Record: [OPTIMIZATION_PLAN_PART1.md](docs/plans/engine/OPTIMIZATION_PLAN_PART1.md) §8.
+
+- [x] **Newton on 1/T** — `flash::incipient::newton_temperature`: Wilson-seeded, exact `∂ln Kᵢ/∂T` from `k_values_with_derivs`, one SS step on the incipient composition per Newton step, step limited to 20 % of 1/T. Called first by `solve_temperature`, so `bubble_temperature` / `dew_temperature` (and every Python/FFI/wasm caller) use it with no signature change
+- [x] **Bisection kept as the fallback** — `bisect_temperature` (the old solver, renamed) runs whenever Newton returns `None`: model pairs without `∂ln K/∂T` (virial vapor; Chao–Seader / Grayson–Streed / Braun K10 liquids), convergence onto `max |ln Kᵢ| < 10⁻⁶` (trivial solution — also pure components and exact azeotropes), a wrong-signed or non-finite slope, or `max_iter`
+- [x] **Tests** — `flash::incipient::tests`: Newton ≡ bisection (T to 1e-6 K, composition to 1e-6) on an RKS binary (3 pressures × 3 compositions, bubble + dew), a close-boiling pair (benzene/cyclohexane, α ≈ 1.02), γ-φ van Laar, and the downstream 10-component SRK mixture; pure-component and virial-vapor fallbacks still solve. Existing bubble/dew tests, the Chapter IV notebooks (01, 04, 10) and the Python suite pass unchanged
+- [x] **Benches** — `flash_multi/{bubble,dew}_temperature_n{2,4,6,8}`: bubble 483 µs → 4.2 µs … 927 µs → 10.0 µs (93–116×); dew 7.15 ms → 7.3 µs … 21.7 ms → 11.4 µs (≈ 1 000–2 000×). Downstream (consumer's suite, patched to this tree): Wang–Henke SRK 5 × 3 **100.9 ms → 0.41 ms**, inside-out SRK 40 × 10 **9.86 → 5.33 ms**
+- [x] **Doc correction** — `MODERNIZATION_PLAN.md` described the bubble/dew solver as the simultaneous Newton on {ln K, ln T or ln P} with a legacy two-stage oracle; neither existed. Fixed there, in `CLAUDE.md` and in `incipient.rs` (whose comment also claimed the bracketing scan used a cheap Wilson estimate — it ran the full pressure solver)
+- [x] **Solver benchmark sweep** — every public `flash::*` solver now has a criterion bench (`flash_multi/{bubble,dew}_pressure`, `critical_point`, `isothermal_warm`; new `flash_solvers` group: adiabatic, envelope, `fit_kij`, `fit_aij`, free water). Found no further §8-scale slowness, but **two bugs** — `flash_adiabatic` silently returned a wrong T on a 10-component mixture (stale single-phase warm-start K; **fixed**, next item), and `trace_envelope` fails (**open**) from the default `p_start` for n-butane/n-heptane and propane/n-pentane — and **two more false doc claims** (stability analysis "before every flash"; Aij "analytical Jacobian"), both corrected. Record: `OPTIMIZATION_PLAN_PART1.md` §9
+- [x] **Adiabatic flash fix** — `flash_isothermal_warm` re-seeds from Wilson when a warm-start K gives Rachford–Rice no root at iteration 0; `flash_adiabatic` / `flash_free_water` carry K only from two-phase results; a bracket that collapses on an enthalpy jump is `NoConvergence`, not `Ok`. The 10-component case now recovers 432.1142 K (was 385.67 K, returned as `Ok`); regression tests fail with the fix disabled; no measured cost
+- [ ] *Still open from the sweep:* `trace_envelope` seeding from low `p_start`; whether to run `stability_analysis` inside `flash_isothermal`
+- [ ] *Not in scope, recorded:* the fully simultaneous (n+1)-variable Newton (the 1/T step ignores ∂K/∂composition, so composition converges linearly — ≈ 8 iterations at N = 10), Newton on ln P for the pressure solves (already 15–40 µs), and a warm-start (`T₀`, `K₀`) entry point
 
 ## Milestone 10: Python Bindings, Wrapper & Batch API (shipped in v0.8.0)
 **Goal**: Python package installable, high-level API usable, batch numpy API makes it "numpy for thermo".

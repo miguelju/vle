@@ -9,7 +9,7 @@ service (Binder, Colab, SageMaker, etc.).
 
 | Requirement                | Version        | Notes                                                |
 |----------------------------|----------------|------------------------------------------------------|
-| Python                     | ≥ 3.10         | The `vle` package targets 3.10+                      |
+| Python                     | ≥ 3.11         | The `vle` package targets 3.11+                      |
 | Rust toolchain (build-time)| stable         | Only needed if installing from source via `maturin`  |
 | JupyterLab or notebook     | ≥ 4 / ≥ 7      | Either works                                         |
 | NumPy                      | ≥ 1.24         | Transitive dep of `vle`                              |

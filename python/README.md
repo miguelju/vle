@@ -54,6 +54,7 @@ engine derives from — 21 executable notebooks reproduce them.
 Python surface has been stable across the last several releases, and the
 underlying Rust crate still reserves the right to change shape before 1.0. The
 numerical core is settled.
+`0.17.0` is the **saturation-temperature release**, and it **requires Python 3.11+** (3.10 reached end of life on 2026-10-01; wheels are now tagged `cp311-abi3`, and the `tomli` dependency is gone). `System.bubble_temperature` / `System.dew_temperature` (and their `_batch` forms) return the same answers 100–1900× faster at the engine level: the engine now solves for the temperature by Newton on 1/T with the exact `∂ln K/∂T`, keeping the old bisection solver only as an automatic fallback. Nothing changed shape. **Fix:** `System.flash_ph` could return a wrong temperature without raising (385.67 K for a 432.11 K state on a 10-component mixture); it now recovers the right one, and raises instead of returning when the enthalpy cannot be matched.
 `0.16.0` is the **γ-φ heat-capacity release** (Milestone 12.6): `System.phase_cp` now works for **every** model pair — a γ-φ (activity-model) liquid returns the exact temperature derivative of `System.enthalpy_entropy`'s H (ideal-gas Cp° minus the derivative of the Clausius–Clapeyron condensation enthalpy plus the excess Cpᴱ of the activity model's own Hᴱ convention) and an ideal-gas vapor returns Σy·Cp°, where before it raised "needs a cubic model on that phase". Under the hood every saturation correlation became dual-number generic, so `dPsat/dT` is analytic for all of them. Nothing else changed shape.
 `0.15.0` is the **petroleum and refinery release** (Milestones 19 + 20): `vle.petroleum` turns a crude assay into pseudocomponents; `vle.refinery` and six new `System` methods add the free-water decant flash, Grayson–Streed / Braun K10 K-values (`liquid_model="grayson_streed"` / `"bk10"`), Lee–Kesler enthalpy and Peneloux volume translation. `Component` gains `solubility_param`, `watson_k`, `zra`. Nothing existing changed shape.
 `0.14.0` was an **engine performance release** — the Python API is unchanged.
@@ -332,11 +333,11 @@ PyO3 Rust crate, maturin runs the following pipeline:
 
 1. **Compile** the Rust crate as a `cdylib` (C-compatible dynamic library)
    with PyO3's `#[pymodule]` entry-point function compiled in.
-2. **Link** against the right Python ABI. PyO3's `abi3-py310` feature builds
-   one wheel that loads on CPython 3.10, 3.11, 3.12, 3.13, and every future
+2. **Link** against the right Python ABI. PyO3's `abi3-py311` feature builds
+   one wheel that loads on CPython 3.11 through 3.15, and every future
    3.x — instead of one wheel per Python version, you ship one per (OS, arch).
 3. **Rename** the resulting `.so` to Python's import convention
-   (`_engine.abi3.so` for abi3, `_engine.cpython-310-darwin.so` otherwise).
+   (`_engine.abi3.so` for abi3, `_engine.cpython-311-darwin.so` otherwise).
 4. **Pack** that file plus the pure-Python sources into a standards-compliant
    `.whl` (the binary distribution format `pip` understands), with the right
    ABI/platform tags in the filename so `pip` picks the matching wheel for

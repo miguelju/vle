@@ -23,8 +23,8 @@ git tag v0.X.Y && git push origin v0.X.Y
         │     • macOS arm64 (self-hosted Mac mini)
         │     • Windows AMD64 (GitHub-hosted)
         │     • sdist on ubuntu-latest
-        │     All wheels are abi3-tagged (cp310-abi3-*), covering
-        │     CPython 3.10+ with one wheel per (OS, arch).
+        │     All wheels are abi3-tagged (cp311-abi3-*), covering
+        │     CPython 3.11+ with one wheel per (OS, arch).
         ├── publish-pypi   → PyPI Trusted Publishing (OIDC, no token)
         ├── publish-crates → cargo publish vle-units, vle-steam, then vle-thermo
         │     (token loaded from 1Password via Service Account)

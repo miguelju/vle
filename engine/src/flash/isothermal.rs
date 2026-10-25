@@ -491,6 +491,12 @@ pub fn flash_isothermal(
 /// given (e.g. the previous temperature's converged K in the adiabatic
 /// flash's nested loop), falling back to Wilson otherwise. `k_init`, when
 /// present, must have length N.
+///
+/// A warm start that gives Rachford–Rice **no root at the first iteration**
+/// is discarded and the solve restarts from Wilson, so a stale K cannot by
+/// itself declare the feed single-phase. Callers should still only carry K
+/// forward from a `two_phase` result — a single-phase result's K is
+/// `exp(ln K)` of whatever iterate RR rejected, not an equilibrium ratio.
 pub fn flash_isothermal_warm(
     spec: &SystemSpec,
     t: f64,
@@ -540,6 +546,8 @@ pub fn flash_isothermal_warm(
         }
     }
 
+    // True while the iterate is still the caller's K (see the re-seed below).
+    let mut seeded_warm = warm_ok;
     let mut have_r_prev = false;
     // Residual recorded just before an accelerated step, so the *next*
     // iteration can tell whether the extrapolation actually helped.
@@ -557,6 +565,21 @@ pub fn flash_isothermal_warm(
         let (kmax, kmin) = rr_bracket(z, &ws.k);
         let beta = match rr_solve(z, &ws.k, kmax, kmin, 1e-12, 200) {
             Ok(b) => b,
+            Err(FlashError::NoRachfordRiceRoot { .. }) if seeded_warm && iter == 0 => {
+                // A caller's warm-start K says "single phase" before a single
+                // fugacity has been evaluated at this (T, P). That K came from
+                // some *other* state, so it is not evidence about this one:
+                // a K carried from a superheated-vapor result, for example,
+                // reports "all vapor" at every lower temperature too (the
+                // v0.17.0 adiabatic bug, OPTIMIZATION_PLAN_PART1 §9). Re-seed
+                // from Wilson — exactly what a cold flash would have used — and
+                // let *that* decide. Costs one Wilson pass, only in this case.
+                for (i, comp) in spec.components.iter().enumerate() {
+                    ws.ln_k[i] = wilson_ln_k(comp, t, p);
+                }
+                seeded_warm = false;
+                continue;
+            }
             Err(FlashError::NoRachfordRiceRoot { .. }) => {
                 return Ok(single_phase(z, &ws.k));
             }
