@@ -211,7 +211,7 @@ exact-derivative core that Milestone 9 depends on).
 Tracks C + E of PERFORMANCE_PROPOSAL.md. Measure first, then the free wins; no
 thermodynamic behavior change (gated by the existing test suite).
 
-- [x] **Stand up criterion benches** — `engine/benches/engine_bench.rs`: α dispatch, Z-factor, pure ln φ, saturation, activity γ; informational CI bench job (`bench-rust`, non-blocking deltas). Baseline (Apple M-series, LTO release): α ≈ 3.1 ns, Z-factor ≈ 35 ns, pure ln φ ≈ 82 ns, Wilson γ (ternary) ≈ 29 ns
+- [x] **Stand up criterion benches** — `engine/benches/engine_bench.rs`: α dispatch, Z-factor, pure ln φ, saturation, activity γ; informational CI bench job (`bench-rust`, non-blocking deltas). Baseline (Apple M-series, LTO release): α ≈ 3.1 ns, Z-factor ≈ 35 ns, pure ln φ ≈ 82 ns, Wilson γ (ternary) ≈ 29 ns *(moved to `.github/workflows/bench.yml`, GitHub-hosted, v0.18.x)*
 - [x] **Python boundary benchmark** — `scripts/bench_ffi_boundary.py`: FFI dispatch ≈ 7 ns overhead, scalar `z_factor` ≈ 130 ns, `ln_phi` ≈ 154 ns (the baseline the M10 batch API is measured against)
 - [x] **Add `[profile.release]`** — `lto = "fat"`, `codegen-units = 1` (kept `panic = "unwind"` for PyO3); dropped the unused `ndarray` dep
 - [x] **Allocation-free cubic/Z path** — `solve_real` → `([f64; 3], usize)` with a 3-element sorting network; `z_factor` root selection by direct min/max scan (no filter/collect/sort)

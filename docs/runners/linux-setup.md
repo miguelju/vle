@@ -1,4 +1,13 @@
-# Linux self-hosted runner (ephemeral Docker on Proxmox)
+# Linux self-hosted runner (ephemeral Docker on Proxmox) — **RETIRED for vle**
+
+> **No vle workflow targets this runner as of v0.18.x.** Its last job, the
+> informational criterion bench, moved to GitHub-hosted `ubuntu-latest` in
+> `.github/workflows/bench.yml` (see `docs/ci.md`). The wheel builds and Rust
+> tests left it in v0.12.0. Kept for reference — the same pattern still hosts
+> other repos' runners on the lab's Docker host. To decommission
+> `vle-runner-01`: stop and remove its container on the runner host, confirm
+> it shows offline via `gh api repos/miguelju/vle/actions/runners`, then
+> `DELETE` it by id. The sections below describe the setup as it was.
 
 This is the recipe for standing up a **Linux x86_64 self-hosted GitHub
 Actions runner** that destroys itself after every job. We run it as a

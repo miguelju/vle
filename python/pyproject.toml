@@ -121,8 +121,8 @@ archs = ["arm64"]
 environment = { MACOSX_DEPLOYMENT_TARGET = "11.0" }
 
 [tool.cibuildwheel.linux]
-# `auto64` is "the runner's native 64-bit arch" — x86_64 on the self-hosted
-# Linux runner; aarch64 on ubuntu-24.04-arm. We deliberately skip 32-bit
+# `auto64` is "the runner's native 64-bit arch" — x86_64 on ubuntu-latest;
+# aarch64 on ubuntu-24.04-arm. We deliberately skip 32-bit
 # Linux (`auto` would include i686, which `auto64` excludes): the rustup
 # i686-unknown-linux-gnu target isn't supported in the manylinux_2_28
 # images we build in, and 32-bit Linux x86 has effectively no real-world

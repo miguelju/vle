@@ -1,0 +1,72 @@
+# Bench workflow: the informational criterion benchmark, split out of ci.yml.
+#
+# Why its own workflow (v0.18.x): ci.yml serializes every run on `main` in one
+# concurrency group without cancelling, so while this ~17-minute job ran, the
+# *next* push's lint + test sat "pending" behind it — 6 minutes of dead wait on
+# the v0.18.0 commit, longer when pushes stack up. Here it has its own group,
+# and a newer push cancels a superseded bench run, so lint/test never wait and
+# only the latest commit is benched.
+#
+# Why GitHub-hosted (it used to run on the lab's self-hosted `vle-runner`):
+# the job is informational and never gates anything, and every performance
+# claim in this repo must come from a measurement made in the session that
+# makes it (CLAUDE.md, "performance claims need a measurement"), so nobody's
+# decision rests on these deltas. A hosted VM is noisier than a quiet box, but
+# it still catches gross regressions and keeps every bench compiling and
+# running — and it removes the repo's last self-hosted runner (and its
+# fork-PR attack surface and lab maintenance). Measure locally before
+# claiming a speed-up or a regression.
+
+name: Bench
+
+on:
+  # Same filter as ci.yml: only commits that can change compiled code. This
+  # file is under .github/, which is not ignored, so an edit to it fires the
+  # workflow (a workflow self-tests its own changes).
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'notebooks/**'
+      - 'deploy/**'
+      - 'distribution/**'
+      - 'legacy/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-${{ github.ref }}
+  # Only the newest commit's numbers are worth the 17 minutes.
+  cancel-in-progress: true
+
+jobs:
+  bench-rust:
+    name: bench (criterion, informational)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable @ 2026-05-24
+      - name: Cache cargo + criterion baseline
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          # Distinct prefix so bench artifacts (including the criterion
+          # baseline under target/criterion) don't churn the test cache; the
+          # restore-key fallback keeps the previous baseline across a
+          # Cargo.lock bump so deltas still print.
+          key: cargo-bench-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            cargo-bench-
+      - name: cargo bench (deltas vs previous run)
+        run: cargo bench -p vle-thermo

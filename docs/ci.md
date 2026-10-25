@@ -1,15 +1,24 @@
 # CI/CD Overview
 
-**Everything runs on GitHub-hosted runners except one job.** This repo is
+**Everything runs on GitHub-hosted runners.** This repo is
 public, and standard GitHub-hosted runners are free and unlimited on public
 repositories — macOS and arm64 included (the billing split is
 standard-vs-larger runners, not Linux-vs-macOS). So the wheel matrix, lint and
 tests have no reason to touch lab hardware.
 
-The single exception is `bench-rust`, the informational criterion benchmark,
-which stays on a self-hosted Linux runner because benchmark deltas need a
-quiet dedicated machine — measured drift on a dedicated idle box is already
-±3–5 % between sessions, and a shared hosted VM would swamp the signal.
+**The bench moved hosted too (v0.18.x).** `bench-rust`, the informational
+criterion benchmark, was the last job on a self-hosted Linux runner (the lab's
+`vle-runner-01`), on the reasoning that deltas need a quiet dedicated machine.
+Two things changed that. First, it was costing real time: it lived in
+`ci.yml`, whose single non-cancelling concurrency group made the *next* push's
+lint + test wait ~6 minutes behind its ~17-minute run (the v0.18.0 commit).
+Second, nothing depends on its numbers: it never gates, and every performance
+claim in this repo has to come from a measurement made in the session that
+makes it (CLAUDE.md), not from a CI log — the lab box was itself a shared
+4-core LXC, not an idle one. So it now lives in its own `bench.yml` on
+`ubuntu-latest`, with its own concurrency group that cancels a superseded run.
+Read its deltas as a coarse alarm (a 2× regression shows; a 5 % one does not)
+and measure locally before claiming either.
 
 **This changed in v0.12.0.** The linux-x86_64 and macOS-arm64 wheel builds and
 `test-rust` used to run self-hosted. That bought nothing and cost two real
@@ -27,11 +36,9 @@ Wheel compatibility is unchanged: the manylinux image and the macOS
 deployment target are both pinned in `python/pyproject.toml`, so the tags
 (`manylinux_2_28_*`, `macosx_11_0_arm64`) do not depend on the runner.
 
-If you are a maintainer setting up the lab side, read
-[`runners/linux-setup.md`](runners/linux-setup.md) for the bench runner.
-[`runners/macos-setup.md`](runners/macos-setup.md) is retained for reference
-only — no job targets macOS self-hosted any more, so `vle-mac-01` can be
-decommissioned.
+No job targets lab hardware any more. [`runners/linux-setup.md`](runners/linux-setup.md)
+and [`runners/macos-setup.md`](runners/macos-setup.md) are retained for
+reference only; `vle-runner-01` and `vle-mac-01` can be decommissioned.
 
 If you are a contributor opening a PR, read on.
 
@@ -39,8 +46,10 @@ If you are a contributor opening a PR, read on.
 
 ```
 .github/workflows/
-├── _build.yml      # reusable wheel matrix; called by ci.yml and release.yml
-├── ci.yml          # push/PR/dispatch: lint + test + wheel artifacts
+├── _build.yml      # reusable wheel matrix; called by build-smoke.yml and release.yml
+├── ci.yml          # push/PR/dispatch: lint + test
+├── build-smoke.yml # code-affecting pushes/PRs: wheel matrix as artifacts
+├── bench.yml       # push to main/dispatch: informational criterion bench
 └── release.yml     # tag v*: publish PyPI + crates.io + GitHub Release
 ```
 
@@ -54,7 +63,7 @@ directly.
 |-----------------------|---------------------------------------|------------------------------------------------|
 | `lint-rust`           | `ubuntu-latest` (GitHub-hosted)       | Fresh VM per run                                |
 | `test-rust`           | `ubuntu-latest` (GitHub-hosted)       | Fresh VM per run                                |
-| `bench-rust`          | `[self-hosted, linux, vle-runner]`    | **Ephemeral Docker container** (clean per job)  |
+| `bench-rust` (bench.yml) | `ubuntu-latest` (GitHub-hosted)    | Fresh VM per run                                |
 | `build` linux/x86_64  | `ubuntu-latest` (GitHub-hosted)       | Fresh VM per run                                |
 | `build` linux/aarch64 | `ubuntu-24.04-arm` (GitHub-hosted)    | Fresh VM per run                                |
 | `build` macOS arm64   | `macos-14` (GitHub-hosted)            | Fresh VM per run                                |
@@ -62,38 +71,27 @@ directly.
 | `build-sdist`         | `ubuntu-latest`                       | Fresh VM per run                                |
 | All publish jobs      | `ubuntu-latest`                       | Fresh VM per run                                |
 
-The one self-hosted runner is tagged `self-hosted, Linux, X64, vle-runner`
-— the trailing repo-specific label is what a workflow pins to, so a second
-Linux runner added to this repo later cannot silently steal the job. It is
-recreated per job by a containerized runner image (see
-`runners/linux-setup.md`). Because no job on it needs Docker any more, its
-`/var/run/docker.sock` mount should be removed — that mount existed only for
-cibuildwheel's manylinux container, which now runs hosted.
+There are no self-hosted runners. (The last one, `vle-runner-01`, tagged
+`self-hosted, Linux, X64, vle-runner`, ran only the bench until v0.18.x; see
+the top of this page.)
 
 ## Fork-PR safety
 
-Self-hosted runners share lab hardware. A malicious PR opened from a
-fork could otherwise execute arbitrary code on that hardware. The
-workflows protect against this two ways:
+Every job runs on a fresh GitHub-hosted VM, so a malicious PR from a fork has
+no lab hardware to reach. Two protections remain:
 
-1. **`bench-rust` runs only on `push` / `workflow_dispatch`**:
-   ```yaml
-   if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-   ```
-   That *is* the fork-PR guard, not a separate one: a fork's push never
-   triggers this repo's workflows, and a `pull_request` event fails both
-   arms. Since every other job is now hosted, this is the only guard the
-   repo needs — and with the wheel builds hosted, fork contributors get full
-   build + test feedback on their PRs instead of skipped jobs.
+1. **The bench runs only on `push` / `workflow_dispatch`** — not because of
+   lab hardware any more, but because PR-time benchmarking is noise and a
+   17-minute job per PR revision is waste. A fork's push never triggers this
+   repo's workflows, so fork PRs never run it.
 
 2. **Manual approval for outside collaborators** (repo Settings →
    Actions → General → "Require approval for all outside collaborators"):
    GitHub holds the entire workflow run until a maintainer reviews and
    approves it.
 
-Fork PRs still get useful CI feedback: the GitHub-hosted jobs
-(`lint-rust`, the Linux-arm64 + Windows wheel builds, the sdist build)
-run unconditionally and report status back to the PR.
+Fork PRs get full CI feedback: lint, tests and the whole wheel matrix
+(every OS and arch, plus the sdist) run on their PRs and report status back.
 
 ## Wheel matrix
 
@@ -162,8 +160,6 @@ full release procedure.
   The crates.io token lives in the 1Password vault `vle-thermo-ci` and is
   loaded at workflow runtime. (Deploy SSH keys / host names are no longer
   needed — deployment moved to a separate private operator repository.)
-- **Self-hosted runners** — register one or more per the
-  `runners/*-setup.md` docs.
 
 ## Debugging a failed workflow
 
@@ -178,12 +174,12 @@ full release procedure.
   - Rust tests: `cargo test --workspace --all-targets`
   - Wheel build: `cd python && pip install cibuildwheel && cibuildwheel
     --output-dir wheelhouse`
-- **Self-hosted runner offline**: see `runners/linux-setup.md` or
-  `runners/macos-setup.md` for the relevant health-check commands.
+- **Bench numbers**: `cargo bench -p vle-thermo` locally — the CI bench is
+  a coarse alarm, not a measurement.
 
 ## See also
 
-- [`runners/linux-setup.md`](runners/linux-setup.md) — Proxmox LXC + Docker + ephemeral runner image
-- [`runners/macos-setup.md`](runners/macos-setup.md) — Mac mini M1 persistent runner setup
+- [`runners/linux-setup.md`](runners/linux-setup.md) — Proxmox LXC + Docker + ephemeral runner image (**retired** for vle)
+- [`runners/macos-setup.md`](runners/macos-setup.md) — Mac mini M1 persistent runner setup (**retired**)
 - [`../PUBLISHING.md`](../PUBLISHING.md) — release procedure
 - [`../MODERNIZATION_PLAN.md`](plans/MODERNIZATION_PLAN.md) — Milestone 5 phase notes

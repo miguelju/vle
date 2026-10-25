@@ -18,10 +18,10 @@ git tag v0.X.Y && git push origin v0.X.Y
    │
    └── .github/workflows/release.yml fires:
         ├── _build.yml  → cibuildwheel matrix:
-        │     • Linux x86_64 (self-hosted ephemeral runner)
-        │     • Linux arm64 (ubuntu-24.04-arm GitHub-hosted)
-        │     • macOS arm64 (self-hosted Mac mini)
-        │     • Windows AMD64 (GitHub-hosted)
+        │     • Linux x86_64 (ubuntu-latest, GitHub-hosted)
+        │     • Linux arm64 (ubuntu-24.04-arm, GitHub-hosted)
+        │     • macOS arm64 (macos-14, GitHub-hosted)
+        │     • Windows AMD64 (windows-latest, GitHub-hosted)
         │     • sdist on ubuntu-latest
         │     All wheels are abi3-tagged (cp311-abi3-*), covering
         │     CPython 3.11+ with one wheel per (OS, arch).

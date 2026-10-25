@@ -215,7 +215,7 @@ Newton loops depend on.
 *Executed by Claude Code using Claude Fable 5*
 
 - [x] criterion benchmark suite (`engine/benches/engine_bench.rs`) + Python-side FFI boundary benchmark (`scripts/bench_ffi_boundary.py`) — the baseline every later claim is measured against
-- [x] Informational CI bench job (reports deltas, non-blocking) — `bench-rust` in `.github/workflows/ci.yml`
+- [x] Informational CI bench job (reports deltas, non-blocking) — `bench-rust`, now in `.github/workflows/bench.yml` on GitHub-hosted `ubuntu-latest` *(moved out of `ci.yml` and off the self-hosted runner in v0.18.x so it no longer delays the next push's lint + test)*
 - [x] `[profile.release]` (`lto = "fat"`, `codegen-units = 1`); dropped unused `ndarray` dep
 - [x] Allocation-free cubic solver / Z-factor path (`([f64; 3], usize)` instead of `Vec`)
 - [x] `EosState` caching struct (α, dα/dTr, A, B, U, W computed once per state; Wilson Λ via `WilsonCache` + virial B matrix reuse)
