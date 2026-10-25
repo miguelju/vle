@@ -39,8 +39,10 @@ deployment target are both pinned in `python/pyproject.toml`, so the tags
 No job targets lab hardware any more. [`runners/linux-setup.md`](runners/linux-setup.md)
 and [`runners/macos-setup.md`](runners/macos-setup.md) are retained for
 reference only. `vle-runner-01` was decommissioned on 2026-10-25 (container
-removed, registration gone, config archived on the lab host); `vle-mac-01`
-can be decommissioned the same way.
+removed, registration gone, config archived on the lab host), and
+`vle-mac-01` was fully decommissioned the same day (unregistered, its
+`vle-runner` macOS account, home directory and sudoers grant removed from the
+Mac mini). vle has no self-hosted runners.
 
 If you are a contributor opening a PR, read on.
 

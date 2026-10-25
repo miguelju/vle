@@ -4,10 +4,12 @@
 > builds on GitHub-hosted `macos-14`, which is free and unlimited for public
 > repositories. This document is kept for reference and in case a future job
 > genuinely needs Apple hardware (e.g. signed/notarized artifacts, or the
-> local-only iOS build chain). To decommission `vle-mac-01`, follow the
-> runbook in the maintainer's global notes: stop and disable the
-> `actions.runner.*` service, confirm the runner shows offline via
-> `gh api repos/miguelju/vle/actions/runners`, then `DELETE` it by id.
+> local-only iOS build chain). **`vle-mac-01` was fully decommissioned on
+> 2026-10-25:** not registered with the repo, no runner process or
+> `actions.runner.*` launchd job, and the `vle-runner` macOS account, its
+> home directory and `/etc/sudoers.d/vle-runner` (the passwordless
+> `installer` / `ln` grant described below) all removed — verified on the
+> machine that day. Everything below describes the setup as it was.
 
 
 This is the recipe for the **macOS arm64 self-hosted GitHub Actions
