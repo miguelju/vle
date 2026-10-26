@@ -151,7 +151,8 @@ No API token needed thereafter.
    exactly what broke the v0.10.0 CI publish.
 2. Store it in 1Password under `vle-thermo-ci/crates-io/token`.
 3. The release workflow loads it via `1password/load-secrets-action@v2`
-   using `OP_SERVICE_ACCOUNT_TOKEN` (the single GitHub secret).
+   using `OP_SERVICE_ACCOUNT_TOKEN` (the single GitHub secret, scoped to the
+   `crates-io` environment).
 
 If crates.io graduates Trusted Publishing out of beta, switch to OIDC
 and delete the secret.
@@ -185,7 +186,12 @@ idempotently — only the token scope needs the one-time widening.
 ### 1Password Service Account
 - Vault: `vle-thermo-ci`
 - Service Account: read-only on that vault
-- The token lives in `GitHub Settings → Secrets → OP_SERVICE_ACCOUNT_TOKEN`
+- The token lives in `GitHub Settings → Environments → crates-io →
+  Environment secrets → OP_SERVICE_ACCOUNT_TOKEN` — an environment secret, so
+  only the `publish-crates` job can read it, after the reviewer approves.
+- Rotate it from 1Password (Developer → Service accounts → *Rotate Token*),
+  then `pbpaste | gh secret set OP_SERVICE_ACCOUNT_TOKEN --env crates-io`.
+  Last rotated 2026-10-25.
 
 This is the **only** secret in GitHub. The crates.io token is in the
 1Password vault and resolved at workflow runtime via `op://vault/item/field`

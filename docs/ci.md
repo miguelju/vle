@@ -159,10 +159,15 @@ full release procedure.
 - **Settings → Environments → Create `pypi`** — optionally add
   yourself as a required reviewer so a stray tag can't ship to PyPI
   without a click.
-- **Settings → Secrets and variables → Actions** — add a single secret
-  `OP_SERVICE_ACCOUNT_TOKEN` (the 1Password Service Account token).
-  The crates.io token lives in the 1Password vault `vle-thermo-ci` and is
-  loaded at workflow runtime. (Deploy SSH keys / host names are no longer
+- **Settings → Environments → `crates-io` → Environment secrets** — add a
+  single secret `OP_SERVICE_ACCOUNT_TOKEN` (the 1Password Service Account
+  token). It is deliberately an *environment* secret, not a repository one:
+  only the `publish-crates` job declares `environment: crates-io`, so no other
+  job (and no PR workflow) can read it, and it is released only after the
+  environment's reviewer approves. The crates.io token lives in the
+  1Password vault `vle-thermo-ci` and is loaded at workflow runtime.
+  (Moved from repo level and rotated on 2026-10-25, after the token was found
+  on a lab runner host that no longer does vle work.) (Deploy SSH keys / host names are no longer
   needed — deployment moved to a separate private operator repository.)
 
 ## Debugging a failed workflow

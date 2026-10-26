@@ -15,9 +15,12 @@
 # workflow (notebooks or full mode). See PUBLISHING.md.
 #
 # Secrets:
-#   GitHub secret OP_SERVICE_ACCOUNT_TOKEN is the *only* GitHub-side secret;
-#   the crates.io token is loaded from 1Password at workflow runtime via
-#   1password/load-secrets-action. See docs/ci.md and PUBLISHING.md.
+#   GitHub secret OP_SERVICE_ACCOUNT_TOKEN is the *only* GitHub-side secret,
+#   and it is an environment secret of `crates-io`, not a repo secret: only
+#   publish-crates (which declares that environment, behind its required
+#   reviewer) can read it. The crates.io token is loaded from 1Password at
+#   workflow runtime via 1password/load-secrets-action. See docs/ci.md and
+#   PUBLISHING.md.
 
 name: Release
 
