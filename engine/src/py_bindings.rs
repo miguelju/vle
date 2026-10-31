@@ -1545,10 +1545,10 @@ fn flash_k_values_py(
 
 /// Tangent-plane-distance stability analysis (cubic/φ-φ only). Returns
 /// `(is_stable, trial_k, tpd)`; on a stable feed `trial_k` is empty and
-/// `tpd = 0`.
+/// `tpd = 0`. Raises when the trials hit `max_iter` without a verdict.
 #[pyfunction]
 #[pyo3(signature = (tcs, pcs, omegas, z, t, p, eos,
-    mixing_rule=MixingRule::Classical, kij=vec![], max_iter=100))]
+    mixing_rule=MixingRule::Classical, kij=vec![], max_iter=1000))]
 #[allow(clippy::too_many_arguments)]
 fn flash_stability(
     tcs: Vec<f64>,

@@ -232,6 +232,11 @@ struct PureParams<D> {
     /// √Bᵢ, precomputed — the PT-USB C rule's √B weighting. Empty unless the
     /// EOS needs it.
     sqrt_b: Buf<D>,
+    /// Pure Uᵢ and Wᵢ (the generalized-cubic denominator terms), kept so a
+    /// pure-component ln φ can be read off the cache without re-evaluating
+    /// α (`TpCache::pure_ln_phi_min_gibbs`, OPTIMIZATION_PLAN_PART1 §13).
+    big_u: Buf<D>,
+    big_w: Buf<D>,
 }
 
 fn pure_params<D: DualNum<f64> + Copy>(
@@ -247,6 +252,8 @@ fn pure_params<D: DualNum<f64> + Copy>(
     let mut big_c = Buf::new();
     let mut sqrt_a = Buf::new();
     let mut sqrt_b = Buf::new();
+    let mut big_u = Buf::with_capacity(n);
+    let mut big_w = Buf::with_capacity(n);
     let pt_family = matches!(eos, CubicEos::PatelTeja | CubicEos::PatelTejaUSB);
     // Only the rules that actually form √(AᵢAⱼ) cross terms pay for √Aᵢ; the
     // GE-based rules (Wong-Sandler, Huron-Vidal, MHV) never touch it. Likewise
@@ -259,9 +266,11 @@ fn pure_params<D: DualNum<f64> + Copy>(
     for comp in comps {
         // Generic (A, B, U, W) so T/P duals flow through α and the P/(RT)
         // factors (eos.rs). Composition never enters here.
-        let (a, b, u, _w) = crate::eos::eos_dimensionless_generic(eos, t, p, comp);
+        let (a, b, u, w) = crate::eos::eos_dimensionless_generic(eos, t, p, comp);
         big_a.push(a);
         big_b.push(b);
+        big_u.push(u);
+        big_w.push(w);
         if needs_sqrt_a {
             sqrt_a.push(a.sqrt());
         }
@@ -279,6 +288,8 @@ fn pure_params<D: DualNum<f64> + Copy>(
         big_c,
         sqrt_a,
         sqrt_b,
+        big_u,
+        big_w,
     }
 }
 
@@ -1300,6 +1311,29 @@ impl TpCache {
     #[inline]
     pub fn pressure(&self) -> f64 {
         self.p
+    }
+
+    /// Pure-component ln φᵢ of component `i` on its **min-Gibbs** root, at the
+    /// cache's (T, P), from the cached pure (A, B, U, W) — no α re-evaluation.
+    ///
+    /// For a pure fluid G^R/RT = ln φ, so the stable root is simply the one
+    /// with the lower ln φ. This is the mixture model's own pure limit: the
+    /// parameters are the ones every mixture evaluation from this cache uses.
+    ///
+    /// Returns `None` if the cubic has no physical root (Z > B).
+    pub(crate) fn pure_ln_phi_min_gibbs(&self, i: usize) -> Option<f64> {
+        let (a, b) = (self.pure.big_a[i], self.pure.big_b[i]);
+        let (u, w) = (self.pure.big_u[i], self.pure.big_w[i]);
+        // Generalized cubic Z³ + a2·Z² + a1·Z + a0 = 0 (eos.rs `EosState::z`).
+        let a2 = u - b - 1.0;
+        let a1 = a + w - u - b * u;
+        let a0 = -(a * b + w + b * w);
+        let (roots, count) = solve_real(1.0, a2, a1, a0).ok()?;
+        roots[..count]
+            .iter()
+            .filter(|&&z| z > b)
+            .map(|&z| z - 1.0 - (z - b).ln() - crate::eos::attractive_term_uw(z, a, u, w))
+            .reduce(f64::min)
     }
 
     /// Number of components the cache was built for.

@@ -717,6 +717,12 @@ pub fn min_gibbs_ln_phi(
 /// The stability test's trial-phase loop calls this every iteration at fixed
 /// `(T, P)`, so this is where Part 1 §8 (one mixture state, both roots) and
 /// Part 2 §1 (one pure-component pass per state point) compound.
+/// Pure-component min-Gibbs ln φᵢ of the cubic **liquid** model at the cache's
+/// (T, P), or `None` if the liquid is not cubic or the cubic has no root.
+pub(crate) fn pure_ln_phi_min_gibbs_cached(cache: &SystemTpCache, i: usize) -> Option<f64> {
+    cache.liquid.as_ref()?.pure_ln_phi_min_gibbs(i)
+}
+
 pub(crate) fn min_gibbs_ln_phi_cached_into(
     spec: &SystemSpec,
     cache: &SystemTpCache,

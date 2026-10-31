@@ -508,6 +508,43 @@ fn bench_flash_multi(c: &mut Criterion) {
             })
         });
 
+        // --- Single-phase exits (OPTIMIZATION_PLAN_PART1 §13). Every cubic
+        // single-phase answer now runs the pure-component TPD screen first:
+        // compressed liquid (RR has no root under Wilson K at iteration 0)
+        // and superheated vapor. Both states are single-phase for every n.
+        for (label, t_sp, p_sp) in [("liquid", 300.0, 30_000.0), ("vapor", 600.0, 100.0)] {
+            g.bench_function(format!("isothermal_{label}_n{n}"), |b| {
+                b.iter(|| {
+                    let r = flash_isothermal(
+                        black_box(&spec),
+                        black_box(t_sp),
+                        black_box(p_sp),
+                        black_box(&z),
+                        1e-10,
+                        300,
+                    )
+                    .unwrap();
+                    debug_assert!(!r.two_phase);
+                    r
+                })
+            });
+        }
+
+        // --- Stability of a *stable* feed: the case that pays for every
+        // seed (Wilson pair + one near-pure trial per component since §13).
+        g.bench_function(format!("stability_stable_n{n}"), |b| {
+            b.iter(|| {
+                stability_analysis(
+                    black_box(&spec),
+                    black_box(300.0),
+                    black_box(30_000.0),
+                    black_box(&z),
+                    100,
+                )
+                .unwrap()
+            })
+        });
+
         // --- TPD stability analysis (two Wilson-seeded trial phases). ---
         g.bench_function(format!("stability_n{n}"), |b| {
             b.iter(|| {

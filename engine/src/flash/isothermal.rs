@@ -16,9 +16,16 @@
 //! 3. **Stability fallback on non-convergence** — if the K-loop exhausts its
 //!    iteration cap (in practice: near the critical locus), a TPD stability
 //!    test (`flash/stability.rs`) decides between "stable single phase" and
-//!    one retry from the trial-phase K. It is *not* run on the normal path:
-//!    on a 21 600-point hydrocarbon grid it changed no converged answer
-//!    (`OPTIMIZATION_PLAN_PART1.md` §10).
+//!    a retry from the trial-phase K. The full test is *not* run before a
+//!    two-phase solve: on a 21 600-point hydrocarbon grid it changed no
+//!    converged answer (`OPTIMIZATION_PLAN_PART1.md` §10).
+//! 4. **Single-phase check** — before a cubic flash returns "single phase",
+//!    a pure-component tangent-plane screen (one feed ln φ + one pure cubic
+//!    per component) looks for a phase the K-loop could not see — water out
+//!    of a hydrocarbon, the case where every Wilson Kᵢ < 1. It proves
+//!    instability when it fires and cannot fire on a stable feed; when it
+//!    does, the multi-seed stability test and a retry find the split
+//!    (`OPTIMIZATION_PLAN_PART1.md` §13).
 //!
 //! The full Michelsen scheme finishes with a Newton step on `ln K` once the
 //! residual is small; GDEM-accelerated SS already converges the Chapter IV
@@ -40,8 +47,10 @@ use smallvec::SmallVec;
 
 use super::FlashError;
 use super::init::wilson_ln_k;
-use super::stability::{Stability, stability_cached};
+use super::stability::{Seeds, Stability, pure_component_screen, stability_cached};
+use super::system::min_gibbs_ln_phi_cached_into;
 use super::system::{SystemSpec, SystemTpCache, ln_k_values_cached_into};
+use crate::eos::LiquidModel;
 
 // ===========================================================================
 // Reusable workspace (Part 1 §1 of the performance audit).
@@ -564,7 +573,7 @@ pub fn flash_isothermal_warm(
         }
     }
 
-    match ss_gdem(spec, &cache, t, p, z, &mut ws, warm_ok, tol, max_iter) {
+    match ss_gdem(spec, &cache, t, p, z, &mut ws, warm_ok, true, tol, max_iter) {
         // The loop ran out of iterations: ask the stability test before
         // giving up (see `stability_fallback`).
         Err(err @ FlashError::NoConvergence { .. }) => {
@@ -635,26 +644,18 @@ fn stability_fallback(
     let budget = max_iter.saturating_mul(FALLBACK_ITER_FACTOR);
     // `Err` here is a non-cubic liquid model or a fugacity failure — either
     // way there is no verdict to act on.
-    let (verdict, all_converged) = stability_cached(spec, cache, t, p, z, budget).ok()?;
-    match verdict {
-        Stability::Stable if all_converged => {
+    let v = stability_cached(spec, cache, t, p, z, budget, Seeds::WilsonThenPure).ok()?;
+    match v.verdict {
+        Stability::Stable if v.conclusive => {
             let mut res = single_phase(z, &ws.k);
             res.iterations = max_iter;
             Some(Ok(res))
         }
         Stability::Stable => None,
-        Stability::Unstable { trial_k, .. } => {
-            let mut retry = FlashWorkspace::new(z.len());
-            for (dst, &k) in retry.ln_k.iter_mut().zip(&trial_k) {
-                *dst = k.ln();
-            }
-            match ss_gdem(spec, cache, t, p, z, &mut retry, true, tol, budget) {
-                Ok(mut r) if r.two_phase => {
-                    r.iterations += max_iter;
-                    Some(Ok(r))
-                }
-                _ => None,
-            }
+        Stability::Unstable { .. } => {
+            let mut r = retry_from_trial(spec, cache, t, p, z, &v.verdict, tol, budget)?;
+            r.iterations += max_iter;
+            Some(Ok(r))
         }
     }
 }
@@ -662,6 +663,9 @@ fn stability_fallback(
 /// The GDEM-accelerated successive-substitution loop (§J), starting from the
 /// ln K already in `ws.ln_k`. `seeded_warm` says that iterate is a caller's
 /// K rather than Wilson's, which enables the iteration-0 Wilson re-seed.
+/// `check_single_phase` runs [`single_phase_check`] before every single-phase
+/// exit; the retries that check and the fallback make pass `false`, so a
+/// retry can never recurse.
 #[allow(clippy::too_many_arguments)]
 fn ss_gdem(
     spec: &SystemSpec,
@@ -671,6 +675,7 @@ fn ss_gdem(
     z: &[f64],
     ws: &mut FlashWorkspace,
     seeded_warm: bool,
+    check_single_phase: bool,
     tol: f64,
     max_iter: usize,
 ) -> Result<FlashResult, FlashError> {
@@ -710,6 +715,11 @@ fn ss_gdem(
                 continue;
             }
             Err(FlashError::NoRachfordRiceRoot { .. }) => {
+                if check_single_phase {
+                    if let Some(r) = single_phase_check(spec, cache, t, p, z, tol, max_iter) {
+                        return r;
+                    }
+                }
                 return Ok(single_phase(z, &ws.k));
             }
             Err(e) => return Err(e),
@@ -733,6 +743,11 @@ fn ss_gdem(
                 ws.k[i] = ws.ln_k_new[i].exp();
             }
             if !(0.0..=1.0).contains(&beta) {
+                if check_single_phase {
+                    if let Some(r) = single_phase_check(spec, cache, t, p, z, tol, max_iter) {
+                        return r;
+                    }
+                }
                 return Ok(single_phase(z, &ws.k));
             }
             return Ok(FlashResult {
@@ -796,6 +811,81 @@ fn ss_gdem(
     })
 }
 
+/// The check every single-phase exit of a cubic flash runs before it is
+/// returned (OPTIMIZATION_PLAN_PART1 §13).
+///
+/// The flash calls a feed single-phase when Rachford–Rice has no root under
+/// its current K — at a cold start that is Wilson's K, before any fugacity
+/// has been evaluated. For a liquid–liquid split that is the wrong answer
+/// whenever every Wilson Kᵢ < 1: on PR water/hydrocarbon it was wrong at 42 %
+/// of a T–P grid. So, first, the pure-component TPD screen
+/// ([`pure_component_screen`]): one mixture ln φ at the feed plus one pure
+/// cubic per component. It *proves* instability when it fires and cannot
+/// fire on a stable feed, so on hydrocarbon systems this is the whole cost.
+/// When it fires, the multi-seed stability test supplies a trial-phase K and
+/// the flash is re-run once from it (no further checks). A genuine split is
+/// returned; otherwise `None` and the single-phase answer stands — the
+/// screen proved instability the two-phase flash could not resolve, which a
+/// three-phase region does (see the §13 notes).
+fn single_phase_check(
+    spec: &SystemSpec,
+    cache: &SystemTpCache,
+    t: f64,
+    p: f64,
+    z: &[f64],
+    tol: f64,
+    max_iter: usize,
+) -> Option<Result<FlashResult, FlashError>> {
+    if !matches!(spec.liquid, LiquidModel::Cubic(_)) || z.iter().any(|&zi| zi <= 0.0) {
+        return None;
+    }
+    let mut ln_phi_feed: WorkVec = smallvec::smallvec![0.0; z.len()];
+    min_gibbs_ln_phi_cached_into(spec, cache, z, &mut ln_phi_feed).ok()?;
+    pure_component_screen(spec, cache, t, p, z, &ln_phi_feed)?;
+    let budget = max_iter.saturating_mul(FALLBACK_ITER_FACTOR);
+    let v = stability_cached(spec, cache, t, p, z, budget, Seeds::WilsonThenPure).ok()?;
+    retry_from_trial(spec, cache, t, p, z, &v.verdict, tol, budget).map(Ok)
+}
+
+/// Re-flash once from an unstable verdict's trial phase, trying both
+/// orientations of its K estimate, and return the first genuine split.
+///
+/// Which side of the flash the incipient phase belongs on is not knowable in
+/// advance for a near-pure trial: water condensing out of a vapor feed is the
+/// `x` side, water separating from a hydrocarbon liquid is either. The
+/// seed's own guess (`trial_k`) is tried first, then its inverse. Measured on
+/// the §13 water/hydrocarbon sweep: the guess alone resolves 9 088 of the
+/// grid's splits, orienting by the feed's single-phase label alone 8 211,
+/// both in turn more than either (OPTIMIZATION_PLAN_PART1 §13). The retries
+/// run without the single-phase check, so they cannot recurse.
+#[allow(clippy::too_many_arguments)]
+fn retry_from_trial(
+    spec: &SystemSpec,
+    cache: &SystemTpCache,
+    t: f64,
+    p: f64,
+    z: &[f64],
+    verdict: &Stability,
+    tol: f64,
+    budget: usize,
+) -> Option<FlashResult> {
+    let Stability::Unstable { trial_k, .. } = verdict else {
+        return None;
+    };
+    let mut retry = FlashWorkspace::new(z.len());
+    for invert in [false, true] {
+        for (dst, &k) in retry.ln_k.iter_mut().zip(trial_k) {
+            *dst = if invert { -k.ln() } else { k.ln() };
+        }
+        if let Ok(r) = ss_gdem(spec, cache, t, p, z, &mut retry, false, false, tol, budget) {
+            if r.two_phase {
+                return Some(r);
+            }
+        }
+    }
+    None
+}
+
 /// Build the single-phase result: decide liquid vs vapor from the sign of
 /// the Rachford-Rice residual at β = 0, and set `x = y = z`.
 fn single_phase(z: &[f64], k: &[f64]) -> FlashResult {
@@ -819,6 +909,7 @@ mod tests {
     use crate::activity::ActivityModel;
     use crate::eos::{CubicEos, LiquidModel, VaporModel};
     use crate::flash::k_values;
+    use crate::flash::stability::{Seeds, stability_cached};
     use crate::mixing::MixingRule;
     use crate::types::Component;
 
@@ -1203,15 +1294,17 @@ mod tests {
 
     #[test]
     fn fallback_does_not_trust_an_unconverged_stability_verdict() {
-        // At these two points `stability_analysis` with the flash's own
-        // 200-iteration budget says Stable only because its trials ran out;
-        // with room to converge it says Unstable. The fallback must agree
-        // with the converged verdict.
+        // At these two points the stability trials have not converged after
+        // 200 iterations. "No split found yet" is not "stable": the fallback
+        // must act on the converged verdict (unstable → a split), never on
+        // the cut-off one (which, before §13, became a single-phase answer).
         let comps = methane_n_pentane_pr();
         let spec = pr_system(&comps);
         for &(t, p) in &NEAR_CRITICAL_SPLITS {
-            let short = crate::flash::stability::stability_analysis(&spec, t, p, &[0.5, 0.5], 200);
-            assert_eq!(short.unwrap(), Stability::Stable, "premise at ({t}, {p})");
+            let cache = SystemTpCache::new(&spec, t, p).unwrap();
+            let v = stability_cached(&spec, &cache, t, p, &[0.5, 0.5], 200, Seeds::WilsonThenPure)
+                .unwrap();
+            assert!(!v.conclusive || matches!(v.verdict, Stability::Unstable { .. }));
             let long = crate::flash::stability::stability_analysis(&spec, t, p, &[0.5, 0.5], 2000);
             assert!(matches!(long.unwrap(), Stability::Unstable { .. }));
             assert!(
@@ -1254,5 +1347,106 @@ mod tests {
         assert!(r.two_phase && r.iterations < 200);
         let r = flash_isothermal(&spec, 350.0, 20000.0, &[0.5, 0.5], 1e-10, 200).unwrap();
         assert!(!r.two_phase && r.iterations == 0);
+    }
+
+    // -----------------------------------------------------------------
+    // Stability check on the single-phase exit (OPTIMIZATION_PLAN_PART1 §13).
+    // -----------------------------------------------------------------
+
+    fn water_hexane() -> Vec<Component> {
+        let c = |name: &str, tc, pc, omega| Component {
+            name: name.into(),
+            tc,
+            pc,
+            omega,
+            ..Component::default()
+        };
+        vec![
+            c("water", 647.096, 22064.0, 0.3443),
+            c("n-hexane", 507.82, 3044.1, 0.3),
+        ]
+    }
+
+    fn assert_split(spec: &SystemSpec, t: f64, p: f64, z: &[f64], r: &FlashResult) {
+        assert!(
+            r.two_phase && r.beta > 0.0 && r.beta < 1.0,
+            "({t}, {p}): {r:?}"
+        );
+        for i in 0..z.len() {
+            let rec = r.beta * r.y[i] + (1.0 - r.beta) * r.x[i];
+            assert!((rec - z[i]).abs() < 1e-8, "mass balance {i}");
+        }
+        let k_check = k_values(spec, t, p, &r.x, &r.y).unwrap();
+        for i in 0..z.len() {
+            assert!((k_check[i] / r.k[i] - 1.0).abs() < 1e-6, "isofugacity {i}");
+        }
+    }
+
+    #[test]
+    fn liquid_liquid_split_behind_a_wilson_single_phase_exit_is_found() {
+        // Water/n-hexane, PR, kij 0.5, 300 K / 100 kPa: Wilson K = [0.05,
+        // 0.24], so Rachford–Rice has no root at iteration 0 and the flash
+        // used to return "liquid" without evaluating a fugacity. The true
+        // state is two liquids.
+        let comps = water_hexane();
+        let kij = vec![vec![0.0, 0.5], vec![0.5, 0.0]];
+        let spec = SystemSpec {
+            kij: &kij,
+            ..pr_system(&comps)
+        };
+        let z = [0.5, 0.5];
+        let r = flash_isothermal(&spec, 300.0, 100.0, &z, 1e-10, 200).unwrap();
+        assert_split(&spec, 300.0, 100.0, &z, &r);
+        // One phase water-rich, the other hexane-rich.
+        let (wx, wy) = (r.x[0], r.y[0]);
+        assert!(wx.max(wy) > 0.7 && wx.min(wy) < 0.05, "x_w={wx}, y_w={wy}");
+    }
+
+    #[test]
+    fn water_condensing_out_of_a_vapor_single_phase_exit_is_found() {
+        // Same system at 310.17 K / 11.65 kPa: the flash's Wilson exit said
+        // "vapor"; stability (pure-water seed) says water condenses. Needs
+        // the retry's second, inverted orientation.
+        let comps = water_hexane();
+        let kij = vec![vec![0.0, 0.5], vec![0.5, 0.0]];
+        let spec = SystemSpec {
+            kij: &kij,
+            ..pr_system(&comps)
+        };
+        let (t, p, z) = (
+            150.0 + 450.0 * 21.0 / 59.0,
+            10.0 * 8000f64.powf(1.0 / 59.0),
+            [0.5, 0.5],
+        );
+        let r = flash_isothermal(&spec, t, p, &z, 1e-10, 200).unwrap();
+        assert_split(&spec, t, p, &z, &r);
+    }
+
+    #[test]
+    fn a_near_pure_incipient_phase_is_resolved() {
+        // Water/n-hexane at 150 K / 10 kPa: the incipient phase is almost
+        // pure water and the trial K is extreme (≈ [2, 1e-67]). With only
+        // the trial's own orientation the retry collapsed back to single
+        // phase; the inverted one resolves it.
+        let comps = water_hexane();
+        let kij = vec![vec![0.0, 0.5], vec![0.5, 0.0]];
+        let spec = SystemSpec {
+            kij: &kij,
+            ..pr_system(&comps)
+        };
+        let z = [0.5, 0.5];
+        let r = flash_isothermal(&spec, 150.0, 10.0, &z, 1e-10, 200).unwrap();
+        assert_split(&spec, 150.0, 10.0, &z, &r);
+    }
+
+    #[test]
+    fn single_phase_check_does_not_touch_stable_or_non_cubic_feeds() {
+        // Hydrocarbons: the screen stays quiet, the exit is the old one.
+        let comps = [n_butane(), n_heptane()];
+        let spec = rks_system(&comps);
+        let r = flash_isothermal(&spec, 350.0, 20000.0, &[0.5, 0.5], 1e-10, 200).unwrap();
+        assert!(!r.two_phase && r.iterations == 0 && r.beta == 0.0);
+        let r = flash_isothermal(&spec, 600.0, 100.0, &[0.5, 0.5], 1e-10, 200).unwrap();
+        assert!(!r.two_phase && r.iterations == 0 && r.beta == 1.0);
     }
 }

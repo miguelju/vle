@@ -2,9 +2,11 @@
 
 *Drafted 2026-10-30 by Claude Code using Claude Opus 5.5, after v0.18.0.*
 
-**Status: in progress.** Step 0 is done (unreleased, 2026-10-31; recorded in
-Part 1 §12). Its liquid–liquid sweep added one open item to the inventory.
-Steps 1–3 are not started. This is an ordering of the
+**Status: in progress.** Step 0 is done (Part 1 §12) and so are the
+correctness findings it raised (Part 1 §13), both unreleased. Steps 1–3 are
+not started. **No release until every step is done** (owner's decision,
+2026-10-31): see *Unreleased changes* at the end, which is the draft of the
+release notes. This is an ordering of the
 optimization items that
 [`OPTIMIZATION_PLAN_PART1.md`](OPTIMIZATION_PLAN_PART1.md) (flash layer),
 [`OPTIMIZATION_PLAN_PART2.md`](OPTIMIZATION_PLAN_PART2.md) (mixture core) and
@@ -21,14 +23,14 @@ this file's status lines so it never claims more than the code does.
 |---|---|---|
 | ~~Stability check on flash non-convergence~~ | Part 1 §10, §12; ROADMAP M9.1 | **done** (Step 0) |
 | ~~Liquid–liquid (water/HC) stability sweep~~ | Part 1 §10 caveat, §12 | **done** (Step 0); γ-φ cannot be swept (stability is cubic-only) |
-| Stability on the single-phase exit for LL-prone systems | Part 1 §12 | correctness, measured (42 % wrong on PR water/HC), not built |
-| Public `stability_analysis` reports an unconverged trial as `Stable` | Part 1 §12 | correctness, API change |
+| ~~Stability on the single-phase exit for LL-prone systems~~ | Part 1 §12, §13 | **done**: pure-component screen on every cubic single-phase exit; 6 109 → 31 wrong answers |
+| ~~Public `stability_analysis` reports an unconverged trial as `Stable`~~ | Part 1 §12, §13 | **done**: now `NoConvergence` (behaviour change, no signature change) |
 | Fixed-width dual (`DualSVec64<W>`) for WS/MHV `∂lnφ̂ᵢ/∂nⱼ` | Part 2 §6; `SECOND_OPINION_TRIAL.md` | performance, patch exists |
 | `MixtureScratch<'a, D>` instead of `SmallVec` for duals | Part 2 §7 | performance, same path as §6 |
 | Simultaneous (n+1)-variable Newton for bubble/dew T | Part 1 §8, §11; ROADMAP M9.1 | performance + warm-start payoff |
 | Newton on ln P for near-critical bubble/dew pressure | ROADMAP M9.1 | robustness/performance |
 | Full Newton finish on ln K for the isothermal flash | Part 1 §5, §6 | performance, unmeasured need |
-| Multi-seed stability analysis | Part 1 §7, §12 | correctness, now measured as needed (250 missed water/HC points) |
+| ~~Multi-seed stability analysis~~ | Part 1 §7, §12, §13 | **done**: Wilson pair then near-pure seeds; 250 → 0 |
 | Analytic phase-envelope Jacobian | Part 1 §9 | performance |
 | Rayon batch writes straight into SoA output | Part 2 §10 | performance, needs a profile |
 | Flat `kij` storage | Part 2 §3 | parked: needs a 1.0 API break |
@@ -62,7 +64,14 @@ a PR water/hydrocarbon grid. That changes what comes next; see *After Step
   the normal-path flash benchmarks are unchanged, and the LL sweep result is
   recorded in Part 1 §10.
 
-## After Step 0: the liquid–liquid finding (not yet sequenced)
+## After Step 0: the liquid–liquid finding — **done** (Part 1 §13)
+
+The owner sequenced this before Step 1 (2026-10-31). Shipped: multi-seed
+stability, a pure-component TPD screen on every cubic single-phase exit, and
+an honest verdict for unconverged trials. Water/hydrocarbon wrong answers
+fell from 6 109 to 31, and hydrocarbon answers are identical. The cost is
+recorded as a cost: vapor single-phase exits +97…+148 %, stable-feed
+`stability_analysis` 2–4.5×. Original text follows.
 
 Step 0's sweep turned up a correctness gap bigger than the one it closed. The
 cold flash returns single phase at iteration 0 whenever Wilson K gives
@@ -136,3 +145,29 @@ owner's call and is not decided here.**
 
 - **Part 2 §3, flat `kij`:** only bundled with a deliberate 1.0 API break.
 - **Part 2 §2, `Component` SoA:** only if a post-§1 profile shows it.
+
+---
+
+## Unreleased changes (draft release notes)
+
+Nothing below is published yet. Carry it into `README.md`, `python/README.md`
+and `engine/README.md` when the optimization work is released.
+
+- **Stability fallback on flash non-convergence** (Part 1 §12). A flash that
+  runs out of iterations now asks the stability test before raising. It
+  returns a single phase only on a converged stable verdict, and otherwise
+  retries from the trial phase.
+- **Liquid–liquid splits are no longer missed** (Part 1 §13). On PR
+  water/hydrocarbon the cold flash used to return a wrong single-phase answer
+  at 42 % of a T–P grid. Every cubic single-phase answer is now checked by a
+  pure-component tangent-plane screen, and the wrong answers drop to 0.2 %.
+  Hydrocarbon answers are unchanged.
+- **Multi-seed stability**: `stability_analysis` / `System.stability` add
+  near-pure trial phases when the Wilson pair finds nothing.
+- **Behaviour change:** `stability_analysis` raises / returns
+  `NoConvergence` when its trials are cut off before a verdict, instead of
+  answering `Stable`. The Python `max_iter` default is now 1 000 (was 100).
+- **Costs, measured:** vapor single-phase flash exits ≈ 2–2.5× (+0.22–0.45 µs
+  at n = 2–8), liquid exits +9–10 %, stable-feed stability 2–4.5×; two-phase
+  flashes unchanged.
+

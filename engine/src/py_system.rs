@@ -649,8 +649,10 @@ impl System {
     }
 
     /// Tangent-plane-distance stability test at `(t [K], p [kPa])` —
-    /// cubic systems only. Returns `(is_stable, trial_k, tpd)`.
-    #[pyo3(signature = (z, t, p, max_iter=100))]
+    /// cubic systems only. Returns `(is_stable, trial_k, tpd)`. Raises when
+    /// the trials hit `max_iter` without a verdict (see
+    /// `flash::stability::stability_analysis`).
+    #[pyo3(signature = (z, t, p, max_iter=1000))]
     fn stability(
         &self,
         z: Vec<f64>,

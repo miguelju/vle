@@ -311,3 +311,52 @@ def test_phase_envelope_traces_points():
     assert all(t > 0 and p > 0 for (t, p) in pts)
     p_max = max(p for (_, p) in pts)
     assert p_max > 2 * 300.0, f"envelope P_max {p_max} did not climb"
+
+
+# =============================================================================
+# Stability on the flash's single-phase exit + multi-seed stability
+# (OPTIMIZATION_PLAN_PART1 §13)
+# =============================================================================
+
+
+def _water_hexane():
+    from vle import System
+
+    return System(["water", "n-hexane"], eos="PR", kij=0.5)
+
+
+def test_flash_finds_the_liquid_liquid_split_behind_a_wilson_exit():
+    # Wilson K < 1 for both components, so Rachford-Rice has no root at
+    # iteration 0; before §13 this returned single-phase "liquid".
+    sys = _water_hexane()
+    r = sys.flash_pt(300.0, 100.0, [0.5, 0.5])
+    assert r.two_phase
+    assert max(r.x[0], r.y[0]) > 0.7 and min(r.x[0], r.y[0]) < 0.05
+    for i in range(2):
+        assert r.beta * r.y[i] + (1 - r.beta) * r.x[i] == pytest.approx(0.5, abs=1e-8)
+
+
+def test_flash_batch_finds_the_same_splits():
+    import numpy as np
+
+    sys = _water_hexane()
+    ts = np.array([300.0, 150.0])
+    ps = np.array([100.0, 10.0])
+    out = sys.flash_pt_batch(ts, ps, [0.5, 0.5])
+    assert list(out.two_phase) == [True, True]
+    assert all(out.converged)
+
+
+def test_stability_detects_liquid_liquid_split():
+    sys = _water_hexane()
+    stable, trial_k, tpd = sys.stability([0.5, 0.5], 300.0, 100.0)
+    assert not stable and tpd < 0.0 and len(trial_k) == 2
+
+
+def test_stability_cut_off_before_a_verdict_raises():
+    from vle import System
+
+    sys = System(["n-butane", "n-heptane"], eos="RKS")
+    assert sys.stability([0.5, 0.5], 350.0, 20000.0)[0]
+    with pytest.raises(RuntimeError, match="stability analysis"):
+        sys.stability([0.5, 0.5], 350.0, 20000.0, max_iter=1)

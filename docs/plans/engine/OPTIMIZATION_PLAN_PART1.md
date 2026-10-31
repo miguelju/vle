@@ -642,6 +642,10 @@ measure before replacing it with this one.
 
 ## 12. Addendum (unreleased, 2026-10-31): stability fallback on non-convergence, and the liquid–liquid sweep
 
+*The three open findings below — the wrong single-phase answers, the 250
+two-seed misses, and `stability_analysis` reporting an unconverged trial as
+`Stable` — are fixed in §13.*
+
 Step 0 of [`OPTIMIZATION_NEXT_STEPS.md`](OPTIMIZATION_NEXT_STEPS.md) — the
 fallback §10 recommended — plus the liquid–liquid sweep §10 said was never
 done.
@@ -760,6 +764,142 @@ trade. A plausible middle ground, which is unmeasured, is to run stability
 only on a single-phase exit from a system that contains a strongly
 non-ideal pair (e.g. any kij ≥ 0.2, or water present). γ-φ liquids cannot be
 swept at all: `stability_analysis` is cubic-only.
+
+## 13. Addendum (unreleased, 2026-10-31): fixing the §12 findings
+
+§12 left three correctness findings open. All three are fixed here. Every
+number below comes from
+[`engine/examples/flash_stability_sweep.rs`](../../../engine/examples/flash_stability_sweep.rs)
+or from criterion against `main` (`--baseline`), both run in the same session.
+
+### What shipped
+
+1. **Multi-seed stability** (`stability::Seeds::WilsonThenPure`). If the
+   two Wilson trials find no split, the test runs one near-pure trial per
+   component (that component at 1, the rest sharing 10⁻³). It stops at the
+   first split it finds. The public `stability_analysis` uses this seed set.
+   The 250 water/propane/n-heptane points where the flash split but the
+   Wilson pair said *stable* go to **0**.
+2. **An unconverged trial is judged on the evidence.** Any trial composition
+   with tm < 0 proves the feed unstable, whether or not the trial converged,
+   so it now counts as a split. Before, it was thrown away. A run cut off
+   before *every* trial converged, with no negative tm found, has proved
+   nothing. `stability_analysis` now returns
+   `NoConvergence { what: "stability analysis" }` there instead of `Stable`.
+   The Python defaults for `System.stability` and `flash_stability` move from
+   `max_iter = 100` to 1 000, so ordinary calls do not hit that error.
+3. **Every cubic single-phase exit is checked** (`single_phase_check`). The
+   check starts with a pure-component TPD screen,
+   `tmᵢ = ln φᵢ(pure) − ln zᵢ − ln φᵢ(z)`: one feed ln φ plus one pure cubic
+   per component, read from the cached pure (A, B, U, W) without
+   re-evaluating α (`mixture::TpCache::pure_ln_phi_min_gibbs`). A stable feed
+   has tm ≥ 0 at every trial composition, so the screen **cannot fire on a
+   stable feed**. When it fires, it has proved instability. Only then does
+   the multi-seed test run, and the flash is retried from its trial K, first
+   in the trial's orientation and then inverted. A genuine split is
+   returned. Otherwise the single-phase answer stands.
+
+The retries never run the check again, so they cannot recurse. The §12
+non-convergence fallback now uses the same seeds and the same two-orientation
+retry.
+
+### Result, sweep
+
+| | before (§12) | after |
+|---|---|---|
+| hydrocarbon answers (6 mixtures, 21 600 points) | — | **identical**: 0 missed, 0 spurious, 87 fallback single-phase, 0 failures |
+| water/HC: flash two-phase | 834 | **9 665** |
+| water/HC: single-phase answer where a restart from the trial K finds a split | 6 109 | **31** |
+| water/HC: flash splits that stability calls stable | 250 | **0** |
+| water/HC: flash failures | 0 (after §12) | 0 |
+
+That leaves 31 wrong single-phase answers (0.2 % of the water grid): 20 on
+water/n-decane, 8 on water/propane/n-heptane and 3 on water/benzene. The full
+stability test finds these splits, but the pure screen stays quiet because
+the incipient phase is not near-pure. Catching them would mean running the
+full test on every single-phase exit, which is the §10 cost question again.
+They are left as they are and recorded here.
+
+**What a two-phase answer cannot be.** Much of the water/hydrocarbon grid is
+three-phase (vapor + hydrocarbon liquid + water). There the returned split is
+the lower-G two-phase answer that this flash can represent, and it may itself
+be unstable. One example is the water/propane/n-heptane point at 233.9 K and
+10 kPa, where y holds 47 % water. A three-phase flash is a feature, not an
+optimization, and is out of scope.
+
+### Tried and rejected, with the measurement
+
+* **A kij trigger** ("check only systems with a large kij"). With kij = 0,
+  PR water/hydrocarbon still misses 8 284 splits, so no kij threshold
+  separates the systems that need the check. Replaced by the screen, which
+  needs no trigger.
+* **Orienting the retry by the feed's single-phase label** (incipient phase
+  on `x` for a "vapor" feed). This resolved 8 211 splits, against 9 088 for
+  the trial's own orientation alone. Wilson's single-phase label is not
+  reliable enough. Trying both orientations resolves 9 665.
+* **The textbook unnormalized trial K** (`Wᵢ/zᵢ`, inverted for a liquid-like
+  trial). It changed no answer on the sweep once both orientations are
+  tried, so the public `trial_k` keeps its old definition (`wᵢ/zᵢ`).
+* **Skipping the screen on vapor exits** (it is the expensive one, below).
+  Without it, 135 wrong answers remain instead of 31, so it stays.
+
+### Result, cost (criterion median, `main` → this change)
+
+| Path | `main` | now | Δ |
+|---|---|---|---|
+| cold two-phase flash `isothermal_n2…n8` | 2.61 / 3.35 / 4.04 / 4.65 µs | 2.65 / 3.38 / 4.06 / 4.62 µs | +1.5 / +1.1 / +0.7 / −0.7 % |
+| liquid single-phase exit `isothermal_liquid_n2…n8` (new) | 2.63 / 3.87 / 4.29 / 4.67 µs | 2.90 / 4.21 / 4.66 / 5.10 µs | +10.2 / +8.7 / +8.8 / +9.1 % |
+| **vapor single-phase exit** `isothermal_vapor_n2…n8` (new) | 0.225 / 0.259 / 0.291 / 0.304 µs | 0.443 / 0.547 / 0.653 / 0.753 µs | **+97 / +112 / +125 / +148 %** |
+| stability, unstable feed `stability_n2…n8` | 3.95 / 5.73 / 9.33 / 6.08 µs | 4.02 / 5.85 / 9.47 / 6.28 µs | +1.8 / +2.1 / +1.5 / +3.3 % |
+| **stability, stable feed** `stability_stable_n2…n8` (new) | 5.00 / 4.11 / 4.60 / 4.95 µs | 9.81 / 11.37 / 16.45 / 22.32 µs | **+96 / +177 / +258 / +351 %** |
+| warm flash `isothermal_warm_n2…n8` | 0.450 / 0.603 / 0.682 / 0.724 µs | 0.484 / 0.635 / 0.715 / 0.760 µs | +7.4 / +5.3 / +4.8 / +5.1 % |
+| `adiabatic_pr_binary` | 10.67 µs | 11.65 µs | +9.2 % |
+| `free_water_pr_ternary` | 2.32 µs | 2.35 µs | +1.5 % |
+| `envelope_pr_methane_ethane_40pts` | 532 µs | 556 µs | +4.4 % |
+
+**These are costs, not optimizations, and they are stated as costs.** The
+vapor exit was the one path that did almost no work: the cold flash called
+the feed vapor from Wilson's K before it evaluated a single fugacity.
+Checking it needs at least one fugacity evaluation, so the extra
+0.22–0.45 µs is close to the minimum such a check can cost. Moving the pure
+term onto the cached parameters took the first version
+(0.478 / 0.637 / 0.793 / 0.949 µs) down to the figures above. The stable-feed
+stability cost is the n + 2 trials of the multi-seed set. The flash pays it
+only after the screen has already proved instability, so it falls on
+`stability_analysis` callers and the non-convergence fallback.
+`adiabatic_pr_binary` pays the screen at its single-phase bracket ends. The
+warm flash's +5–7 % comes from a path whose logic did not change: the
+converged warm start never reaches a single-phase exit. That is just past the
+±5 % layout variance recorded in `SECOND_OPINION_TRIAL.md`; it is recorded
+here, not explained.
+
+### Tests
+
+`stability::tests`:
+* `pure_seeds_find_a_split_the_wilson_pair_misses` checks one of the 250 points.
+* `unconverged_trials_are_judged_on_the_evidence` checks that a 200-iteration
+  trial with tm < 0 counts as unstable, and that a cut-off stable run is an
+  error.
+* `cached_pure_ln_phi_is_the_mixture_pure_limit` covers PR, RKS and
+  Patel–Teja at three states.
+* `pure_screen_fires_on_an_immiscible_feed_and_never_on_a_stable_one`.
+
+`isothermal::tests`:
+* `liquid_liquid_split_behind_a_wilson_single_phase_exit_is_found` (water/n-hexane, 300 K).
+* `water_condensing_out_of_a_vapor_single_phase_exit_is_found`, which needs
+  the inverted orientation.
+* `a_near_pure_incipient_phase_is_resolved` (150 K).
+* `single_phase_check_does_not_touch_stable_or_non_cubic_feeds`.
+
+Python (`test_m9_flash.py`): the same splits through `System.flash_pt` and
+`flash_pt_batch`, `System.stability` on the liquid–liquid feed, and the new
+error.
+
+Each mutant is caught: removing the check (3 tests fail), allowing one
+orientation only (2), a Wilson-only public seed set (1), requiring
+convergence for an unstable verdict (1), and reading an inconclusive run as
+`Stable` (1). The notebooks that touch stability or water (00, 05, 10, 11,
+13, 16) execute unchanged.
 
 ---
 

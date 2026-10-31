@@ -522,9 +522,12 @@ impl VleSystem {
 
     /// Isothermal (PT/TP) flash of feed `z` at `t` **K**, `p` **kPa abs**.
     ///
-    /// Wilson-initialized, stability-checked, GDEM-accelerated — see
-    /// MODERNIZATION_PLAN "Algorithm Choices". Single-phase feeds return
-    /// β clamped to 0 or 1 with `two_phase = false`.
+    /// Wilson-initialized, GDEM-accelerated — see CLAUDE.md / MODERNIZATION_PLAN
+    /// "Algorithm Choices". On a cubic system a single-phase answer is first
+    /// checked by a pure-component tangent-plane screen (and the full stability
+    /// test when it fires), and a non-converging solve falls back to the
+    /// stability test. Single-phase feeds return β clamped to 0 or 1 with
+    /// `two_phase = false`.
     ///
     /// # Errors
     /// [`VleFfiError::InvalidInput`] on a wrong-length `z`;
