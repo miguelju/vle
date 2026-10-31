@@ -20,7 +20,7 @@ git tag v0.X.Y && git push origin v0.X.Y
         ├── _build.yml  → cibuildwheel matrix:
         │     • Linux x86_64 (ubuntu-latest, GitHub-hosted)
         │     • Linux arm64 (ubuntu-24.04-arm, GitHub-hosted)
-        │     • macOS arm64 (macos-14, GitHub-hosted)
+        │     • macOS arm64 (macos-15, GitHub-hosted)
         │     • Windows AMD64 (windows-latest, GitHub-hosted)
         │     • sdist on ubuntu-latest
         │     All wheels are abi3-tagged (cp311-abi3-*), covering

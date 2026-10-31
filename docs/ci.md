@@ -70,7 +70,7 @@ directly.
 | `bench-rust` (bench.yml) | `ubuntu-latest` (GitHub-hosted)    | Fresh VM per run                                |
 | `build` linux/x86_64  | `ubuntu-latest` (GitHub-hosted)       | Fresh VM per run                                |
 | `build` linux/aarch64 | `ubuntu-24.04-arm` (GitHub-hosted)    | Fresh VM per run                                |
-| `build` macOS arm64   | `macos-14` (GitHub-hosted)            | Fresh VM per run                                |
+| `build` macOS arm64   | `macos-15` (GitHub-hosted)            | Fresh VM per run                                |
 | `build` windows       | `windows-latest` (GitHub-hosted)      | Fresh VM per run                                |
 | `build-sdist`         | `ubuntu-latest`                       | Fresh VM per run                                |
 | All publish jobs      | `ubuntu-latest`                       | Fresh VM per run                                |
