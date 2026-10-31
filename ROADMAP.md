@@ -96,7 +96,7 @@ High-level milestones for the VLE modernization project. For actionable tasks wi
 - [x] First `#[pymodule]` in `engine/` — `vle._engine` exposes `version()` + the four enum types (`CubicEos`, `ActivityModel`, `MixingRule`, `SatPressureModel`); `python/tests/test_engine.py` exercises the boundary
 - [x] `docs/ci.md` — developer overview, ephemerality table, fork-PR guard, retry flow
 - [x] `docs/runners/linux-setup.md` — Proxmox LXC + Docker + `myoung34/github-runner` ephemeral
-- [x] `docs/runners/macos-setup.md` — Mac mini M1 persistent runner via launchd, toolchain bootstrap *(**RETIRED** in v0.12.0: the macOS wheel builds on hosted `macos-14`; `vle-mac-01` was stopped and deregistered)*
+- [x] `docs/runners/macos-setup.md` — Mac mini M1 persistent runner via launchd, toolchain bootstrap *(**RETIRED** in v0.12.0: the macOS wheel builds on hosted `macos-14` — `macos-15` since 2026-10-31; `vle-mac-01` was stopped and deregistered)*
 - [x] Private installer (`deploy/local/auto-deploy/{vle-deploy,install-rocky.sh,install-oracle.sh}`) — restricted `command=`-locked SSH wrapper for tag-pinned deploys
 - [x] Drop `git pull` from `deploy/scripts/deploy.sh` (the deploy wrapper handles tag checkout)
 - [x] Rewrite the CI-driven release section in `PUBLISHING.md`; add "Cutting a release" subsection

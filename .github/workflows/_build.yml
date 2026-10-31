@@ -5,7 +5,10 @@
 # Runners used — all GitHub-hosted:
 #   Linux x86_64 -> ubuntu-latest
 #   Linux arm64  -> ubuntu-24.04-arm
-#   macOS arm64  -> macos-14
+#   macOS arm64  -> macos-15 (macos-14 until 2026-10-31: GitHub retires that
+#                   image on 2026-11-02 and its brownouts were cancelling
+#                   this row; the wheel tag is unaffected because
+#                   MACOSX_DEPLOYMENT_TARGET is pinned in python/pyproject.toml)
 #   Windows      -> windows-latest
 #
 # This repo is PUBLIC, and standard GitHub-hosted runners are free and
@@ -63,7 +66,7 @@ jobs:
             runs-on: ubuntu-24.04-arm
           - os: macos
             arch: arm64
-            runs-on: macos-14
+            runs-on: macos-15
           - os: windows
             arch: AMD64
             runs-on: windows-latest
