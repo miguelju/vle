@@ -274,8 +274,10 @@ Claude Code using Claude Fable 5.*
 - [x] **Fix `trace_envelope` seeding** — seeds from `bubble_temperature` at `p_start`; also fixed the tangent orientation (the trace oscillated at the critical point and never reached the dew branch), the failed-step retry point, and the missing stop at `p_start` on the dew branch. Tests `closes_the_loop_through_the_critical_point_once`, `traces_from_low_starting_pressures` (v0.17.1)
 - [x] **Fix `bubble_pressure` trivial solution** (found while testing the envelope) — density-based trivial test, lower-pressure restarts, secant-on-ln-P inversion of Newton bubble-T; `newton_temperature` uses the same test; bisection fallback checks its residual. Tests `bubble_pressure_never_returns_the_trivial_solution`, `near_critical_bubble_points_decline_rather_than_answer_wrongly` (v0.17.1, `OPTIMIZATION_PLAN_PART1.md` §10)
 - [x] **Decide: wire `stability_analysis` into `flash_isothermal`** — measured on 21 600 grid points: zero missed splits, so no; recommend a stability check on flash non-convergence instead (`OPTIMIZATION_PLAN_PART1.md` §10)
-- [ ] **Stability check on flash non-convergence** — 55/21 600 grid points fail to converge near the critical locus and are all stable single-phase
-- [ ] **Sweep liquid–liquid-prone systems** (water/hydrocarbon, γ-φ) for missed splits before closing the stability question
+- [x] **Stability check on flash non-convergence** (unreleased) — `flash/isothermal.rs::stability_fallback` + crate-internal `stability::stability_cached`, which reports whether both trials converged. Stable with converged trials → single phase; unstable → one retry from the trial K; otherwise the original error. 10 × `max_iter` budget. All 89 + 6 sweep failures resolve. Two of them are genuine splits that an unconverged 200-iteration trial had called stable. Tests: `non_convergence_points_now_resolve`, `fallback_does_not_trust_an_unconverged_stability_verdict`, `fallback_keeps_the_error_where_stability_cannot_run`, `normal_path_results_are_unchanged`. Both mutants fail 2 tests each. Normal-path benches −1.3…+1.8 % (noise). Harness: `engine/examples/flash_stability_sweep.rs` (`OPTIMIZATION_PLAN_PART1.md` §12)
+- [x] **Sweep liquid–liquid-prone systems** — PR water/hydrocarbon: wrong single-phase answers at 6 109 of 14 400 points (Wilson K all < 1 ⇒ no RR root at iteration 0), plus 250 points where two-seed stability misses a split the flash finds. γ-φ cannot be swept: `stability_analysis` is cubic-only (`OPTIMIZATION_PLAN_PART1.md` §12)
+- [ ] **Stability on the single-phase exit for LL-prone systems** — decide the trigger (e.g. water present / any kij ≥ 0.2) and measure its cost; the §12 water rows are the acceptance test
+- [ ] **`stability_analysis` reports an unconverged trial as `Stable`** — the public verdict (and `System.stability`) cannot distinguish "no split" from "ran out of iterations"; surfacing that is an API change
 - [x] **Warm-start entry point** — `{bubble,dew}_{temperature,pressure}_from` (Rust) + `t_guess`/`p_guess`/`k_guess` (Python); warm ≡ cold tests in `flash::incipient::tests` and `python/tests/test_warm_start.py`; benches `flash_multi/{bubble,dew}_temperature_warm_n*`; measured gain small except from an exact neighbor (`OPTIMIZATION_PLAN_PART1.md` §11) (v0.18.0)
 - [ ] *Follow-ups:* simultaneous (n+1)-variable Newton (also what would make warm starts pay, §11); Newton on ln P for `bubble_pressure`/`dew_pressure` — *(the warm-start entry point shipped in v0.18.0)*
 
@@ -772,7 +774,7 @@ lessons: [OPTIMIZATION_AUDIT_HISTORY.md](docs/plans/engine/OPTIMIZATION_AUDIT_HI
       the analytic path; largest remaining algorithmic win, highest accuracy risk)
 - [ ] Audit P2 §7 (`MixtureScratch`) and §10 (Rayon SoA batch output — profile first)
 - [ ] Audit P1 §6 — the §J Newton finish, as its own milestone with its own validation
-- [ ] Audit P1 §7 — multi-seed stability (a correctness change, not a perf one)
+- [ ] Audit P1 §7 — multi-seed stability (a correctness change, not a perf one) — *now measured as needed: 250 water/propane/n-heptane points where two-seed stability misses a split, `OPTIMIZATION_PLAN_PART1.md` §12*
 - [ ] Audit P1 §9 — analytic envelope Jacobian (benchmark the envelope first)
 
 ---

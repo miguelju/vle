@@ -13,6 +13,12 @@
 //!    few iterations. Each SS step: solve RR for `β`, split into `x`/`y`,
 //!    recompute K from the fugacity models, repeat to composition
 //!    tolerance.
+//! 3. **Stability fallback on non-convergence** — if the K-loop exhausts its
+//!    iteration cap (in practice: near the critical locus), a TPD stability
+//!    test (`flash/stability.rs`) decides between "stable single phase" and
+//!    one retry from the trial-phase K. It is *not* run on the normal path:
+//!    on a 21 600-point hydrocarbon grid it changed no converged answer
+//!    (`OPTIMIZATION_PLAN_PART1.md` §10).
 //!
 //! The full Michelsen scheme finishes with a Newton step on `ln K` once the
 //! residual is small; GDEM-accelerated SS already converges the Chapter IV
@@ -21,6 +27,7 @@
 //! tracked in the milestone).
 //!
 //! # References
+//! - (7) Michelsen (1982) Part I — stability analysis (the fallback)
 //! - (19) Michelsen (1982) Part II — phase-split framework
 //! - (23) Leibovici & Neoschil (1992) — the Rachford-Rice window
 //! - (25) Crowe & Nishio (1975) — GDEM acceleration
@@ -33,6 +40,7 @@ use smallvec::SmallVec;
 
 use super::FlashError;
 use super::init::wilson_ln_k;
+use super::stability::{Stability, stability_cached};
 use super::system::{SystemSpec, SystemTpCache, ln_k_values_cached_into};
 
 // ===========================================================================
@@ -114,7 +122,9 @@ pub struct FlashResult {
     pub y: Vec<f64>,
     /// Converged equilibrium ratios Kᵢ = yᵢ/xᵢ.
     pub k: Vec<f64>,
-    /// Number of outer (SS/GDEM) iterations taken.
+    /// Number of outer (SS/GDEM) iterations taken. An ordinary single-phase
+    /// exit reports 0; a result produced by the non-convergence stability
+    /// fallback reports at least the caller's `max_iter`.
     pub iterations: usize,
     /// `true` if the feed split into two phases; `false` if the flash
     /// resolved to a single phase (β clamped to 0 or 1).
@@ -471,9 +481,17 @@ fn gdem_trial(ln_k: &[f64], r: &[f64], gain: f64, trial: &mut [f64]) -> bool {
 /// `two_phase = false` and `β` clamped to 0 (liquid) or 1 (vapor) with
 /// `x = y = z`.
 ///
+/// If the successive-substitution loop exhausts `max_iter` on a cubic (φ-φ)
+/// system, a TPD stability test decides the outcome instead of returning the
+/// error straight away: a **stable** feed returns the single-phase result
+/// (with `iterations == max_iter`), an **unstable** one is re-flashed once
+/// from the stability test's trial-phase K. That fallback may spend up to
+/// ~10 × `max_iter` further iterations, and only after a failure. See `OPTIMIZATION_PLAN_PART1.md`
+/// §10 for the measurement behind this.
+///
 /// # Errors
 /// [`FlashError`] on dimension mismatch, thermodynamic failure, or
-/// non-convergence.
+/// non-convergence that the stability fallback could not resolve.
 pub fn flash_isothermal(
     spec: &SystemSpec,
     t: f64,
@@ -546,8 +564,119 @@ pub fn flash_isothermal_warm(
         }
     }
 
+    match ss_gdem(spec, &cache, t, p, z, &mut ws, warm_ok, tol, max_iter) {
+        // The loop ran out of iterations: ask the stability test before
+        // giving up (see `stability_fallback`).
+        Err(err @ FlashError::NoConvergence { .. }) => {
+            stability_fallback(spec, &cache, t, p, z, &ws, tol, max_iter).unwrap_or(Err(err))
+        }
+        other => other,
+    }
+}
+
+/// Iteration budget of the non-convergence fallback, as a multiple of the
+/// caller's `max_iter` — see [`stability_fallback`].
+const FALLBACK_ITER_FACTOR: usize = 10;
+
+/// What to do when the SS/GDEM loop exhausts `max_iter` — Step 0 of
+/// `OPTIMIZATION_NEXT_STEPS.md`, on the evidence of `OPTIMIZATION_PLAN_PART1.md`
+/// §10.
+///
+/// Near the critical locus the K-values of a feed that is in fact a single
+/// phase can drift toward 1 without Rachford–Rice ever losing its root, so the
+/// loop runs out of iterations instead of declaring "single phase". A TPD
+/// stability test (Ref (7)) answers the question the loop could not:
+///
+/// * **Stable**, with both trial phases converged → the single-phase answer.
+///   On the §10 hydrocarbon grid this is every failure point.
+/// * **Unstable** → the trial phase is a non-trivial K estimate; re-run the
+///   flash once from it and accept the result only if it is a genuine split.
+/// * Anything else (a non-cubic system, a trial that did not converge, a zero
+///   feed component, the retry failing) → `None`, and the caller returns the
+///   original `NoConvergence`. The fallback never manufactures an answer the
+///   stability test did not vouch for.
+///
+/// Costs nothing on the normal path: it runs only after a failure. The
+/// stability trials and the retry each get [`FALLBACK_ITER_FACTOR`] ×
+/// `max_iter` iterations, so a failing call can spend up to roughly that
+/// multiple of the caller's budget before it returns.
+///
+/// The single-phase label (β = 0 or 1) comes from the sign of the
+/// Rachford–Rice residual at β = 0 under the last iterate's K, the same rule
+/// as every other single-phase exit. Near the critical point "liquid" versus
+/// "vapor" is a convention, not a measurable distinction; x = y = z either
+/// way. The returned `iterations` is the full `max_iter` that was spent (plus
+/// the retry's iterations on the unstable branch), so a caller can tell this
+/// answer from an ordinary single-phase exit, which reports 0.
+///
+/// # References
+/// - (7) Michelsen (1982) Part I — stability analysis
+#[allow(clippy::too_many_arguments)]
+fn stability_fallback(
+    spec: &SystemSpec,
+    cache: &SystemTpCache,
+    t: f64,
+    p: f64,
+    z: &[f64],
+    ws: &FlashWorkspace,
+    tol: f64,
+    max_iter: usize,
+) -> Option<Result<FlashResult, FlashError>> {
+    // Stability needs every zᵢ > 0 (dᵢ = ln zᵢ); a feed with an absent
+    // component keeps the original error rather than a partial verdict.
+    if z.iter().any(|&zi| zi <= 0.0) {
+        return None;
+    }
+    // Near the critical locus both the TPD trials and the retried flash
+    // converge slowly: on the §10 grid two methane/n-pentane points needed
+    // > 200 trial iterations (and a 200-iteration trial *defaults* to
+    // "stable" — which would have been the wrong answer at both) and 351 /
+    // 833 flash iterations from the trial K.
+    let budget = max_iter.saturating_mul(FALLBACK_ITER_FACTOR);
+    // `Err` here is a non-cubic liquid model or a fugacity failure — either
+    // way there is no verdict to act on.
+    let (verdict, all_converged) = stability_cached(spec, cache, t, p, z, budget).ok()?;
+    match verdict {
+        Stability::Stable if all_converged => {
+            let mut res = single_phase(z, &ws.k);
+            res.iterations = max_iter;
+            Some(Ok(res))
+        }
+        Stability::Stable => None,
+        Stability::Unstable { trial_k, .. } => {
+            let mut retry = FlashWorkspace::new(z.len());
+            for (dst, &k) in retry.ln_k.iter_mut().zip(&trial_k) {
+                *dst = k.ln();
+            }
+            match ss_gdem(spec, cache, t, p, z, &mut retry, true, tol, budget) {
+                Ok(mut r) if r.two_phase => {
+                    r.iterations += max_iter;
+                    Some(Ok(r))
+                }
+                _ => None,
+            }
+        }
+    }
+}
+
+/// The GDEM-accelerated successive-substitution loop (§J), starting from the
+/// ln K already in `ws.ln_k`. `seeded_warm` says that iterate is a caller's
+/// K rather than Wilson's, which enables the iteration-0 Wilson re-seed.
+#[allow(clippy::too_many_arguments)]
+fn ss_gdem(
+    spec: &SystemSpec,
+    cache: &SystemTpCache,
+    t: f64,
+    p: f64,
+    z: &[f64],
+    ws: &mut FlashWorkspace,
+    seeded_warm: bool,
+    tol: f64,
+    max_iter: usize,
+) -> Result<FlashResult, FlashError> {
+    let n = z.len();
     // True while the iterate is still the caller's K (see the re-seed below).
-    let mut seeded_warm = warm_ok;
+    let mut seeded_warm = seeded_warm;
     let mut have_r_prev = false;
     // Residual recorded just before an accelerated step, so the *next*
     // iteration can tell whether the extrapolation actually helped.
@@ -589,7 +718,7 @@ pub fn flash_isothermal_warm(
 
         // Recompute K from the fugacity models — in log form, so the residual
         // below is a plain subtraction instead of a division and a logarithm.
-        ln_k_values_cached_into(spec, &cache, &ws.x, &ws.y, &mut ws.ln_k_new)?;
+        ln_k_values_cached_into(spec, cache, &ws.x, &ws.y, &mut ws.ln_k_new)?;
 
         // ln-K residual r = ln K_new − ln K.
         let mut resid = 0.0_f64;
@@ -969,5 +1098,161 @@ mod tests {
                 assert!((recombined - z[i]).abs() < 1e-8);
             }
         }
+    }
+
+    // -----------------------------------------------------------------
+    // Stability fallback on non-convergence (OPTIMIZATION_NEXT_STEPS Step 0).
+    // -----------------------------------------------------------------
+
+    /// Equimolar methane/n-pentane on PR, with the bundled database's
+    /// critical constants (copied here so the test needs no `component-db`).
+    fn methane_n_pentane_pr() -> Vec<Component> {
+        let c = |name: &str, tc, pc, omega| Component {
+            name: name.into(),
+            tc,
+            pc,
+            omega,
+            ..Component::default()
+        };
+        vec![
+            c("methane", 190.564, 4599.2, 0.01142),
+            c("n-pentane", 469.7, 3367.5, 0.251),
+        ]
+    }
+
+    fn pr_system(components: &[Component]) -> SystemSpec<'_> {
+        SystemSpec {
+            vapor: VaporModel::Cubic(CubicEos::PR1976),
+            liquid: LiquidModel::Cubic(CubicEos::PR1976),
+            ..rks_system(components)
+        }
+    }
+
+    /// Every point of the `examples/flash_stability_sweep.rs` 60 × 60 grid at
+    /// which this mixture's flash returned `NoConvergence` before the
+    /// fallback existed (T in K, P in kPa). All lie along the critical locus.
+    const METHANE_PENTANE_FAILURES: [(f64, f64); 22] = [
+        (195.7627, 5156.0458),
+        (256.7797, 14975.9797),
+        (279.6610, 17440.1137),
+        (287.2881, 17440.1137),
+        (294.9153, 17440.1137),
+        (302.5424, 17440.1137),
+        (310.1695, 17440.1137),
+        (317.7966, 17440.1137),
+        (325.4237, 17440.1137),
+        (333.0508, 17440.1137),
+        (340.6780, 17440.1137),
+        (348.3051, 17440.1137),
+        (371.1864, 14975.9797),
+        (378.8136, 14975.9797),
+        (394.0678, 12860.0061),
+        (401.6949, 12860.0061),
+        (409.3220, 11043.0009),
+        (416.9492, 11043.0009),
+        (424.5763, 9482.7225),
+        (439.8305, 8142.8976),
+        (447.4576, 6992.3781),
+        (462.7119, 4427.5421),
+    ];
+
+    /// The two failure points that are genuinely two-phase: a 200-iteration
+    /// TPD trial does not converge there and the public stability verdict
+    /// defaults to "stable" — so a fallback that trusted it would return a
+    /// wrong single-phase answer.
+    const NEAR_CRITICAL_SPLITS: [(f64, f64); 2] = [(409.3220, 11043.0009), (424.5763, 9482.7225)];
+
+    #[test]
+    fn non_convergence_points_now_resolve() {
+        let comps = methane_n_pentane_pr();
+        let spec = pr_system(&comps);
+        let z = [0.5, 0.5];
+        for &(t, p) in &METHANE_PENTANE_FAILURES {
+            let r = flash_isothermal(&spec, t, p, &z, 1e-10, 200)
+                .unwrap_or_else(|e| panic!("({t} K, {p} kPa) still fails: {e:?}"));
+            // Every answer came from the fallback, never from the main loop.
+            assert!(
+                r.iterations >= 200,
+                "({t}, {p}) iterations {}",
+                r.iterations
+            );
+            let split = NEAR_CRITICAL_SPLITS.contains(&(t, p));
+            assert_eq!(r.two_phase, split, "phase count at ({t} K, {p} kPa)");
+            if split {
+                // A genuine split: mass balance and isofugacity hold.
+                assert!(r.beta > 0.0 && r.beta < 1.0, "β={}", r.beta);
+                for i in 0..2 {
+                    let rec = r.beta * r.y[i] + (1.0 - r.beta) * r.x[i];
+                    assert!((rec - z[i]).abs() < 1e-8);
+                }
+                let k_check = k_values(&spec, t, p, &r.x, &r.y).unwrap();
+                for i in 0..2 {
+                    assert!((k_check[i] / r.k[i] - 1.0).abs() < 1e-6);
+                }
+            } else {
+                // A single phase the (converged) stability test vouches for.
+                assert!(r.beta == 0.0 || r.beta == 1.0);
+                assert_eq!(r.x, z.to_vec());
+                assert_eq!(r.y, z.to_vec());
+                let s =
+                    crate::flash::stability::stability_analysis(&spec, t, p, &z, 20_000).unwrap();
+                assert_eq!(s, Stability::Stable, "({t} K, {p} kPa)");
+            }
+        }
+    }
+
+    #[test]
+    fn fallback_does_not_trust_an_unconverged_stability_verdict() {
+        // At these two points `stability_analysis` with the flash's own
+        // 200-iteration budget says Stable only because its trials ran out;
+        // with room to converge it says Unstable. The fallback must agree
+        // with the converged verdict.
+        let comps = methane_n_pentane_pr();
+        let spec = pr_system(&comps);
+        for &(t, p) in &NEAR_CRITICAL_SPLITS {
+            let short = crate::flash::stability::stability_analysis(&spec, t, p, &[0.5, 0.5], 200);
+            assert_eq!(short.unwrap(), Stability::Stable, "premise at ({t}, {p})");
+            let long = crate::flash::stability::stability_analysis(&spec, t, p, &[0.5, 0.5], 2000);
+            assert!(matches!(long.unwrap(), Stability::Unstable { .. }));
+            assert!(
+                flash_isothermal(&spec, t, p, &[0.5, 0.5], 1e-10, 200)
+                    .unwrap()
+                    .two_phase
+            );
+        }
+    }
+
+    #[test]
+    fn fallback_keeps_the_error_where_stability_cannot_run() {
+        // γ-φ (non-cubic liquid): no TPD test is available, so a
+        // non-convergence stays a non-convergence. `max_iter = 1` forces it.
+        let comps = [n_butane(), n_heptane()];
+        let mut spec = rks_system(&comps);
+        spec.liquid = LiquidModel::IdealSolution;
+        spec.vapor = VaporModel::IdealGas;
+        assert!(matches!(
+            flash_isothermal(&spec, 360.0, 300.0, &[0.5, 0.5], 1e-12, 1),
+            Err(FlashError::NoConvergence { .. })
+        ));
+        // A zero feed component: the stability reference ln zᵢ is −∞, so
+        // there is no verdict to act on either.
+        let three = [n_butane(), n_heptane(), n_butane()];
+        let spec3 = pr_system(&three);
+        assert!(matches!(
+            flash_isothermal(&spec3, 420.0, 1000.0, &[0.5, 0.5, 0.0], 1e-12, 1),
+            Err(FlashError::NoConvergence { .. })
+        ));
+    }
+
+    #[test]
+    fn normal_path_results_are_unchanged() {
+        // The fallback runs only after `NoConvergence`: a converging flash
+        // reports the main loop's iteration count, well under the cap.
+        let comps = [n_butane(), n_heptane()];
+        let spec = rks_system(&comps);
+        let r = flash_isothermal(&spec, 420.0, 1000.0, &[0.5, 0.5], 1e-10, 200).unwrap();
+        assert!(r.two_phase && r.iterations < 200);
+        let r = flash_isothermal(&spec, 350.0, 20000.0, &[0.5, 0.5], 1e-10, 200).unwrap();
+        assert!(!r.two_phase && r.iterations == 0);
     }
 }
