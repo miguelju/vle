@@ -175,10 +175,35 @@ pub fn stability_analysis(
     // (audit Part 2 §1) — the trial loop is the engine's most
     // fugacity-intensive inner loop.
     let cache = SystemTpCache::new(spec, t, p)?;
+    Ok(stability_cached(spec, &cache, t, p, z, max_iter)?.0)
+}
+
+/// [`stability_analysis`] against a caller's (T, P) cache, also reporting
+/// whether **every** trial phase converged.
+///
+/// The public verdict counts a trial that hit `max_iter` as "no split found",
+/// which is the right default for a standalone test. A caller that is about to
+/// *act* on [`Stability::Stable`] — the flash's non-convergence fallback, which
+/// turns an error into a single-phase answer — needs to know the verdict was
+/// earned rather than defaulted, so the second element is `true` only when
+/// both trials reached their fixed point.
+///
+/// `t` (**K**) and `p` (**kPa absolute**) must be the state `cache` was built
+/// at; they seed the Wilson trial phases. The caller must already have
+/// validated `z` (length N, every zᵢ > 0).
+pub(crate) fn stability_cached(
+    spec: &SystemSpec,
+    cache: &SystemTpCache,
+    t: f64,
+    p: f64,
+    z: &[f64],
+    max_iter: usize,
+) -> Result<(Stability, bool), FlashError> {
+    let n = spec.n();
     let mut ws = TrialWorkspace::new(n);
     // Feed reference dᵢ = ln zᵢ + ln φᵢ(z).
     let mut d: WorkVec = smallvec::smallvec![0.0; n];
-    min_gibbs_ln_phi_cached_into(spec, &cache, z, &mut d)?;
+    min_gibbs_ln_phi_cached_into(spec, cache, z, &mut d)?;
     for i in 0..n {
         d[i] += z[i].ln();
     }
@@ -187,6 +212,7 @@ pub fn stability_analysis(
     // Vapor-like trial: Wᵢ = zᵢ·Kw ; liquid-like: Wᵢ = zᵢ/Kw.
     let mut seed: WorkVec = smallvec::smallvec![0.0; n];
     let mut best: Option<(f64, Vec<f64>)> = None;
+    let mut all_converged = true;
     for vapor_like in [true, false] {
         for i in 0..n {
             seed[i] = if vapor_like {
@@ -195,7 +221,8 @@ pub fn stability_analysis(
                 z[i] / kw[i]
             };
         }
-        let (tm, converged) = run_trial(spec, &cache, &d, &seed, max_iter, &mut ws)?;
+        let (tm, converged) = run_trial(spec, cache, &d, &seed, max_iter, &mut ws)?;
+        all_converged &= converged;
         let wn = &ws.wn;
         // Trivial solution: the trial collapsed back to the feed.
         let trivial = (0..n).all(|i| (wn[i] - z[i]).abs() < TRIVIAL_TOL);
@@ -208,10 +235,13 @@ pub fn stability_analysis(
         }
     }
 
-    Ok(match best {
-        Some((tpd, trial_k)) => Stability::Unstable { trial_k, tpd },
-        None => Stability::Stable,
-    })
+    Ok((
+        match best {
+            Some((tpd, trial_k)) => Stability::Unstable { trial_k, tpd },
+            None => Stability::Stable,
+        },
+        all_converged,
+    ))
 }
 
 #[cfg(test)]

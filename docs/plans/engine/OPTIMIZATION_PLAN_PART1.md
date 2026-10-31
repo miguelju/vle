@@ -582,9 +582,13 @@ it *would* help is the 55 grid points (0.25 %) where the flash fails to
 converge near the critical locus: stability says *stable* at every one, so a
 stability check **on flash failure** would turn those errors into correct
 single-phase answers at no cost on the normal path. That fallback is the
-recommendation; it is not implemented yet. Caveat: hydrocarbons with
+recommendation; it is not implemented yet. *(Shipped, unreleased, 2026-10-31 —
+§12, which also corrects this paragraph: at 2 of the failure points the
+"stable" verdict was an unconverged trial, and the points are two-phase.)* Caveat: hydrocarbons with
 classical mixing only — liquid–liquid-prone systems (water/hydrocarbon, γ-φ)
-were not swept, and that is where stability matters most.
+were not swept, and that is where stability matters most. *(Swept 2026-10-31,
+§12: on PR water/hydrocarbon the cold flash returns a wrong single-phase
+answer at 42 % of the grid.)*
 
 ---
 
@@ -635,6 +639,127 @@ realistic warm start pay is the simultaneous (n+1)-variable Newton, which
 converges composition quadratically. That stays the open follow-up, now with
 a measured reason. A downstream caller with its own Newton warm path should
 measure before replacing it with this one.
+
+## 12. Addendum (unreleased, 2026-10-31): stability fallback on non-convergence, and the liquid–liquid sweep
+
+Step 0 of [`OPTIMIZATION_NEXT_STEPS.md`](OPTIMIZATION_NEXT_STEPS.md) — the
+fallback §10 recommended — plus the liquid–liquid sweep §10 said was never
+done.
+
+**The harness.** The §10 sweep was a scratch harness that was never
+committed, so its "55 failures" could not be regenerated. Its replacement is
+[`engine/examples/flash_stability_sweep.rs`](../../../engine/examples/flash_stability_sweep.rs)
+(`cargo run --release --features component-db --example flash_stability_sweep`):
+the same 60 × 60 grid (150–600 K linear, 10–80 000 kPa log-spaced), PR,
+equimolar feeds, the bundled database's constants, six hydrocarbon mixtures
+(methane/ethane, methane/n-pentane, n-butane/n-heptane, C1/C3/nC5/nC7, a
+six-component C1–nC8, and the ten-component C3–nC10 without methane) plus four
+water/hydrocarbon mixtures. The mixtures are not §10's exact six, which were
+not recorded, so the counts differ (89 failures, not 55). The pattern is the
+same: on hydrocarbons the flash and the two-seed stability test agree at every
+converged point (0 missed splits, 0 spurious).
+
+**Correction to §10.** §10 says stability reports *stable* at every failure
+point. That was partly an artifact. `stability_analysis` counts a trial phase
+that hits `max_iter` as "no split found". At two of the 22 methane/n-pentane
+failures, (409.32 K, 11 043 kPa) and (424.58 K, 9 483 kPa), the 200-iteration
+trials do not converge. With 2 000 iterations they converge to TPD = −6.9·10⁻⁵
+and −2.6·10⁻⁶: **unstable**. Both points are genuine near-critical splits
+(β = 0.040 and 0.014). A fallback that trusted the 200-iteration verdict would
+have returned two wrong single-phase answers.
+
+**What shipped** (`flash/isothermal.rs::stability_fallback`, run only when the
+SS/GDEM loop returns `NoConvergence`):
+
+* The stability test runs with a budget of 10 × `max_iter` and reports whether
+  **both** trials converged (`stability::stability_cached`, crate-internal).
+* **Stable, both trials converged** → the single-phase result,
+  `iterations = max_iter`.
+* **Unstable** → one retry of the flash from the trial-phase K (same 10 ×
+  budget). The retry's result is accepted only if it is two-phase.
+* Anything else (a non-cubic liquid, an unconverged trial, a zero feed
+  component, a failed retry) → the original `NoConvergence`.
+
+The public `stability_analysis` signature and verdicts are unchanged.
+
+**Result, sweep** (before → after):
+
+| | flash failures | resolved single-phase | resolved two-phase | still failing |
+|---|---|---|---|---|
+| 6 hydrocarbon mixtures (21 600 points) | 89 | 87 | 2 | **0** |
+| 4 water/hydrocarbon mixtures (14 400 points) | 6 | 1 | 5 | **0** |
+
+**Result, cost.** The normal path is unchanged within noise (criterion,
+`--baseline` against `main` in the same session). `isothermal_n2…n8` moved
++0.8 / +1.8 / +0.3 / +0.4 %. `isothermal_warm_n2…n8` moved +1.3 / +1.4 /
+−0.4 / −1.3 %. `isothermal_flash_rks_binary` moved +1.1 % (p = 0.15),
+`adiabatic_pr_binary` −0.1 % and `free_water_pr_ternary` +1.2 %. All of these
+are inside the ±5 % build-to-build layout variance recorded in
+`SECOND_OPINION_TRIAL.md`. At a failure point, the call used to return an
+error after 46–57 µs. Now it returns a stable single-phase answer in 67–80 µs,
+or a recovered split in 238 µs (551 iterations) or 448 µs (1 033 iterations).
+
+**Tests** (`flash::isothermal::tests`). `non_convergence_points_now_resolve`
+covers all 22 methane/n-pentane failure points. The two splits are checked
+for mass balance and isofugacity. At the other 20 points, a 20 000-iteration
+stability test is asserted to agree with the single-phase answer.
+`fallback_does_not_trust_an_unconverged_stability_verdict` pins the
+correction above. `fallback_keeps_the_error_where_stability_cannot_run` covers
+γ-φ and a zero feed component. `normal_path_results_are_unchanged` checks
+that converging flashes report their own iteration counts. Two mutants were
+run: with the fallback removed, 2 tests fail; with an unconverged verdict
+trusted and the budget left at `max_iter`, 2 tests fail.
+
+**The liquid–liquid sweep — the open finding.** PR with kij(water–HC) = 0.5
+(0.3 for benzene) is the usual cubic-EOS treatment of the water/hydrocarbon
+immiscibility gap. The table below covers the points where the flash returned
+single phase. "Stability: unstable" is how many of those the two-seed test
+flags. "Restart splits" is how many converge to a two-phase split when the
+flash is restarted from the trial K.
+
+| Mixture (feed) | flash single-phase | stability: unstable | restart splits |
+|---|---|---|---|
+| water/n-hexane (50/50) | 3 600 of 3 600 | 1 888 | 1 515 |
+| water/n-decane (30/70) | 3 336 | 2 430 | 2 259 |
+| water/propane/n-heptane (30/35/35) | 3 031 | 1 261 | 1 045 |
+| water/benzene (50/50) | 3 600 of 3 600 | 1 950 | 1 290 |
+| **total** | 13 567 | **7 529** | **6 109** |
+
+So on these systems the cold flash returns a **wrong single-phase answer at
+6 109 of 14 400 grid points (42 %)**. The mechanism, checked at water/n-hexane,
+300 K, 100 kPa: Wilson K is below 1 for both components (0.05, 0.24).
+Rachford–Rice has no root at iteration 0, and the flash returns "liquid"
+before it evaluates a single fugacity. The true state there is two liquids.
+The flash restarted from the trial K converges in 8 iterations to a
+hexane-rich phase (x_w = 0.010) and a water-rich phase (x_w = 0.78). That
+split is reported as "liquid + vapor", because a two-phase flash only knows
+those two labels.
+
+This is the case §10's caveat anticipated. The fallback above does not help
+here, because the flash never fails: it returns an answer. Two more findings
+from the same sweep:
+
+* **250 points on water/propane/n-heptane** where the flash converges to a
+  split but the two-seed stability test says *stable*. That does not change
+  with 4 000 trial iterations, so it is not a budget artifact. Either the
+  Wilson seeds miss a split (the Part 1 audit's §7 multi-seed case), or the
+  flash's split is a stationary point with higher G than the feed. Not
+  diagnosed.
+* Much of this region is genuinely **three-phase** (VLLE). A two-phase answer
+  restarted from the trial K has lower G than the single-phase one, but it may
+  itself be unstable.
+
+**What this decides.** §10's measured case for keeping stability out of the
+hot path holds for hydrocarbons and fails for water/hydrocarbon. Multi-seed
+stability (audit §7) is needed: the 250 points are its direct evidence. A
+correct water/hydrocarbon answer also needs the flash to *consult* stability
+when it calls a feed single-phase, not just when it fails. That is the §10
+cost question, now with a measured case on each side. Doubling the
+single-phase cost of every hydrocarbon flash for zero benefit is the wrong
+trade. A plausible middle ground, which is unmeasured, is to run stability
+only on a single-phase exit from a system that contains a strongly
+non-ideal pair (e.g. any kij ≥ 0.2, or water present). γ-φ liquids cannot be
+swept at all: `stability_analysis` is cubic-only.
 
 ---
 

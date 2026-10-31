@@ -85,6 +85,12 @@ criterion = { version = "0.5", default-features = false, features = ["cargo_benc
 name = "engine_bench"
 harness = false
 
+# Flash-vs-stability grid sweep (OPTIMIZATION_PLAN_PART1 §10). Needs the
+# bundled component database, so a plain `cargo build --all-targets` skips it.
+[[example]]
+name = "flash_stability_sweep"
+required-features = ["component-db"]
+
 [features]
 default = []
 # Bundled Rust-side component database (M12.2, gap G3). Off by default so the

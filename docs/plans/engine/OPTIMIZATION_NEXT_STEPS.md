@@ -2,7 +2,9 @@
 
 *Drafted 2026-10-30 by Claude Code using Claude Opus 5.5, after v0.18.0.*
 
-**Status: proposed — nothing here is started.** This is an ordering of the
+**Status: in progress.** Step 0 is done (unreleased, 2026-10-31; recorded in
+Part 1 §12). Its liquid–liquid sweep added one open item to the inventory.
+Steps 1–3 are not started. This is an ordering of the
 optimization items that
 [`OPTIMIZATION_PLAN_PART1.md`](OPTIMIZATION_PLAN_PART1.md) (flash layer),
 [`OPTIMIZATION_PLAN_PART2.md`](OPTIMIZATION_PLAN_PART2.md) (mixture core) and
@@ -17,14 +19,16 @@ this file's status lines so it never claims more than the code does.
 
 | Item | Source | Kind |
 |---|---|---|
-| Stability check on flash non-convergence | Part 1 §10; ROADMAP M9.1 | correctness, measured, not built |
-| Liquid–liquid (water/HC, γ-φ) stability sweep | Part 1 §10 caveat | measurement |
+| ~~Stability check on flash non-convergence~~ | Part 1 §10, §12; ROADMAP M9.1 | **done** (Step 0) |
+| ~~Liquid–liquid (water/HC) stability sweep~~ | Part 1 §10 caveat, §12 | **done** (Step 0); γ-φ cannot be swept (stability is cubic-only) |
+| Stability on the single-phase exit for LL-prone systems | Part 1 §12 | correctness, measured (42 % wrong on PR water/HC), not built |
+| Public `stability_analysis` reports an unconverged trial as `Stable` | Part 1 §12 | correctness, API change |
 | Fixed-width dual (`DualSVec64<W>`) for WS/MHV `∂lnφ̂ᵢ/∂nⱼ` | Part 2 §6; `SECOND_OPINION_TRIAL.md` | performance, patch exists |
 | `MixtureScratch<'a, D>` instead of `SmallVec` for duals | Part 2 §7 | performance, same path as §6 |
 | Simultaneous (n+1)-variable Newton for bubble/dew T | Part 1 §8, §11; ROADMAP M9.1 | performance + warm-start payoff |
 | Newton on ln P for near-critical bubble/dew pressure | ROADMAP M9.1 | robustness/performance |
 | Full Newton finish on ln K for the isothermal flash | Part 1 §5, §6 | performance, unmeasured need |
-| Multi-seed stability analysis | Part 1 §7 | correctness (makes stability slower) |
+| Multi-seed stability analysis | Part 1 §7, §12 | correctness, now measured as needed (250 missed water/HC points) |
 | Analytic phase-envelope Jacobian | Part 1 §9 | performance |
 | Rayon batch writes straight into SoA output | Part 2 §10 | performance, needs a profile |
 | Flat `kij` storage | Part 2 §3 | parked: needs a 1.0 API break |
@@ -33,6 +37,16 @@ this file's status lines so it never claims more than the code does.
 ---
 
 ## Step 0: stability fallback on flash failure (small, correctness)
+
+**Done (unreleased, 2026-10-31)** — see Part 1 §12 for the numbers. In short:
+all 89 hydrocarbon and 6 water/hydrocarbon failures on the rebuilt sweep
+resolve. 2 of them are genuine near-critical splits: §10 had called them
+stable because their 200-iteration trials had not converged. The fallback
+therefore acts only on a *converged* stable verdict, and retries from the
+trial K when the verdict is unstable. Normal-path benches are within noise.
+The LL sweep found the bigger problem: wrong single-phase answers at 42 % of
+a PR water/hydrocarbon grid. That changes what comes next; see *After Step
+0* below. Original plan text follows.
 
 - When `flash_isothermal` returns non-convergence, run `stability_analysis`.
   If the feed is stable, return a single-phase result instead of the error.
@@ -47,6 +61,20 @@ this file's status lines so it never claims more than the code does.
 - **Done when:** the 55 failure points return single-phase answers in a test,
   the normal-path flash benchmarks are unchanged, and the LL sweep result is
   recorded in Part 1 §10.
+
+## After Step 0: the liquid–liquid finding (not yet sequenced)
+
+Step 0's sweep turned up a correctness gap bigger than the one it closed. The
+cold flash returns single phase at iteration 0 whenever Wilson K gives
+Rachford–Rice no root. On PR water/hydrocarbon that answer is wrong at 6 109
+of 14 400 grid points. The fix is the §10 cost question with a measured case
+on each side: stability on the single-phase exit costs about one extra flash
+and changes nothing on hydrocarbons. One candidate is a per-system trigger
+(water present, or any kij ≥ 0.2). It needs measuring. Multi-seed stability
+(Part 1 §7) belongs with it: two-seed stability misses 250 splits that the
+flash finds on water/propane/n-heptane. This is a correctness item, so it
+arguably goes before Step 1's performance work. **That ordering is the
+owner's call and is not decided here.**
 
 ## Step 1: Part 2 §6, fixed-width dual for WS/MHV composition derivatives
 
