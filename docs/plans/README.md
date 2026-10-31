@@ -42,6 +42,7 @@ ROADMAP → TODO → PLAN trio described in `CLAUDE.md`'s synchronization rules.
 | [`steam_audit.md`](engine/steam_audit.md) | 2026-07-25 | **audit** (external) | Delivered; two items adopted directly, the rest superseded by measuring the layer underneath | 13.8 |
 | [`PETROLEUM_PSEUDOCOMPONENT_PLAN.md`](engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) | 2026-07-25 | plan | **Upstream half executed and released (M18 in v0.14.0; M19 + M20 in v0.15.0, 2026-08-16).** §1.1 (blocker B1) shipped as Milestone 18 in **v0.14.0** — the N-scalable mixture core, measured linear to N = 300. §2's **U1 + U2 shipped as Milestone 19** (`engine/src/petroleum/`, unreleased) — assay → pseudocomponents, validated against Riazi (2005) Examples 3.2–3.5. §2's U4 + U5 (M20, refinery thermodynamics) not started | 18 – 20 |
 | [`SECOND_OPINION_TRIAL.md`](engine/SECOND_OPINION_TRIAL.md) | 2026-08-15 | **experiment** (external model) | **Run and graded.** Nothing merged — the engine is unchanged. Revises the *reason* `OPTIMIZATION_PLAN_PART2.md` §6 is deferred | — |
+| [`OPTIMIZATION_NEXT_STEPS.md`](engine/OPTIMIZATION_NEXT_STEPS.md) | 2026-10-30 | plan | **Proposed** — nothing started. Orders the open Part 1 / Part 2 / M9.1 items: stability fallback → Part 2 §6 dual → (n+1) Newton → profile-gated rest | — |
 
 ## Delivery & platforms
 

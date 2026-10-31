@@ -130,6 +130,12 @@ block assembly consuming three separate derivative paths. Each deserves its own
 change with its own tests. The envelope also has **no benchmark yet**, so
 deferring it is also "measure before rewriting".
 
+> **Correction, 2026-10-30: the envelope now has a benchmark.**
+> `envelope_pr_methane_ethane_40pts` (`engine/benches/engine_bench.rs`) was
+> added with Milestone 9.1 in v0.17.0. §9 can now be measured before and after.
+> It is still deferred. Ordering:
+> [`OPTIMIZATION_NEXT_STEPS.md`](OPTIMIZATION_NEXT_STEPS.md).
+
 ---
 
 ## 3. Two audit recommendations that benchmarked as regressions
