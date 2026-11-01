@@ -820,6 +820,106 @@ fn bench_mixture_core(c: &mut Criterion) {
 /// second-order Cp paths vs the plain value calls (targets in
 /// DERIVATIVE_RELEASE_PLAN.md §M12.5 — `k_values_with_derivs` ≤ a small
 /// multiple of `k_values`).
+/// Composition Jacobian ∂ln φ̂ᵢ/∂nⱼ across mixture sizes, for the two
+/// routes `d_ln_phi_d_n` takes: the hand-derived analytic form (classical
+/// mixing) and dual-number AD through the generic mixture path (the GE rules
+/// Wong-Sandler and MHV1). OPTIMIZATION_NEXT_STEPS Step 1 / Part 2 §6: the
+/// dual path's cost depends on how many derivative directions each pass
+/// carries, which only shows above n = 4, so the sizes run to 50.
+fn bench_dual_jacobian(c: &mut Criterion) {
+    use vle_thermo::activity::ActivityModel;
+    use vle_thermo::mixing::MixingRule;
+    use vle_thermo::mixture::{GeSpec, MixtureSpec, d_ln_phi_d_n};
+
+    let mut g = c.benchmark_group("dual_jacobian");
+    // n = 50 on the GE path is milliseconds per call; 20 samples is plenty
+    // against effects measured in multiples.
+    g.sample_size(20);
+
+    for n in [4usize, 8, 20, 50] {
+        // Pseudo-alkanes, the same family as `mixture_scaling`.
+        let comps: Vec<Component> = (0..n)
+            .map(|i| {
+                let f = 1.0 + 0.021 * i as f64;
+                Component {
+                    name: format!("pseudo{i}"),
+                    tc: 190.0 * f,
+                    pc: 4600.0 / f,
+                    omega: 0.011 + 0.006 * i as f64,
+                    psat_coeffs: vec![4.2, 900.0 * f, -8.0],
+                    liquid_volume: 37.9 * f,
+                    ..Component::default()
+                }
+            })
+            .collect();
+        let x: Vec<f64> = vec![1.0 / n as f64; n];
+        // Antisymmetric Wilson interaction energies in kJ/kmol, bounded so
+        // every Λᵢⱼ stays O(1) at every n.
+        let aij: Vec<Vec<f64>> = (0..n)
+            .map(|i| {
+                (0..n)
+                    .map(|j| 600.0 * ((j as f64 - i as f64) / n as f64))
+                    .collect()
+            })
+            .collect();
+        let vl: Vec<f64> = comps.iter().map(|c| c.liquid_volume).collect();
+        let ge = GeSpec {
+            model: ActivityModel::Wilson,
+            aij: &aij,
+            alpha: &[],
+            vl: &vl,
+            delta: &[],
+        };
+        let specs = [
+            (
+                "classical",
+                MixtureSpec {
+                    eos: CubicEos::PR1976,
+                    rule: MixingRule::Classical,
+                    components: &comps,
+                    kij: &[],
+                    ge: None,
+                },
+            ),
+            (
+                "wong_sandler",
+                MixtureSpec {
+                    eos: CubicEos::PR1976,
+                    rule: MixingRule::WongSandler,
+                    components: &comps,
+                    kij: &[],
+                    ge: Some(ge),
+                },
+            ),
+            (
+                "mhv1",
+                MixtureSpec {
+                    eos: CubicEos::PR1976,
+                    rule: MixingRule::MHV1,
+                    components: &comps,
+                    kij: &[],
+                    ge: Some(ge),
+                },
+            ),
+        ];
+        for (name, spec) in &specs {
+            g.bench_function(format!("{name}_n{n}"), |b| {
+                b.iter(|| {
+                    d_ln_phi_d_n(
+                        black_box(spec),
+                        300.0,
+                        1000.0,
+                        black_box(&x),
+                        PhaseId::Liquid,
+                    )
+                    .unwrap()
+                })
+            });
+        }
+    }
+    g.finish();
+}
+
 fn bench_derivatives(c: &mut Criterion) {
     use vle_thermo::energy::phase_cp;
     use vle_thermo::eos::{LiquidModel, VaporModel};
@@ -1301,6 +1401,7 @@ criterion_group!(
     bench_mixture_core,
     bench_mixture_scaling,
     bench_derivatives,
+    bench_dual_jacobian,
     bench_flash_solvers
 );
 criterion_main!(benches);

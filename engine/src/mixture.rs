@@ -1623,36 +1623,76 @@ pub fn d_ln_phi_d_n(
     if analytic {
         return d_ln_phi_d_n_classical(spec, t, p, x, phase);
     }
+    // Fixed-width multi-direction duals (OPTIMIZATION_PLAN_PART2 §6): each
+    // pass through the mixture algebra carries W derivative directions, so
+    // the Jacobian costs ⌈n/W⌉ passes instead of n. Widths by measurement
+    // (`dual_jacobian` benches, Part 2 §6): W = 4 is fastest at n ≤ 4 and
+    // W = 8 at every n measured above that (5, 6, 8, 20, 50). Wider is
+    // slower — W = 16 costs 1.6× and W = 32 3.1× W = 8 at n = 20 — so
+    // large mixtures take more 8-wide blocks, never a wider dual.
+    if x.len() <= 4 {
+        d_ln_phi_d_n_dual::<4>(spec, t, p, x, phase)
+    } else {
+        d_ln_phi_d_n_dual::<8>(spec, t, p, x, phase)
+    }
+}
+
+/// The dual-number route of [`d_ln_phi_d_n`]: columns in blocks of `W`.
+///
+/// `DualSVec64<W>` is a value plus a fixed-size array of `W` derivative
+/// parts. It is `Copy` and lives on the stack, so it satisfies the same
+/// `D: DualNum<f64> + Copy` bound as `Dual64`, and the generic mixture path
+/// runs unchanged — there is no second mixing implementation to keep in
+/// sync. A constant (T, P, every kᵢⱼ) carries *no* derivative array at all
+/// (num-dual stores it as `None`), so only composition-dependent arithmetic
+/// pays for the `W` lanes.
+///
+/// Seeding: for mole numbers nₖ with total S = Σn, the mole fractions are
+/// yₖ = nₖ/S and ∂yₖ/∂nⱼ = (δₖⱼ·S − nₖ)/S². Lane `l` of block `b` carries
+/// column j = b·W + l. lnφ̂ is intensive, so its derivative with respect to
+/// nⱼ at the given point is read straight off the lane.
+fn d_ln_phi_d_n_dual<const W: usize>(
+    spec: &MixtureSpec,
+    t: f64,
+    p: f64,
+    x: &[f64],
+    phase: PhaseId,
+) -> Result<Vec<Vec<f64>>, MixError> {
+    use nalgebra::{Const, SVector, U1};
+    use num_dual::{Derivative, DualSVec64};
+
     let n = x.len();
     let mut jac = vec![vec![0.0; n]; n];
-    // One dual sweep per column j: seed nⱼ with unit dual part. lnφ̂ is
-    // intensive (degree-0 in n), so evaluating with moles = x and reading
-    // the dual part gives ∂lnφ̂ᵢ/∂nⱼ at Σn = 1 directly. The generic path
-    // normalizes internally.
-    for j in 0..n {
-        let moles: Buf<num_dual::Dual64> = (0..n)
-            .map(|k| {
-                let mut d = num_dual::Dual64::from(x[k]);
-                if k == j {
-                    d.eps = 1.0;
-                }
-                d
-            })
-            .collect();
-        // Normalize to mole fractions in dual arithmetic (Σn carries a
-        // dual part too, which is what makes the projective/intensive
-        // correction happen automatically).
-        let mut total = num_dual::Dual64::from(0.0);
-        for m in &moles {
-            total += *m;
+    // T and P are constants here: only ∂/∂nⱼ is tracked.
+    let td = DualSVec64::<W>::from(t);
+    let pd = DualSVec64::<W>::from(p);
+    // `x` is treated as mole numbers and normalized, exactly as the
+    // single-direction path did — usually S = 1, but nothing assumes it.
+    let total: f64 = x.iter().sum();
+    let total2 = total * total;
+    let mut xd: Buf<DualSVec64<W>> = Buf::with_capacity(n);
+
+    for first in (0..n).step_by(W) {
+        // The last block may be partial; its unused lanes stay zero.
+        let cols = (n - first).min(W);
+        xd.clear();
+        for k in 0..n {
+            let mut eps = SVector::<f64, W>::zeros();
+            let off_diagonal = -x[k] / total2;
+            for lane in 0..cols {
+                eps[lane] = off_diagonal;
+            }
+            if (first..first + cols).contains(&k) {
+                eps[k - first] = (total - x[k]) / total2;
+            }
+            xd.push(DualSVec64::<W>::new(x[k] / total, Derivative::some(eps)));
         }
-        let xd: Buf<num_dual::Dual64> = moles.iter().map(|&m| m / total).collect();
-        // Composition carries the dual seed here; T and P are constants (real
-        // dual parts) so only ∂/∂nⱼ is tracked.
-        let (td, pd) = (num_dual::Dual64::from(t), num_dual::Dual64::from(p));
         let lnphi = ln_phi_all_generic(spec, td, pd, &xd, phase)?;
         for i in 0..n {
-            jac[i][j] = lnphi[i].eps;
+            let grad = lnphi[i].eps.unwrap_generic(Const::<W>, U1);
+            for lane in 0..cols {
+                jac[i][first + lane] = grad[lane];
+            }
         }
     }
     Ok(jac)
@@ -2555,6 +2595,134 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    /// The one-direction-per-column dual path that `d_ln_phi_d_n` used
+    /// before the fixed-width port (OPTIMIZATION_PLAN_PART2 §6): n passes,
+    /// each seeding one mole number. Exact, so it is the oracle for the
+    /// blocked path, which must agree to rounding and not merely to FD
+    /// accuracy.
+    fn jac_one_direction(
+        spec: &MixtureSpec,
+        t: f64,
+        p: f64,
+        x: &[f64],
+        phase: PhaseId,
+    ) -> Vec<Vec<f64>> {
+        use num_dual::Dual64;
+        let n = x.len();
+        let mut jac = vec![vec![0.0; n]; n];
+        for j in 0..n {
+            let moles: Vec<Dual64> = (0..n)
+                .map(|k| {
+                    let mut d = Dual64::from(x[k]);
+                    if k == j {
+                        d.eps = 1.0;
+                    }
+                    d
+                })
+                .collect();
+            let total = moles.iter().fold(Dual64::from(0.0), |acc, m| acc + *m);
+            let xd: Vec<Dual64> = moles.iter().map(|&m| m / total).collect();
+            let lnphi =
+                ln_phi_all_generic(spec, Dual64::from(t), Dual64::from(p), &xd, phase).unwrap();
+            for i in 0..n {
+                jac[i][j] = lnphi[i].eps;
+            }
+        }
+        jac
+    }
+
+    /// The blocked dual Jacobian must equal the one-direction oracle for
+    /// every block shape: a partial single block (3 < 4, 7 < 8), exactly
+    /// full (4, 8), and several blocks with a partial tail (11, 20). Also a
+    /// composition that does not sum to one, which the seed normalizes.
+    #[test]
+    fn blocked_dual_jacobian_matches_one_direction_path() {
+        for n in [3usize, 4, 7, 8, 11, 20] {
+            let comps = pseudo_components(n);
+            // Antisymmetric Wilson energies (kJ/kmol), Λ stays O(1).
+            let aij: Vec<Vec<f64>> = (0..n)
+                .map(|i| {
+                    (0..n)
+                        .map(|j| 600.0 * ((j as f64 - i as f64) / n as f64))
+                        .collect()
+                })
+                .collect();
+            let vl: Vec<f64> = comps.iter().map(|c| c.liquid_volume).collect();
+            let ge = GeSpec {
+                model: ActivityModel::Wilson,
+                aij: &aij,
+                alpha: &[],
+                vl: &vl,
+                delta: &[],
+            };
+            let weights: Vec<f64> = (1..=n).map(|k| k as f64).collect();
+            let total: f64 = weights.iter().sum();
+            let x: Vec<f64> = weights.iter().map(|w| w / total).collect();
+            // Same point, given as mole numbers summing to 2.
+            let x2: Vec<f64> = x.iter().map(|v| 2.0 * v).collect();
+            for rule in [MixingRule::WongSandler, MixingRule::MHV1, MixingRule::IIVDW] {
+                let spec = MixtureSpec {
+                    eos: CubicEos::PR1976,
+                    rule,
+                    components: &comps,
+                    kij: &[],
+                    ge: Some(ge),
+                };
+                for phase in [PhaseId::Liquid, PhaseId::Vapor] {
+                    for comp in [&x, &x2] {
+                        let got = d_ln_phi_d_n(&spec, 300.0, 1000.0, comp, phase).unwrap();
+                        let want = jac_one_direction(&spec, 300.0, 1000.0, comp, phase);
+                        assert_jac_close(&got, &want, 1e-12, &format!("{rule:?} n={n} {phase:?}"));
+                    }
+                }
+            }
+        }
+    }
+
+    /// The blocked path against the FD oracle at a size with a partial
+    /// tail block, so a seeding error cannot hide behind a shared oracle.
+    #[test]
+    fn blocked_dual_jacobian_matches_fd_at_eleven_components() {
+        let n = 11;
+        let comps = pseudo_components(n);
+        let aij: Vec<Vec<f64>> = (0..n)
+            .map(|i| {
+                (0..n)
+                    .map(|j| 600.0 * ((j as f64 - i as f64) / n as f64))
+                    .collect()
+            })
+            .collect();
+        let vl: Vec<f64> = comps.iter().map(|c| c.liquid_volume).collect();
+        let spec = MixtureSpec {
+            eos: CubicEos::PR1976,
+            rule: MixingRule::WongSandler,
+            components: &comps,
+            kij: &[],
+            ge: Some(GeSpec {
+                model: ActivityModel::Wilson,
+                aij: &aij,
+                alpha: &[],
+                vl: &vl,
+                delta: &[],
+            }),
+        };
+        let x = vec![1.0 / n as f64; n];
+        let got = d_ln_phi_d_n(&spec, 300.0, 1000.0, &x, PhaseId::Liquid).unwrap();
+        let fd = jac_fd(&spec, 300.0, 1000.0, &x, PhaseId::Liquid);
+        assert_jac_close(&got, &fd, 1e-5, "WS n=11 blocked-vs-fd");
+        // Symmetry holds for the exact Jacobian (Gibbs-Duhem).
+        for i in 0..n {
+            for j in 0..i {
+                assert!(
+                    (got[i][j] - got[j][i]).abs() < 1e-9 * got[i][j].abs().max(1.0),
+                    "symmetry [{i}][{j}]: {} vs {}",
+                    got[i][j],
+                    got[j][i]
+                );
+            }
+        }
     }
 
     /// The `kij = 0` collapse must reproduce the double loop, to the

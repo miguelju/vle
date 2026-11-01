@@ -306,7 +306,8 @@ pub fn k_values_with_derivs(spec: &SystemSpec, t: f64, p: f64, x: &[f64], y: &[f
   derivatives (closed form, `exp[V_L(P−Psat)/RT]`); vapor-side ∂lnφ̂ᵢⱽ from step 2;
   the explicit −ln P term for ∂/∂P.
 - Composition derivatives of K are deliberately **not** in `KValueDerivs` — they
-  already exist as `d_ln_phi_d_n` per phase and cost O(n) dual sweeps; callers
+  already exist as `d_ln_phi_d_n` per phase and cost O(n) dual sweeps (⌈n/8⌉ since
+  2026-10-31, `OPTIMIZATION_PLAN_PART2.md` §8); callers
   who need the full Jacobian block assemble it themselves. Document that in the
   doc comment with the assembly formula.
 - Optional-but-cheap: a `k_values_with_derivs_batch` numpy binding following the
