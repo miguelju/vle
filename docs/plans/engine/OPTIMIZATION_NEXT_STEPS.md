@@ -2,9 +2,9 @@
 
 *Drafted 2026-10-30 by Claude Code using Claude Opus 5.5, after v0.18.0.*
 
-**Status: in progress.** Step 0 is done (Part 1 §12) and so are the
-correctness findings it raised (Part 1 §13), both unreleased. Steps 1–3 are
-not started. **No release until every step is done** (owner's decision,
+**Status: in progress.** Step 0 is done (Part 1 §12), and so are the
+correctness findings it raised (Part 1 §13) and Step 1 (Part 2 §8). All
+three are unreleased. Steps 2–3 are not started. **No release until every step is done** (owner's decision,
 2026-10-31): see *Unreleased changes* at the end, which is the draft of the
 release notes. This is an ordering of the
 optimization items that
@@ -25,8 +25,8 @@ this file's status lines so it never claims more than the code does.
 | ~~Liquid–liquid (water/HC) stability sweep~~ | Part 1 §10 caveat, §12 | **done** (Step 0); γ-φ cannot be swept (stability is cubic-only) |
 | ~~Stability on the single-phase exit for LL-prone systems~~ | Part 1 §12, §13 | **done**: pure-component screen on every cubic single-phase exit; 6 109 → 31 wrong answers |
 | ~~Public `stability_analysis` reports an unconverged trial as `Stable`~~ | Part 1 §12, §13 | **done**: now `NoConvergence` (behaviour change, no signature change) |
-| Fixed-width dual (`DualSVec64<W>`) for WS/MHV `∂lnφ̂ᵢ/∂nⱼ` | Part 2 §6; `SECOND_OPINION_TRIAL.md` | performance, patch exists |
-| `MixtureScratch<'a, D>` instead of `SmallVec` for duals | Part 2 §7 | performance, same path as §6 |
+| ~~Fixed-width dual (`DualSVec64<W>`) for WS/MHV `∂lnφ̂ᵢ/∂nⱼ`~~ | Part 2 §6, §8; `SECOND_OPINION_TRIAL.md` | **done** (Step 1): 2.5× (n = 4) → 4.2× (n = 50) |
+| `MixtureScratch<'a, D>` instead of `SmallVec` for duals | Part 2 §7 | performance, same path as §6; no profile taken yet |
 | Simultaneous (n+1)-variable Newton for bubble/dew T | Part 1 §8, §11; ROADMAP M9.1 | performance + warm-start payoff |
 | Newton on ln P for near-critical bubble/dew pressure | ROADMAP M9.1 | robustness/performance |
 | Full Newton finish on ln K for the isothermal flash | Part 1 §5, §6 | performance, unmeasured need |
@@ -86,6 +86,16 @@ arguably goes before Step 1's performance work. **That ordering is the
 owner's call and is not decided here.**
 
 ## Step 1: Part 2 §6, fixed-width dual for WS/MHV composition derivatives
+
+**Done (unreleased, 2026-10-31)**: see Part 2 §8. Ported as
+`mixture::d_ln_phi_d_n_dual::<W>` with W = 4 for n ≤ 4 and W = 8 above,
+chosen by a width sweep. The patch's W = 16 / 32 buckets were 1.6× / 3.1×
+slower at n = 20. Wong-Sandler `d_ln_phi_d_n` runs 2.5× faster at n = 4, 4.0×
+at n = 8, 3.6× at n = 20 and 4.2× at n = 50, with MHV1 the same. It is still
+O(n³). Costs: the engine's release compile is +33 %; wasm size is unchanged.
+No in-tree flash calls `d_ln_phi_d_n` yet, so flash benches do not move.
+Step 2 is the first in-tree consumer. The §7 `MixtureScratch` follow-on stays
+open because no profile has been taken. Original plan text follows.
 
 - **Evidence:** Wong-Sandler `d_ln_phi_d_n` is ≈ 5.1× the analytic path
   (Part 2 §2). The trial patch built on `num_dual::DualSVec64<W>` needs no new
@@ -167,6 +177,12 @@ and `engine/README.md` when the optimization work is released.
 - **Behaviour change:** `stability_analysis` raises / returns
   `NoConvergence` when its trials are cut off before a verdict, instead of
   answering `Stable`. The Python `max_iter` default is now 1 000 (was 100).
+- **Faster composition Jacobian for GE mixing rules** (Part 2 §8).
+  `d_ln_phi_d_n` / `mixture_d_ln_phi_d_n` for Wong-Sandler, Huron-Vidal, MHV
+  and 3-parameter EOS now carry 4–8 derivative directions per pass. Measured
+  on Wong-Sandler and MHV1: 2.5×
+  faster at 4 components, 4.2× at 50. Results agree with the previous path to
+  1e-12.
 - **Costs, measured:** vapor single-phase flash exits ≈ 2–2.5× (+0.22–0.45 µs
   at n = 2–8), liquid exits +9–10 %, stable-feed stability 2–4.5×; two-phase
   flashes unchanged.

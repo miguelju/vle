@@ -804,7 +804,7 @@ fn gamma_phi_ln_k_into(
 /// The `k` field is bit-identical to [`k_values`] on the same inputs.
 ///
 /// Composition derivatives of K are intentionally not included: they follow
-/// from the per-phase `mixture::d_ln_phi_d_n` (an O(n) dual sweep each) as
+/// from the per-phase `mixture::d_ln_phi_d_n` (⌈n/8⌉ dual passes each) as
 /// `∂lnKᵢ/∂nⱼ = ∂lnφ̂ᵢᴸ/∂nⱼ|x − ∂lnφ̂ᵢⱽ/∂nⱼ|y`; callers that need the full
 /// Jacobian block assemble it from those.
 #[derive(Debug, Clone)]

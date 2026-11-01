@@ -771,8 +771,7 @@ lessons: [OPTIMIZATION_AUDIT_HISTORY.md](docs/plans/engine/OPTIMIZATION_AUDIT_HI
       `flash_pt_batch` 200 000 points at 0.29 µs/pt, NRTL γ-φ flash verified end to end
 
 ### Deferred (each its own change)
-- [ ] Audit P2 §6 — const-generic dual for composition derivatives (Wong-Sandler is 5.1×
-      the analytic path; largest remaining algorithmic win, highest accuracy risk)
+- [x] Audit P2 §6 — fixed-width dual for composition derivatives — `mixture::d_ln_phi_d_n_dual::<W>` (`num_dual::DualSVec64`, W = 4 for n ≤ 4, W = 8 above, chosen by a width sweep); Wong-Sandler/MHV1 `d_ln_phi_d_n` 2.5× faster at n = 4 → 4.2× at n = 50, still O(n³); only production caller is the Python binding — no in-tree flash uses it yet (`OPTIMIZATION_PLAN_PART2.md` §8)
 - [ ] Audit P2 §7 (`MixtureScratch`) and §10 (Rayon SoA batch output — profile first)
 - [ ] Audit P1 §6 — the §J Newton finish, as its own milestone with its own validation
 - [x] Audit P1 §7 — multi-seed stability (a correctness change, not a perf one) — `Seeds::WilsonThenPure`; the 250 water/propane/n-heptane two-seed misses → 0; stable-feed stability 2–4.5× slower (`OPTIMIZATION_PLAN_PART1.md` §13)

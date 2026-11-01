@@ -51,7 +51,7 @@ That is audit Part 2 §1, and it is where the work went.
 | 3 | Remove `Vec<Vec<f64>>` from hot matrices | **Partly executed** (virial, activity); rejected for `kij` |
 | 4 | Precompute `sqrt_ai` in classical mixing | **Executed** — but see §3, it was not the real cost |
 | 5 | Cache Wilson Λ / NRTL τ, G at fixed T | **Executed** |
-| 6 | Const-generic `DualN` for composition derivatives | **Deferred** |
+| 6 | Const-generic `DualN` for composition derivatives | **Executed 2026-10-31** (§8): `DualSVec64<W>`, 2.5–4.2× |
 | 7 | `MixtureScratch<'a, D>` instead of `SmallVec` for duals | **Deferred** |
 | 8 | Stack LU; stop inverting the Broyden Jacobian | **Rejected** |
 | 9 | Flatten + single-pass virial `Bᵢⱼ` | **Executed** |
@@ -155,6 +155,9 @@ GIL released, so the AoS→SoA transpose is not obviously dominant.
 >
 > Provenance and full numbers: [`SECOND_OPINION_TRIAL.md`](SECOND_OPINION_TRIAL.md).
 > Nothing is merged; `d_ln_phi_d_n` on `main` is unchanged.
+>
+> **Update, 2026-10-31 — §6 shipped (§8).** Ported with W = 4 / W = 8 chosen
+> by a width sweep at n = 4–50; 2.5× at n = 4 to 4.2× at n = 50.
 
 ---
 
@@ -314,11 +317,15 @@ In the order the evidence now supports:
    n = 4 and 3.6× for n = 20 *at the right `W`*, with no new dual arithmetic
    and no bound changes. The open work is choosing `W` per bucket **by
    measurement** and adding benchmarks above n = 8. See the correction note in
-   §2 and [`SECOND_OPINION_TRIAL.md`](SECOND_OPINION_TRIAL.md). Still unmerged.
+   §2 and [`SECOND_OPINION_TRIAL.md`](SECOND_OPINION_TRIAL.md).
+   **Done 2026-10-31 — see §8.** Widths chosen by measurement (W = 4 up to
+   n = 4, W = 8 above); 2.5× at n = 4 rising to 4.2× at n = 50.
 2. **§10 — batch SoA output.** Profile the batch path first.
 3. **§3 — flat `kij`.** Only worth it bundled with a deliberate 1.0 API break.
 4. **§2 — `Component` SoA.** Only if a post-§1 profile still shows it.
 5. **§7 — `MixtureScratch`.** Same trigger as §6; they are the same code path.
+   Still open after §8: no profile has been taken of the blocked dual path, so
+   there is no evidence yet that `SmallVec` is its cost.
 
 ---
 
@@ -512,6 +519,102 @@ through `flash/system.rs`'s five `&SystemTpCache` entry points** — not
 attempted here because the end-to-end measurement says there is nothing to
 recover yet. Do not do it on the strength of the microbench alone; measure the
 flash first.
+
+---
+
+## 8. Audit §6 shipped — fixed-width dual composition Jacobian
+
+*Executed 2026-10-31 by Claude Code using Claude Opus 5.5.
+`OPTIMIZATION_NEXT_STEPS.md` Step 1. Unreleased (no release until the
+optimization plan is done).*
+
+### What changed
+
+`mixture::d_ln_phi_d_n`'s dual route (every mixing rule except Classical/IVDW
+with a 2-parameter EOS) used one `Dual64` pass per Jacobian column: n passes
+through an O(n²) mixture/activity evaluation, so O(n³). It now runs
+`d_ln_phi_d_n_dual::<W>`, which seeds `W` columns per pass with
+`num_dual::DualSVec64<W>`: ⌈n/W⌉ passes. The generic mixture path is untouched;
+the seed is the analytic normalization derivative ∂yₖ/∂nⱼ = (δₖⱼS − nₖ)/S²,
+so a composition that does not sum to one is handled exactly as before. The
+analytic classical path is untouched.
+
+The trial patch ([`second-opinion/dualn-patch-as-tested.diff`](second-opinion/dualn-patch-as-tested.diff))
+no longer applied after Milestone 18, so this is a port of its idea, not the
+patch: it calls the existing `ln_phi_all_generic` per block rather than
+restructuring `pure_params` reuse, which kept the diff to one function.
+
+### Width, chosen by measurement
+
+`dual_jacobian/wong_sandler_n*` (new bench group, PR, Wilson GE, pseudo-alkanes,
+300 K / 1000 kPa), same session, each W forced in turn:
+
+| W | n = 4 | n = 5 | n = 6 | n = 8 | n = 20 | n = 50 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 2 | 1.00 µs | | | 3.76 µs | 40.4 µs | 540 µs |
+| 4 | **0.63 µs** | 1.29 µs | 1.54 µs | 2.06 µs | 20.8 µs | 264 µs |
+| 8 | 0.78 µs | **0.89 µs** | **1.05 µs** | **1.42 µs** | **15.5 µs** | **179 µs** |
+| 16 | 1.58 µs | | | 3.30 µs | 24.5 µs | 250 µs |
+| 32 | 5.31 µs | | | 11.8 µs | 47.4 µs | 465 µs |
+
+(The sweep ran through a temporary environment-variable switch, which adds a
+little to every cell; the table is for ranking widths, the result table below is
+the shipped code.) **Shipped: W = 4 for n ≤ 4, W = 8 for everything larger.**
+The second-opinion bucket table (W = 16 for 9–16, W = 32 for 17–32) is
+**rejected by measurement**: at n = 20, W = 16 is 1.6× and W = 32 3.1× slower
+than W = 8. Wider lanes never paid at any size measured; large mixtures take
+more 8-wide blocks.
+
+### Results — `dual_jacobian`, criterion against the pre-port baseline
+
+| bench | before | after | |
+|---|---:|---:|---|
+| `wong_sandler_n4` | 1.395 µs | 0.550 µs | **2.5×** |
+| `wong_sandler_n8` | 5.233 µs | 1.321 µs | **4.0×** |
+| `wong_sandler_n20` | 54.67 µs | 15.16 µs | **3.6×** |
+| `wong_sandler_n50` | 726.5 µs | 172.2 µs | **4.2×** |
+| `mhv1_n4` | 1.356 µs | 0.569 µs | 2.4× |
+| `mhv1_n8` | 5.246 µs | 1.361 µs | 3.9× |
+| `mhv1_n20` | 56.45 µs | 15.55 µs | 3.6× |
+| `mhv1_n50` | 737.7 µs | 177.5 µs | 4.2× |
+| `classical_n4…n50` (analytic, unchanged code) | | | −1.9…+1.2 %, p > 0.05 |
+
+**Complexity is still O(n³)** — the constant is ≈ 8× smaller per pass, not the
+exponent. The dual route is still 2.0× (n = 4) to 23× (n = 50) the analytic
+classical path. Closing that would take an analytic GE Jacobian, which nothing
+has measured a need for.
+
+### Costs
+
+- **Compile time:** release build of `vle-thermo` alone 3.9 → 5.3 s (+33 %,
+  two runs each side), from monomorphizing the mixture/activity path at two
+  extra widths.
+- **wasm / FFI binaries:** unchanged in size (1 008 105 bytes for
+  `vle_wasm.wasm`), because neither wrapper exposes `d_ln_phi_d_n`.
+
+### Reach
+
+`d_ln_phi_d_n`'s only production caller is the Python binding
+`mixture_d_ln_phi_d_n` (and the non-factorized fallback of
+`d_ln_phi_d_n_apply`). **No in-tree flash calls it today**, so no flash bench
+moves; the win reaches API consumers (a downstream Newton) now, and Step 2's
+simultaneous bubble/dew Newton later.
+
+### Verification
+
+- New tests: `blocked_dual_jacobian_matches_one_direction_path` (the old
+  per-column `Dual64` path kept as a test oracle, agreement to 1e-12, at
+  n = 3, 4, 7, 8, 11, 20 — partial, full and multi-block — for WS, MHV1 and
+  IIVDW, both phases, and a composition summing to 2) and
+  `blocked_dual_jacobian_matches_fd_at_eleven_components` (FD oracle plus
+  symmetry at a size with a partial tail block). The existing n = 2
+  dual-vs-FD tests could not see a block-layout error.
+- Mutants, each caught: off-diagonal seed dropped (4 tests fail), partial
+  tail block skipped (2 — only the new tests), lane offset wrong (2 — only
+  the new tests), normalization dropped (1).
+- `cargo test --workspace` green; Python 515 passed / 1 skipped against a fresh
+  wheel (includes `test_m8_mixture.py`'s `mixture_d_ln_phi_d_n` checks);
+  clippy `+1.99.1` clean with and without `component-db`.
 
 ---
 

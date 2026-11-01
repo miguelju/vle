@@ -816,10 +816,12 @@ Provenance and lessons: [`OPTIMIZATION_AUDIT_HISTORY.md`](docs/plans/engine/OPTI
         `unsafe` (principle already adopted in Part 1 without it)
   - [x] Result, cumulative with Part 1: isothermal flash **−24…−28 %**, stability
         **−44…−51 %**; 291 Rust tests + 450 Python tests green, Chapter IV intact
-- [ ] Deferred, each as its own change: audit Part 2 §6 (const-generic dual for
-      composition derivatives — Wong-Sandler is 5.1× the analytic path, the largest
-      remaining algorithmic win), §7, §10; and from Part 1 the §J Newton finish (§6),
-      multi-seed stability (§7), the analytic envelope Jacobian (§9 — benchmark first)
+- [x] Audit Part 2 §6 — fixed-width dual (`DualSVec64<W>`, W = 4 / 8 by measurement) for
+      composition derivatives: Wong-Sandler/MHV1 `d_ln_phi_d_n` 2.5× (n = 4) → 4.2× (n = 50)
+      faster, still O(n³); no in-tree flash calls it yet (`OPTIMIZATION_PLAN_PART2.md` §8).
+      Multi-seed stability (Part 1 §7) shipped too (Part 1 §13)
+- [ ] Deferred, each as its own change: audit Part 2 §7, §10; and from Part 1 the §J
+      Newton finish (§6), the analytic envelope Jacobian (§9 — benchmark first)
 
 ---
 
