@@ -91,6 +91,10 @@ harness = false
 name = "flash_stability_sweep"
 required-features = ["component-db"]
 
+[[example]]
+name = "saturation_warm_start"
+required-features = ["component-db"]
+
 [features]
 default = []
 # Bundled Rust-side component database (M12.2, gap G3). Off by default so the

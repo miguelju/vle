@@ -20,27 +20,23 @@
 //!   substitution loop on K. The update is Newton on `ln P` with the
 //!   Raoult-law slope `∂ln S/∂ln P ≈ −1` (bubble), so it needs no derivative
 //!   and already converges in tens of µs.
-//! - **Temperature** ([`solve_temperature`]) — **Newton on `1/T`** with the
-//!   exact `∂ln Kᵢ/∂T` from [`k_values_with_derivs`], updating the incipient
-//!   composition by one successive-substitution step per Newton step (see
-//!   [`newton_temperature`]). If that fails — an unsupported model pair, a
-//!   non-finite step, no convergence, or a collapse onto the trivial solution
-//!   `K ≡ 1` — it falls back to bisection on the pressure solver
-//!   ([`bisect_temperature`]), which is ~250× slower but converges wherever a
-//!   saturation pressure exists.
-//!
-//! What this is **not**: the fully simultaneous `(N+1)`-variable Newton on
-//! `{ln K, ln T}` of `MODERNIZATION_PLAN.md` §K. The Newton step here ignores
-//! `∂Kᵢ/∂(incipient composition)`, so the composition converges linearly
-//! (≈ 8 iterations on a 10-component SRK bubble point) rather than
-//! quadratically. The full simultaneous form already exists for phase-envelope
-//! tracing (`envelope.rs`) and is the remaining refinement here.
+//! - **Temperature** ([`solve_temperature`]) — Newton with the exact
+//!   `∂ln Kᵢ/∂T` (see [`newton_temperature`]). Far from the root, a Newton
+//!   step on `1/T` plus one successive-substitution step on the incipient
+//!   composition. Close to it — and where SS is slow — the fully simultaneous
+//!   `(N+1)`-variable Newton on `{ln K, ln T}` of `MODERNIZATION_PLAN.md` §K,
+//!   using the incipient phase's exact `∂ln φ̂ᵢ/∂nⱼ`, which converges
+//!   composition quadratically (`OPTIMIZATION_PLAN_PART1.md` §14). If Newton
+//!   fails — an unsupported model pair, a non-finite step, no convergence, or
+//!   a collapse onto the trivial solution `K ≡ 1` — it falls back to
+//!   bisection on the pressure solver ([`bisect_temperature`]), which is ~250×
+//!   slower but converges wherever a saturation pressure exists.
 
 use super::FlashError;
 use super::init::wilson_k_values;
-use super::system::{SystemSpec, k_values, k_values_with_derivs};
+use super::system::{SystemSpec, k_values, k_values_with_t_derivs};
 use crate::eos::{LiquidModel, PhaseId, VaporModel};
-use crate::mixture::z_mix;
+use crate::mixture::{d_ln_phi_d_n, z_mix};
 
 /// Which saturation point — selects the known phase and the sum condition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -541,13 +537,16 @@ fn wilson_temperature(spec: &SystemSpec, p: f64, known: &[f64], point: Point) ->
 /// (Clausius–Clapeyron), which makes `ln S` nearly linear too and Newton
 /// close to one-step accurate. Each iteration, at the current `(T, x, y)`:
 ///
-/// 1. evaluate `Kᵢ` and the exact `∂ln Kᵢ/∂T` ([`k_values_with_derivs`]);
+/// 1. evaluate `Kᵢ` and the exact `∂ln Kᵢ/∂T` (`k_values_with_t_derivs`);
 /// 2. form `wᵢ = Kᵢxᵢ` (bubble) or `wᵢ = yᵢ/Kᵢ` (dew) and `S = Σwᵢ`, so
 ///    `∂ln S/∂T = ±Σ wᵢ·∂ln Kᵢ/∂T / S` (`+` bubble, `−` dew);
 /// 3. replace the incipient composition by `wᵢ/S` (one successive-substitution
 ///    step);
 /// 4. take the Newton step `Δu = −ln S / (∂ln S/∂u)`, with
-///    `∂/∂u = −T²·∂/∂T`, limited to [`MAX_REL_STEP`].
+///    `∂/∂u = −T²·∂/∂T`, limited to [`MAX_REL_STEP`] —
+///
+/// or, replacing steps 3–4 once close to the root and where SS contracts
+/// slowly, the full simultaneous Newton step ([`newton_temperature_from`]).
 ///
 /// Converged when `|ln S| < tol` **and** the incipient composition moved less
 /// than `tol`, so the returned K belong to the returned composition.
@@ -572,10 +571,155 @@ pub(crate) fn newton_temperature(
     newton_temperature_from(spec, p, known, point, t0, &kw, tol, max_iter)
 }
 
-/// The Newton-on-`1/T` iteration of [`newton_temperature`] from a caller's
-/// starting point: temperature `t0` in **K** and K-values `k0` (which seed
-/// the incipient composition, `wᵢ ∝ Kᵢxᵢ` or `yᵢ/Kᵢ`). `p` in **kPa**.
-/// Returns `None` exactly when [`newton_temperature`] would.
+/// Residual level (`|ln S|` and the largest incipient-composition change)
+/// below which [`newton_temperature_from`] switches from the one-SS-step
+/// update to the full simultaneous Newton step. Chosen by measurement — see
+/// `OPTIMIZATION_PLAN_PART1.md` §14.
+const FULL_NEWTON_SWITCH: f64 = 1e-2;
+
+/// SS contraction ratio (this composition change ÷ the previous one) above
+/// which the full Newton step is worth its cost. A full step costs ≈ 1.7 SS
+/// iterations (it adds `d_ln_phi_d_n` and an (n+1)² LU solve to the K
+/// evaluation), so a solve whose SS already contracts faster than ≈ 0.07 per
+/// step finishes sooner on SS. Measured in `OPTIMIZATION_PLAN_PART1.md` §14.
+const FULL_NEWTON_MIN_RATIO: f64 = 0.1;
+
+/// Largest change in any `ln Kᵢ` one full Newton step may make; a larger
+/// step is scaled down as a whole (direction kept).
+const MAX_LN_K_STEP: f64 = 1.0;
+
+/// ∂ln φ̂ᵢ/∂nⱼ of the **incipient** phase at its composition `inc` — the only
+/// composition dependence of K that moves during a saturation-temperature
+/// solve (the known phase is fixed). Returns `None` when the model pair does
+/// not expose it, which keeps that solve on the one-SS-step update.
+///
+/// - Bubble (incipient vapor): ideal gas ⇒ zero; cubic ⇒ the mixture's exact
+///   Jacobian on the vapor root; virial ⇒ `None`.
+/// - Dew (incipient liquid): ideal solution ⇒ zero (γ ≡ 1 and the
+///   Psat/φˢᵃᵗ/Poynting terms are composition-free); cubic ⇒ the exact
+///   Jacobian on the liquid root; activity models and the refinery
+///   correlations ⇒ `None` (no ∂ln γ/∂x is exposed).
+///
+/// `t` in **K**, `p` in **kPa absolute**; the result is dimensionless.
+fn incipient_ln_phi_jacobian(
+    spec: &SystemSpec,
+    t: f64,
+    p: f64,
+    inc: &[f64],
+    point: Point,
+) -> Option<Vec<Vec<f64>>> {
+    let n = inc.len();
+    let zeros = || Some(vec![vec![0.0; n]; n]);
+    match point {
+        Point::Bubble => match spec.vapor {
+            VaporModel::IdealGas => zeros(),
+            VaporModel::Cubic(eos) => {
+                d_ln_phi_d_n(&spec.mixture_spec(eos), t, p, inc, PhaseId::Vapor).ok()
+            }
+            VaporModel::Virial => None,
+        },
+        Point::Dew => match spec.liquid {
+            LiquidModel::IdealSolution => zeros(),
+            LiquidModel::Cubic(eos) => {
+                d_ln_phi_d_n(&spec.mixture_spec(eos), t, p, inc, PhaseId::Liquid).ok()
+            }
+            _ => None,
+        },
+    }
+}
+
+/// One full Newton step on the (n+1) unknowns `{ln K₁…ln Kₙ, ln T}`
+/// (`MODERNIZATION_PLAN.md` §K; Michelsen & Mollerup (26) ch. 12).
+///
+/// With the incipient phase derived from the unknowns — bubble
+/// `yᵢ = Kᵢxᵢ/Σ Kx`, dew `xᵢ = (yᵢ/Kᵢ)/Σ y/K` — the equations are
+/// ```text
+///   Fᵢ    = ln Kᵢ − ln Kᵢᵐᵒᵈᵉˡ(T, x, y) = 0      i = 1…n
+///   Fₙ₊₁ = ln Σ Kᵢxᵢ  (bubble)   or   ln Σ yᵢ/Kᵢ  (dew)  = 0
+/// ```
+/// and, writing `Gᵢⱼ = ∂ln φ̂ᵢ/∂nⱼ` of the incipient phase at its normalized
+/// composition `ŵ` (ln φ̂ is intensive, so the mole-number derivative at
+/// total S is `G/S`, and `∂nⱼ/∂ln Kⱼ = ±nⱼ`):
+/// ```text
+///   ∂Fᵢ/∂ln Kⱼ   = δᵢⱼ + Gᵢⱼ·ŵⱼ                  (both points)
+///   ∂Fᵢ/∂ln T    = −T·∂ln Kᵢᵐᵒᵈᵉˡ/∂T
+///   ∂Fₙ₊₁/∂ln Kⱼ = +ŵⱼ (bubble), −ŵⱼ (dew);   ∂Fₙ₊₁/∂ln T = 0
+/// ```
+/// Returns `(Δln K, Δln T)`, already scaled by the step limits, or `None`
+/// if the system is singular or the step is not finite.
+#[allow(clippy::too_many_arguments)]
+fn full_newton_step(
+    point: Point,
+    t: f64,
+    ln_k: &[f64],
+    model_ln_k: &[f64],
+    d_ln_k_d_t: &[f64],
+    inc: &[f64],
+    ln_sum: f64,
+    jac_inc: &[Vec<f64>],
+) -> Option<(Vec<f64>, f64)> {
+    let n = ln_k.len();
+    let sign = match point {
+        Point::Bubble => 1.0,
+        Point::Dew => -1.0,
+    };
+    // `from_fn` fills the dense (n+1)×(n+1) matrix entry by entry; the last
+    // row/column is the sum equation / the ln T unknown.
+    let jac = nalgebra::DMatrix::from_fn(n + 1, n + 1, |r, c| match (r < n, c < n) {
+        (true, true) => f64::from(u8::from(r == c)) + jac_inc[r][c] * inc[c],
+        (true, false) => -t * d_ln_k_d_t[r],
+        (false, true) => sign * inc[c],
+        (false, false) => 0.0,
+    });
+    let rhs = nalgebra::DVector::from_fn(n + 1, |r, _| {
+        if r < n {
+            -(ln_k[r] - model_ln_k[r])
+        } else {
+            -ln_sum
+        }
+    });
+    let delta = jac.lu().solve(&rhs)?;
+    if delta.iter().any(|v| !v.is_finite()) {
+        return None;
+    }
+    // Scale the whole step so neither limit is exceeded; the direction is
+    // what Newton got right, only the length is distrusted far from the root.
+    let max_dlk = delta.rows(0, n).amax();
+    let dlt = delta[n];
+    let mut scale: f64 = 1.0;
+    if max_dlk > MAX_LN_K_STEP {
+        scale = scale.min(MAX_LN_K_STEP / max_dlk);
+    }
+    if dlt.abs() > MAX_REL_STEP {
+        scale = scale.min(MAX_REL_STEP / dlt.abs());
+    }
+    Some((
+        delta.rows(0, n).iter().map(|v| v * scale).collect(),
+        dlt * scale,
+    ))
+}
+
+/// The saturation-temperature Newton iteration of [`newton_temperature`]
+/// from a caller's starting point: temperature `t0` in **K** and K-values
+/// `k0` (which seed the incipient composition, `wᵢ ∝ Kᵢxᵢ` or `yᵢ/Kᵢ`). `p`
+/// in **kPa**. Returns `None` exactly when [`newton_temperature`] would.
+///
+/// Two update rules share one acceptance test:
+/// - **One-SS-step Newton on 1/T** (the v0.18.0 method, always available):
+///   `ln K ← ln Kᵐᵒᵈᵉˡ` and a Newton step in `u = 1/T` on `ln S`. Composition
+///   converges linearly.
+/// - **Full simultaneous Newton** on `{ln K, ln T}` ([`full_newton_step`]),
+///   once `|ln S|` and the composition change are both below
+///   [`FULL_NEWTON_SWITCH`] and the model pair exposes the incipient phase's
+///   composition Jacobian ([`incipient_ln_phi_jacobian`]). Converges
+///   quadratically, which is what lets a realistic warm start pay
+///   (`OPTIMIZATION_PLAN_PART1.md` §11, §14).
+///
+/// A full step that fails (singular, non-finite) or does not reduce the
+/// residual hands the rest of the solve back to the first rule. The
+/// acceptance test is the v0.18.0 one in both cases — `|ln S| < tol` and an
+/// SS composition change below `tol`, both evaluated with the model K — so
+/// the switch changes the path, never the answer it accepts.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn newton_temperature_from(
     spec: &SystemSpec,
@@ -587,22 +731,57 @@ pub(crate) fn newton_temperature_from(
     tol: f64,
     max_iter: usize,
 ) -> Option<SatPoint> {
-    let mut t = t0;
-    let mut incipient: Vec<f64> = known
-        .iter()
-        .zip(k0)
-        .map(|(&z, &k)| match point {
-            Point::Bubble => k * z,
-            Point::Dew => z / k,
-        })
-        .collect();
-    let s0: f64 = incipient.iter().sum();
-    if !s0.is_finite() || s0 <= 0.0 {
-        return None;
-    }
-    incipient.iter_mut().for_each(|v| *v /= s0);
+    temperature_iteration(spec, p, known, point, t0, k0, tol, max_iter, true).map(|(sp, _)| sp)
+}
 
-    for _ in 0..max_iter.max(1) {
+/// The loop behind [`newton_temperature_from`], also returning the number of
+/// K evaluations it took. `allow_full = false` pins it to the one-SS-step
+/// update — the v0.18.0 algorithm — which the tests use as the reference the
+/// full Newton step must agree with and beat.
+#[allow(clippy::too_many_arguments)]
+fn temperature_iteration(
+    spec: &SystemSpec,
+    p: f64,
+    known: &[f64],
+    point: Point,
+    t0: f64,
+    k0: &[f64],
+    tol: f64,
+    max_iter: usize,
+    allow_full: bool,
+) -> Option<(SatPoint, usize)> {
+    // `wᵢ` before normalization: Kᵢxᵢ (bubble) or yᵢ/Kᵢ (dew).
+    let weight = |k: f64, z: f64| match point {
+        Point::Bubble => k * z,
+        Point::Dew => z / k,
+    };
+    // The incipient phase implied by a set of K: normalized weights, plus
+    // the log of their sum (the saturation residual in the K unknowns).
+    let implied = |k: &[f64]| -> Option<(Vec<f64>, f64)> {
+        let mut w: Vec<f64> = k.iter().zip(known).map(|(&k, &z)| weight(k, z)).collect();
+        let s: f64 = w.iter().sum();
+        if !s.is_finite() || s <= 0.0 {
+            return None;
+        }
+        w.iter_mut().for_each(|v| *v /= s);
+        Some((w, s.ln()))
+    };
+
+    let mut t = t0;
+    let mut ln_k: Vec<f64> = k0.iter().map(|k| k.ln()).collect();
+    let (mut incipient, _) = implied(k0)?;
+    // Full Newton is tried only for model pairs that expose the incipient
+    // phase's composition Jacobian, and abandoned for good after a failure.
+    let mut full_newton = allow_full;
+    // Residual norm after the last full step, to check the next one reduced it.
+    let mut last_full_residual = f64::INFINITY;
+    // Previous SS composition change, for the contraction ratio; `None`
+    // before the first step (a caller's guess, or Wilson on a cold solve).
+    let mut prev_step: Option<f64> = None;
+    // Once a full step has been taken, the solve stays on full Newton.
+    let mut in_full = false;
+
+    for iter in 0..max_iter.max(1) {
         // (x, y) ordering for the K evaluation: the known phase is the
         // liquid for a bubble point and the vapor for a dew point.
         let (x, y) = match point {
@@ -611,13 +790,8 @@ pub(crate) fn newton_temperature_from(
         };
         // `.ok()?` turns any FlashError (including `Unsupported`) into a
         // `None` return — the signal to fall back to bisection.
-        let d = k_values_with_derivs(spec, t, p, x, y).ok()?;
+        let d = k_values_with_t_derivs(spec, t, p, x, y).ok()?;
 
-        // `wᵢ` before normalization: Kᵢxᵢ (bubble) or yᵢ/Kᵢ (dew).
-        let weight = |k: f64, z: f64| match point {
-            Point::Bubble => k * z,
-            Point::Dew => z / k,
-        };
         let (mut s, mut ds_dt) = (0.0, 0.0);
         // `zip` walks the three slices in lockstep — no index bounds checks.
         for ((&k, &z), &dlnk) in d.k.iter().zip(known).zip(&d.d_ln_k_d_t) {
@@ -635,27 +809,37 @@ pub(crate) fn newton_temperature_from(
             return None;
         }
 
+        // The SS composition this model K implies, and how far it is from
+        // the current one — the acceptance test's second half.
         let mut step = 0.0_f64;
-        for ((inc, &k), &z) in incipient.iter_mut().zip(&d.k).zip(known) {
-            let new = weight(k, z) / s;
-            step = step.max((new - *inc).abs());
-            *inc = new;
-        }
+        let ss_incipient: Vec<f64> =
+            d.k.iter()
+                .zip(known)
+                .zip(&incipient)
+                .map(|((&k, &z), &inc)| {
+                    let new = weight(k, z) / s;
+                    step = step.max((new - inc).abs());
+                    new
+                })
+                .collect();
 
         if ln_s.abs() < tol && step < tol {
             let max_ln_k = d.k.iter().fold(0.0_f64, |m, k| m.max(k.ln().abs()));
             // Trivial by K, or the two phases on one root (same density) —
             // see `is_trivial`. Either way, let the fallback decide.
             if max_ln_k < TRIVIAL_LN_K
-                || is_trivial(spec, t, p, known, &incipient, point).unwrap_or(true)
+                || is_trivial(spec, t, p, known, &ss_incipient, point).unwrap_or(true)
             {
                 return None;
             }
-            return Some(SatPoint {
-                var: t,
-                incipient,
-                k: d.k,
-            });
+            return Some((
+                SatPoint {
+                    var: t,
+                    incipient: ss_incipient,
+                    k: d.k,
+                },
+                iter + 1,
+            ));
         }
 
         // A saturation sum must rise with T at a bubble point and fall at a
@@ -667,6 +851,62 @@ pub(crate) fn newton_temperature_from(
         if wrong_sign {
             return None;
         }
+
+        // --- Full simultaneous Newton, when close enough and available. ---
+        // Slow SS (or no history yet: the first iteration from a guess) is
+        // where the quadratic step pays; fast SS finishes cheaper on its own.
+        let slow_ss = prev_step.is_none_or(|prev| step > FULL_NEWTON_MIN_RATIO * prev);
+        prev_step = Some(step);
+        // Below √tol the composition is one SS step from done, so a full
+        // step (≈ 1.7 SS steps of work) cannot pay for itself.
+        let worth_it = in_full || (slow_ss && step > tol.sqrt());
+        if full_newton && worth_it && ln_s.abs() < FULL_NEWTON_SWITCH && step < FULL_NEWTON_SWITCH {
+            let model_ln_k: Vec<f64> = d.k.iter().map(|k| k.ln()).collect();
+            let (_, ln_sum) = implied(&ln_k.iter().map(|v| v.exp()).collect::<Vec<_>>())?;
+            // Residual of the (n+1) equations at the current unknowns.
+            let residual = ln_k
+                .iter()
+                .zip(&model_ln_k)
+                .fold(ln_sum.abs(), |m, (a, b)| m.max((a - b).abs()));
+            let taken = (residual < last_full_residual)
+                .then(|| incipient_ln_phi_jacobian(spec, t, p, &incipient, point))
+                .flatten()
+                .and_then(|g| {
+                    full_newton_step(
+                        point,
+                        t,
+                        &ln_k,
+                        &model_ln_k,
+                        &d.d_ln_k_d_t,
+                        &incipient,
+                        ln_sum,
+                        &g,
+                    )
+                });
+            if let Some((dlk, dlt)) = taken {
+                for (v, dv) in ln_k.iter_mut().zip(&dlk) {
+                    *v += dv;
+                }
+                let t_new = t * dlt.exp();
+                let k_new: Vec<f64> = ln_k.iter().map(|v| v.exp()).collect();
+                if let (true, Some((inc, _))) = (t_new.is_finite() && t_new > 0.0, implied(&k_new))
+                {
+                    t = t_new;
+                    incipient = inc;
+                    last_full_residual = residual;
+                    in_full = true;
+                    continue;
+                }
+                return None;
+            }
+            // Declined (unsupported pair, singular, or the residual grew):
+            // finish on the one-SS-step update.
+            full_newton = false;
+        }
+
+        // --- One SS step on composition + Newton on u = 1/T. ---
+        incipient = ss_incipient;
+        ln_k = d.k.iter().map(|k| k.ln()).collect();
         let u = 1.0 / t;
         let dlns_du = -t * t * dlns_dt;
         let du = (-ln_s / dlns_du).clamp(-MAX_REL_STEP * u, MAX_REL_STEP * u);
@@ -1070,6 +1310,147 @@ mod tests {
             assert_newton_matches_bisection(&spec, p, &z, Point::Bubble);
             assert_newton_matches_bisection(&spec, p, &z, Point::Dew);
         }
+    }
+
+    /// Run [`temperature_iteration`] with and without the full Newton step
+    /// from the same start, and require the same answer. Returns the two
+    /// K-evaluation counts `(full, ss_only)`.
+    #[allow(clippy::too_many_arguments)]
+    fn full_vs_ss(
+        spec: &SystemSpec,
+        p: f64,
+        known: &[f64],
+        point: Point,
+        t0: f64,
+        k0: &[f64],
+    ) -> (usize, usize) {
+        let tol = 1e-10;
+        let (full, n_full) = temperature_iteration(spec, p, known, point, t0, k0, tol, 200, true)
+            .unwrap_or_else(|| panic!("full Newton declined {point:?} at p={p}"));
+        let (ss, n_ss) = temperature_iteration(spec, p, known, point, t0, k0, tol, 200, false)
+            .unwrap_or_else(|| panic!("SS-only declined {point:?} at p={p}"));
+        assert!(
+            (full.var - ss.var).abs() < 1e-7,
+            "{point:?} p={p}: full {} vs SS-only {}",
+            full.var,
+            ss.var
+        );
+        for (a, b) in full.incipient.iter().zip(&ss.incipient) {
+            assert!(
+                (a - b).abs() < 1e-7,
+                "{point:?} p={p}: incipient {a} vs {b}"
+            );
+        }
+        (n_full, n_ss)
+    }
+
+    /// Near the critical locus SS on composition contracts slowly, which is
+    /// where the simultaneous (n+1) Newton step pays: same answer, far fewer
+    /// K evaluations, cold (Wilson seed) and warm (answer nudged by 0.5 K and
+    /// 5 % on K). `OPTIMIZATION_PLAN_PART1.md` §14.
+    #[test]
+    fn full_newton_cuts_iterations_near_critical_and_agrees() {
+        let (me, _) = near_critical_pairs();
+        let spec = pr_spec(&me, &[]);
+        let z = [0.5, 0.5];
+        for (p, point) in [
+            (5500.0, Point::Bubble),
+            (5500.0, Point::Dew),
+            (6000.0, Point::Bubble),
+        ] {
+            let t0 = wilson_temperature(&spec, p, &z, point).unwrap();
+            let kw = wilson_k_init(&spec, t0, p);
+            let (cold_full, cold_ss) = full_vs_ss(&spec, p, &z, point, t0, &kw);
+            assert!(
+                2 * cold_full <= cold_ss,
+                "{point:?} {p} kPa cold: full {cold_full} vs SS-only {cold_ss} evaluations"
+            );
+            let ans = newton_temperature(&spec, p, &z, point, 1e-10, 200).unwrap();
+            let k_near: Vec<f64> = ans.k.iter().map(|k| k * 1.05).collect();
+            let (warm_full, warm_ss) = full_vs_ss(&spec, p, &z, point, ans.var + 0.5, &k_near);
+            assert!(
+                2 * warm_full <= warm_ss,
+                "{point:?} {p} kPa warm: full {warm_full} vs SS-only {warm_ss} evaluations"
+            );
+        }
+    }
+
+    /// Every model pair the full step supports agrees with the SS-only
+    /// reference, and never takes more K evaluations from a warm guess —
+    /// φ-φ RKS binary, close-boiling, and a γ-φ bubble point (ideal-gas
+    /// vapor, so the incipient Jacobian is zero). On the φ-φ binary it must
+    /// also be *quadratic*: 3 evaluations from a 0.5 K / 5 % guess (SS-only
+    /// takes 5–7). A wrong Jacobian still converges — the acceptance test is
+    /// the SS one — but needs 4–6, so this is what catches it.
+    #[test]
+    fn full_newton_agrees_with_ss_only_across_model_pairs() {
+        let butane_heptane = [
+            comp("n-butane", 425.12, 3796.0, 0.200),
+            comp("n-heptane", 540.2, 2740.0, 0.350),
+        ];
+        let benzene_chx = [
+            comp("benzene", 562.02, 4907.277, 0.211),
+            comp("cyclohexane", 553.6, 4080.5, 0.2096),
+        ];
+        let mw = methanol_water();
+        let aij = vec![vec![0.0, 0.5853], vec![0.3458, 0.0]];
+        let gamma_phi = SystemSpec {
+            vapor: VaporModel::IdealGas,
+            liquid: LiquidModel::Activity(ActivityModel::VanLaar),
+            aij: &aij,
+            ..rks(&mw)
+        };
+        let cases: [(SystemSpec, f64, &[Point], usize); 3] = [
+            (
+                rks(&butane_heptane),
+                1000.0,
+                &[Point::Bubble, Point::Dew],
+                3,
+            ),
+            (
+                rks(&benzene_chx),
+                101.325,
+                &[Point::Bubble, Point::Dew],
+                200,
+            ),
+            (gamma_phi, 101.325, &[Point::Bubble], 200),
+        ];
+        for (spec, p, points, max_full) in &cases {
+            for &point in *points {
+                for x1 in [0.1, 0.5, 0.9] {
+                    let z = [x1, 1.0 - x1];
+                    let ans = newton_temperature(spec, *p, &z, point, 1e-10, 200).unwrap();
+                    let k_near: Vec<f64> = ans.k.iter().map(|k| k * 1.05).collect();
+                    let (full, ss) = full_vs_ss(spec, *p, &z, point, ans.var + 0.5, &k_near);
+                    assert!(full <= ss, "{point:?} z={z:?}: full {full} > SS-only {ss}");
+                    assert!(
+                        full <= *max_full,
+                        "{point:?} z={z:?}: {full} evaluations, quadratic needs ≤ {max_full}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// A model pair with no incipient composition Jacobian (γ-φ dew point:
+    /// no ∂ln γ/∂x is exposed) must run the SS-only update unchanged —
+    /// identical iteration count and answer.
+    #[test]
+    fn full_newton_is_skipped_where_no_composition_jacobian_exists() {
+        let mw = methanol_water();
+        let aij = vec![vec![0.0, 0.5853], vec![0.3458, 0.0]];
+        let spec = SystemSpec {
+            vapor: VaporModel::IdealGas,
+            liquid: LiquidModel::Activity(ActivityModel::VanLaar),
+            aij: &aij,
+            ..rks(&mw)
+        };
+        let z = [0.4, 0.6];
+        assert!(incipient_ln_phi_jacobian(&spec, 350.0, 101.325, &z, Point::Dew).is_none());
+        let ans = newton_temperature(&spec, 101.325, &z, Point::Dew, 1e-10, 200).unwrap();
+        let k_near: Vec<f64> = ans.k.iter().map(|k| k * 1.05).collect();
+        let (full, ss) = full_vs_ss(&spec, 101.325, &z, Point::Dew, ans.var + 0.5, &k_near);
+        assert_eq!(full, ss);
     }
 
     /// Warm-started solve ≡ cold solve, from a near guess (the cold answer
