@@ -1480,20 +1480,23 @@ pub fn ln_phi_mix_min_gibbs_cached_into(
         &mut ws.params,
         &mut ws.scratch,
     )?;
-    min_gibbs_from_params(&ws.params, x, out)
+    min_gibbs_from_params(&ws.params, x, out).map(|_| ())
 }
 
-/// Shared tail of the two min-Gibbs entry points: evaluate both cubic roots
-/// against one mixture state and keep the lower-Gibbs one.
+/// Shared tail of the min-Gibbs entry points: evaluate both cubic roots
+/// against one mixture state and keep the lower-Gibbs one. Returns which root
+/// won, so a caller that needs derivatives of the same ln φ̂ (the phase
+/// envelope's analytic Jacobian) can evaluate them on that root.
 fn min_gibbs_from_params(
     pars: &MixtureParams<f64>,
     x: &[f64],
     out: &mut [f64],
-) -> Result<(), MixError> {
+) -> Result<PhaseId, MixError> {
     let n = x.len();
     let mut trial: Buf<f64> = smallvec::smallvec![0.0; n];
     let mut best_g = f64::INFINITY;
     let mut found = false;
+    let mut best_phase = PhaseId::Liquid;
     let mut last_err: Option<MixError> = None;
     for phase in [PhaseId::Liquid, PhaseId::Vapor] {
         match z_mix_generic::<f64>(pars, phase) {
@@ -1509,13 +1512,14 @@ fn min_gibbs_from_params(
                     best_g = g;
                     out.copy_from_slice(&trial);
                     found = true;
+                    best_phase = phase;
                 }
             }
             Err(e) => last_err = Some(e),
         }
     }
     if found {
-        Ok(())
+        Ok(best_phase)
     } else {
         Err(last_err.unwrap_or(MixError::NoRootForPhase {
             phase: PhaseId::Liquid,
@@ -1589,6 +1593,29 @@ pub fn ln_phi_mix_min_gibbs_into(
     x: &[f64],
     out: &mut [f64],
 ) -> Result<(), MixError> {
+    let n = x.len();
+    if out.len() != n {
+        return Err(MixError::Dimension(format!(
+            "out.len()={} but composition.len()={n}",
+            out.len()
+        )));
+    }
+    ln_phi_mix_min_gibbs_root_into(spec, t, p, x, out).map(|_| ())
+}
+
+/// [`ln_phi_mix_min_gibbs_into`] that also reports **which** cubic root won
+/// (`PhaseId::Liquid` or `PhaseId::Vapor`). Same arguments, units and errors.
+///
+/// The phase-envelope corrector needs this: its analytic Jacobian
+/// differentiates exactly the ln φ̂ the residual used, so it must evaluate
+/// the T, P and composition derivatives on the same root.
+pub(crate) fn ln_phi_mix_min_gibbs_root_into(
+    spec: &MixtureSpec,
+    t: f64,
+    p: f64,
+    x: &[f64],
+    out: &mut [f64],
+) -> Result<PhaseId, MixError> {
     let n = x.len();
     if out.len() != n {
         return Err(MixError::Dimension(format!(
@@ -2019,6 +2046,45 @@ pub fn d_ln_phi_d_p(
     let xd: Buf<Dual64> = x.iter().map(|&xi| Dual64::from(xi)).collect();
     let lnphi = ln_phi_all_generic(spec, td, pd, &xd, phase)?;
     Ok(lnphi.iter().map(|v| v.eps).collect())
+}
+
+/// ∂ln φ̂ᵢ/∂T and ∂ln φ̂ᵢ/∂P together, in **one** generic evaluation.
+///
+/// Same values as [`d_ln_phi_d_t`] and [`d_ln_phi_d_p`], but T and P are
+/// seeded as the two lanes of one `DualSVec64<2>` (a value plus a 2-element
+/// derivative array), so the mixture path — pure parameters, the mixing
+/// rule's n² sum, the cubic root — runs once instead of twice. Composition
+/// is a constant and carries no derivative lanes.
+///
+/// # Arguments
+/// * `t` — Temperature in **K**; `p` — pressure in **kPa absolute**.
+/// * `x` — Phase mole fractions (length N), held fixed.
+/// * `phase` — Which Z root the phase uses.
+///
+/// # Returns
+/// `(∂ln φ̂/∂T in 1/K, ∂ln φ̂/∂P in 1/kPa)`, one entry per component.
+pub(crate) fn d_ln_phi_d_tp(
+    spec: &MixtureSpec,
+    t: f64,
+    p: f64,
+    x: &[f64],
+    phase: PhaseId,
+) -> Result<(Vec<f64>, Vec<f64>), MixError> {
+    use nalgebra::{Const, SVector, U1};
+    use num_dual::{Derivative, DualSVec64};
+    // Lane 0 carries d/dT, lane 1 carries d/dP.
+    let td = DualSVec64::<2>::new(t, Derivative::some(SVector::from([1.0, 0.0])));
+    let pd = DualSVec64::<2>::new(p, Derivative::some(SVector::from([0.0, 1.0])));
+    let xd: Buf<DualSVec64<2>> = x.iter().map(|&xi| DualSVec64::<2>::from(xi)).collect();
+    let lnphi = ln_phi_all_generic(spec, td, pd, &xd, phase)?;
+    let mut dt = Vec::with_capacity(x.len());
+    let mut dp = Vec::with_capacity(x.len());
+    for v in &lnphi {
+        let grad = v.eps.unwrap_generic(Const::<2>, U1);
+        dt.push(grad[0]);
+        dp.push(grad[1]);
+    }
+    Ok((dt, dp))
 }
 
 /// Residual (departure) isobaric heat capacity `Cp^R` of one phase, in
@@ -2676,6 +2742,53 @@ mod tests {
                         let want = jac_one_direction(&spec, 300.0, 1000.0, comp, phase);
                         assert_jac_close(&got, &want, 1e-12, &format!("{rule:?} n={n} {phase:?}"));
                     }
+                }
+            }
+        }
+    }
+
+    /// The two-lane T/P dual must reproduce the single-lane ∂/∂T and ∂/∂P
+    /// passes — classical (analytic-adjacent) and a GE rule, both roots.
+    #[test]
+    fn d_ln_phi_d_tp_matches_single_lane_passes() {
+        let n = 5;
+        let comps = pseudo_components(n);
+        let aij: Vec<Vec<f64>> = (0..n)
+            .map(|i| {
+                (0..n)
+                    .map(|j| 500.0 * ((j as f64 - i as f64) / n as f64))
+                    .collect()
+            })
+            .collect();
+        let vl: Vec<f64> = comps.iter().map(|c| c.liquid_volume).collect();
+        let x: Vec<f64> = (1..=n).map(|k| k as f64 / 15.0).collect();
+        for (rule, ge) in [
+            (MixingRule::Classical, None),
+            (
+                MixingRule::WongSandler,
+                Some(GeSpec {
+                    model: ActivityModel::Wilson,
+                    aij: &aij,
+                    alpha: &[],
+                    vl: &vl,
+                    delta: &[],
+                }),
+            ),
+        ] {
+            let spec = MixtureSpec {
+                eos: CubicEos::PR1976,
+                rule,
+                components: &comps,
+                kij: &[],
+                ge,
+            };
+            for phase in [PhaseId::Liquid, PhaseId::Vapor] {
+                let (dt, dp) = d_ln_phi_d_tp(&spec, 250.0, 2000.0, &x, phase).unwrap();
+                let want_t = d_ln_phi_d_t(&spec, 250.0, 2000.0, &x, phase).unwrap();
+                let want_p = d_ln_phi_d_p(&spec, 250.0, 2000.0, &x, phase).unwrap();
+                for i in 0..n {
+                    assert!((dt[i] - want_t[i]).abs() <= 1e-12 * want_t[i].abs().max(1e-6));
+                    assert!((dp[i] - want_p[i]).abs() <= 1e-12 * want_p[i].abs().max(1e-9));
                 }
             }
         }

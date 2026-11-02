@@ -68,7 +68,7 @@ audit files under **Part 2** §1/§3/§4. A 2× flash speedup is a Part 2 outcom
 | 6 | Full Newton finish | **Deferred** | not shipped |
 | 7 | Stability rewrite | **Split**: buffers + numerics executed, multi-seed deferred | partly shipped |
 | 8 | `min_gibbs_ln_phi` shares one mixture state | **Executed**, modified | shipped |
-| 9 | Analytic envelope Jacobian | **Deferred** | not shipped |
+| 9 | Analytic envelope Jacobian | **Deferred**, then **executed** 2026-11-01 (§15) | shipped (unreleased): 1.8× (n = 2) → 3.7× (n = 10) |
 
 ### Where this plan departs from the audit, and why
 
@@ -323,7 +323,8 @@ Carried forward, in the order the evidence supports:
    remaining lever and the reason `k_values` still holds ~70 % of the flash.
 2. Part 2 §3/§4 — flatten `Vec<Vec<f64>>` matrices, hoist `sqrt(Aᵢ)`.
 3. Part 2 §5 — cache Wilson Λᵢⱼ and NRTL τᵢⱼ/Gᵢⱼ at fixed T.
-4. Part 1 §9 — analytic envelope Jacobian (benchmark it first).
+4. Part 1 §9 — analytic envelope Jacobian (benchmark it first). **Done
+   2026-11-01, §15.**
 5. Part 1 §6 — the Newton finish, as its own milestone.
 6. Part 1 §7 — multi-seed stability, as a correctness change.
 
@@ -1056,6 +1057,95 @@ gone: warm is now 0.60–0.65× cold at every size.
 - **Allocation:** the full step allocates its (n+1)² matrix and the
   `d_ln_phi_d_n` rows per iteration. The 11×11 LU costs 0.32 µs at n = 10,
   so this is not the floor.
+
+---
+
+## 15. Addendum (unreleased, 2026-11-01): the analytic envelope Jacobian (audit §9)
+
+`OPTIMIZATION_NEXT_STEPS.md` Step 3. §2 deferred audit §9 until the envelope
+had a benchmark; it has had one since v0.17.0, so this is the measured
+version.
+
+### What changed
+
+`flash/envelope.rs` solved its `(n+2)×(n+2)` corrector and tangent systems
+with a **forward-difference** Jacobian: n+2 further residuals per Newton
+iteration, each residual two min-Gibbs ln φ̂ evaluations (incipient `w̄` and
+bulk `z`). It is now exact, on the same variables
+`X = (ln K…, ln T, ln P)`:
+
+```text
+  ∂gᵢ/∂ln Kⱼ = δᵢⱼ + Gᵢⱼ·w̄ⱼ                 G = ∂ln φ̂/∂n of the incipient phase
+  ∂gᵢ/∂ln T  = T·(∂ln φ̂ᵢʷ/∂T − ∂ln φ̂ᵢᶻ/∂T)
+  ∂gᵢ/∂ln P  = P·(∂ln φ̂ᵢʷ/∂P − ∂ln φ̂ᵢᶻ/∂P)
+  ∂gₙ₊₁/∂ln Kⱼ = zⱼKⱼ,   ∂gₙ₊₂/∂Xₖ = δₖ,ₛ
+```
+
+The K block is the §14 identity. Three pieces were needed:
+
+- **The root.** The residual uses whichever cubic root has the lower Gibbs
+  energy, so the derivatives must be taken on that root. The shared min-Gibbs
+  tail (`mixture::min_gibbs_from_params`) now returns the winning `PhaseId`.
+  A crate-internal `ln_phi_mix_min_gibbs_root_into` /
+  `flash::system::min_gibbs_ln_phi_root_into` expose it. The public
+  `_into` functions are unchanged.
+- **T and P in one pass.** A crate-internal `mixture::d_ln_phi_d_tp` seeds T
+  and P as the two lanes of one `DualSVec64<2>`, so the mixture path runs
+  once per phase instead of twice.
+- **G** is the existing `d_ln_phi_d_n`: analytic for classical mixing, the
+  Part 2 §8 fixed-width duals for GE rules.
+
+Per iteration the Jacobian is now 1 `d_ln_phi_d_n` + 2 two-lane dual passes,
+in place of `2(n+2)` min-Gibbs evaluations. The FD Jacobian survives as a
+test-only oracle (now central differences).
+
+### Results — `engine/examples/envelope_scaling.rs` (new), Apple M4 Pro, mean of 100 traces
+
+| Envelope | n | points | `main` µs/trace | this change | speedup |
+|---|---|---|---|---|---|
+| PR C1/C2, 300 kPa, 40 max (the criterion case) | 2 | 39 | 570.7 | 314.7 | 1.8× |
+| PR C1/C2, 100 kPa, closed loop | 2 | 73 | 708.1 | 329.9 | 2.1× |
+| PR nC4/nC7, closed loop | 2 | 57 | 655.1 | 286.9 | 2.3× |
+| PR C1–nC5, closed loop | 5 | 172 | 2 923.4 | 1 050.2 | 2.8× |
+| RKS C3–nC10, closed loop | 10 | 84 | 3 380.3 | 918.2 | 3.7× |
+
+Criterion `flash_solvers/envelope_pr_methane_ethane_40pts`: 511.8 →
+259.9 µs, **−48.8 %** (p < 0.05). The gap widens with n, as the cost model
+predicts: the FD Jacobian was O(n) mixture evaluations, the exact one is a
+fixed number of passes.
+
+**Same answers.** The harness's `--dump` writes every traced point. Run on
+both commits, all five envelopes have the same number of points, and every
+T, P and Kᵢ agrees to ≤ 7e-9 relative (the corrector tolerance is 1e-9 on
+the residual). The more exact tangent did not change any spec-variable
+choice or step size on these traces.
+
+### Tests
+
+- `analytic_jacobian_matches_finite_differences_along_the_envelope`:
+  every point of the closed PR C1/C2 and nC4/nC7 loops, through the
+  critical point, every continuation index, against the central-difference
+  oracle to 1e-6. A point where the min-Gibbs root flips inside the ±h
+  stencil makes the oracle meaningless, so it is skipped. The test requires
+  ≥ 90 % of points to be compared.
+- `analytic_jacobian_matches_finite_differences_for_ge_mixing_rules`:
+  Wong-Sandler, MHV1 and Huron-Vidal (Wilson Gᴱ) on a ternary. This is the
+  dual-number G path.
+- `d_ln_phi_d_tp_matches_single_lane_passes`: classical and Wong-Sandler,
+  both roots, to 1e-12.
+- Mutant caught: scaling the G·w̄ term by 0.999 fails both Jacobian tests.
+- `cargo test --workspace` green; the six existing envelope tests
+  (closing the loop, one critical crossing, saturation-solver agreement)
+  are unchanged.
+
+### Not done, recorded
+
+- **Allocation.** The Jacobian still builds a `DMatrix` and `Vec` rows per
+  iteration, as §14's step does. At 4–11 µs per point that is not the
+  floor.
+- **The residual and the Jacobian evaluate the mixture separately.** The
+  dual pass could also return the values, but the residual needs both roots
+  for the Gibbs comparison and the Jacobian only one. Unmeasured.
 
 ---
 
