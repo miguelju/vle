@@ -502,8 +502,17 @@ class System:
         """Trace the (T [K], P [kPa]) phase envelope at composition ``z``."""
         return self._engine.trace_envelope(list(z), _as_pressure(p_start), max_points)
 
-    def stability(self, z: Sequence[float], t: Scalar, p: Scalar, *, max_iter: int = 100):
-        """TPD stability test at ``(t, p)``. Returns ``(is_stable, trial_k, tpd)``."""
+    def stability(self, z: Sequence[float], t: Scalar, p: Scalar, *, max_iter: int = 1000):
+        """TPD stability test at ``(t, p)``. Returns ``(is_stable, trial_k, tpd)``.
+
+        Trial phases: the two Wilson seeds, then (only if they find no split)
+        one near-pure trial per component, which catches liquid–liquid splits
+        such as water out of a hydrocarbon. ``is_stable`` is ``True`` only when
+        every trial converged; a run cut off by ``max_iter`` before it could
+        decide raises ``RuntimeError`` rather than guessing "stable" (the
+        default ``max_iter`` was 100 until this change, too few near the
+        critical point).
+        """
         return self._engine.stability(list(z), _as_temperature(t), _as_pressure(p), max_iter)
 
     # ── Scalar properties ─────────────────────────────────────────────────
