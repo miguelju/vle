@@ -280,7 +280,8 @@ Claude Code using Claude Fable 5.*
 - [x] **`stability_analysis` no longer reports an unconverged trial as `Stable`** — `NoConvergence { what: "stability analysis" }` instead; any tm < 0 counts as instability, converged or not; Python `max_iter` default 100 → 1000 (`OPTIMIZATION_PLAN_PART1.md` §13)
 - [ ] **31 water/HC points** the pure screen misses (non-pure incipient phase) — catching them means full stability on every single-phase exit; left open, recorded
 - [x] **Warm-start entry point** — `{bubble,dew}_{temperature,pressure}_from` (Rust) + `t_guess`/`p_guess`/`k_guess` (Python); warm ≡ cold tests in `flash::incipient::tests` and `python/tests/test_warm_start.py`; benches `flash_multi/{bubble,dew}_temperature_warm_n*`; measured gain small except from an exact neighbor (`OPTIMIZATION_PLAN_PART1.md` §11) (v0.18.0)
-- [ ] *Follow-ups:* simultaneous (n+1)-variable Newton (also what would make warm starts pay, §11); Newton on ln P for `bubble_pressure`/`dew_pressure` — *(the warm-start entry point shipped in v0.18.0)*
+- [x] **Simultaneous (n+1) Newton for bubble/dew T (unreleased)** — `incipient::full_newton_step` + `incipient_ln_phi_jacobian`, switched in near the root when SS is slow; `k_values_with_t_derivs` drops the unused ∂/∂P; harness `engine/examples/saturation_warm_start.rs`; tests `full_newton_*` in `flash::incipient::tests`. Warm start −43 % (10-component), near-critical 2–5× (`OPTIMIZATION_PLAN_PART1.md` §14)
+- [ ] *Follow-ups:* Newton on ln P for `bubble_pressure`/`dew_pressure`; full step for γ-φ dew points (needs ∂ln γ/∂x) — *(the warm-start entry point shipped in v0.18.0)*
 
 ## Milestone 10: Python Bindings, Wrapper & Batch API
 

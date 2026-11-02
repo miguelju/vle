@@ -400,7 +400,8 @@ repository, not this one.
 
 **Not done, recorded:** the fully simultaneous `(n+1)`-variable Newton of
 MODERNIZATION_PLAN §K (the 1/T step ignores ∂K/∂composition, so the
-composition converges linearly — ≈ 8 iterations at N = 10); a Newton on ln P
+composition converges linearly — ≈ 8 iterations at N = 10) *(done, unreleased
+— §14)*; a Newton on ln P
 for the pressure solves (already 15–40 µs, not worth it on this evidence); and
 a warm-start entry point (`T₀`, `K₀`) for callers that re-solve near a known
 point *(shipped in v0.18.0 — §11, with the measurement showing why it pays
@@ -637,7 +638,8 @@ release delivers the *entry point* — callers can now hand over what they
 know, and an exact neighbor is 6.7× cheaper — while the change that makes a
 realistic warm start pay is the simultaneous (n+1)-variable Newton, which
 converges composition quadratically. That stays the open follow-up, now with
-a measured reason. A downstream caller with its own Newton warm path should
+a measured reason. *(Done, unreleased — §14: a 0.5 K / 5 % guess now saves
+43 % against this table's cold column, 13.9 → 7.9 µs bubble.)* A downstream caller with its own Newton warm path should
 measure before replacing it with this one.
 
 ## 12. Addendum (unreleased, 2026-10-31): stability fallback on non-convergence, and the liquid–liquid sweep
@@ -900,6 +902,160 @@ orientation only (2), a Wilson-only public seed set (1), requiring
 convergence for an unstable verdict (1), and reading an inconclusive run as
 `Stable` (1). The notebooks that touch stability or water (00, 05, 10, 11,
 13, 16) execute unchanged.
+
+---
+
+## 14. Addendum (unreleased, 2026-11-01): the simultaneous (n+1) Newton for bubble/dew temperature
+
+*Executed by Claude Code using Claude Opus 5.5. `OPTIMIZATION_NEXT_STEPS.md`
+Step 2. Closes the follow-up §8 and §11 left open.*
+
+### What changed
+
+`flash/incipient.rs::newton_temperature_from` keeps the v0.18.0 iteration
+(Newton on 1/T with exact ∂ln K/∂T, one SS step on the incipient composition)
+and adds a second update rule. That rule is the full Newton step on the
+(n+1) unknowns {ln K₁…ln Kₙ, ln T} of `MODERNIZATION_PLAN.md` §K
+(`full_newton_step`), with the incipient phase derived from K. The Jacobian
+is `δᵢⱼ + Gᵢⱼŵⱼ` in the K block, where G is the incipient phase's exact
+∂ln φ̂ᵢ/∂nⱼ (`incipient_ln_phi_jacobian`: cubic → `mixture::d_ln_phi_d_n` on
+that phase's root; ideal gas / ideal solution → 0). The T column is
+`−T·∂ln Kᵢ/∂T`. The sum row is ±ŵ. Both rules share the v0.18.0 acceptance
+test (`|ln S| < tol` and an SS composition change below `tol`, both with the
+model K), so the switch changes the path, never the answer it accepts.
+
+**When the full step is used** — all of:
+1. `|ln S|` and the composition change are below 1e-2 (`FULL_NEWTON_SWITCH`).
+2. The composition change is above √tol: below that, SS finishes in a step
+   anyway.
+3. SS is slow (`FULL_NEWTON_MIN_RATIO`): the last composition change shrank
+   by less than 10×, or this is the first iteration (a caller's guess).
+
+Once taken, the solve stays on full Newton. A full step that is singular,
+non-finite or does not reduce the residual hands the rest of the solve back
+to the SS rule. Model pairs without the incipient Jacobian (virial vapor at a
+bubble point; activity or refinery liquids at a dew point) run the SS rule
+exactly as before.
+
+A second change on the same path: the solver called `k_values_with_derivs`,
+which also computes ∂ln K/∂P — one dual evaluation per cubic phase per
+iteration that the temperature solve never reads. The new crate-internal
+`k_values_with_t_derivs` skips it. At n = 10 that is 0.73 of the call's
+2.19 µs (component timings at the converged dew point: `k_values` 0.76 µs,
+`d_ln_phi_d_t` 0.36 µs, `d_ln_phi_d_p` 0.36 µs, `d_ln_phi_d_n` 0.73 µs per
+phase, 11×11 LU 0.32 µs).
+
+### The switch, measured — and what it replaced
+
+A full step costs about 1.7 SS iterations (it adds `d_ln_phi_d_n` and the
+LU). So a full step pays only when SS contracts slowly. On the
+10-component mixture SS contracts at ρ ≈ 0.03 per step from a cold start.
+Four switch rules were measured, all in the same session with the T-only
+derivatives (blank = not measured):
+
+| rule | cold bubble / dew (10-comp) | `bubble_temperature_warm_n2` | C1/C2 dew warm, 2 MPa |
+|---|---|---|---|
+| R1: full step whenever both residuals < 1e-2 | 12.8 / **12.3** µs | | |
+| R2: R1 + slow-SS ratio test | 12.3 / 9.5 µs | **+19 %** vs v0.18.0 | 4.2 µs |
+| R3: R2, ratio read only after a T step < 1e-4·T | 13.6 / 9.6 µs | (fixed, by trace only) | **6.7 µs** |
+| **shipped**: R2 + composition change > √tol | 12.1 / 9.8 µs | **−24 %** | 4.2 µs |
+
+**Rejected: R1** made the cold 10-component dew point 31 % slower than the
+T-only SS iteration (9.4 → 12.3 µs). **Rejected: R2** cost a two-component
+warm start 19 % (3.24 → 3.87 µs): its composition was within 1.2e-6 and only
+T was off, and the ratio read ≈ 1 right after the 0.5 K correction. A trace
+showed 4 K evaluations against 3. **Rejected: R3** removed that misread but
+lost elsewhere (2 K / 10 % guess 9.4 → 11.2 µs, C1/C2 dew warm 4.2 →
+6.7 µs).
+
+### Results — 10-component RKS alkanes, 1000 kPa (`engine/examples/saturation_warm_start.rs`)
+
+The §11 table, rebuilt as a committed harness (mean of 3000 calls, release,
+same session; v0.18.0 = this branch with `flash/incipient.rs` and
+`flash/system.rs` reverted):
+
+| guess (ΔT, ΔK) | bubble v0.18.0 | T-only derivs | **shipped** | dew v0.18.0 | T-only derivs | **shipped** |
+|---|---:|---:|---:|---:|---:|---:|
+| cold (Wilson) | 16.8 | 12.5 | **12.1** | 13.4 | 9.4 | **9.8** |
+| exact (0, 0) | 2.8 | 2.1 | **2.1** | 2.6 | 1.9 | **2.0** |
+| 0.05 K, 0.2 % | 13.9 | 9.4 | **7.9** | 13.1 | 8.9 | **7.7** |
+| 0.2 K, 1 % | 13.8 | 9.3 | **7.9** | 13.1 | 8.9 | **7.5** |
+| 0.5 K, 5 % | 13.9 | 9.3 | **7.9** | 13.2 | 8.8 | **7.5** |
+| 2 K, 10 % | 16.4 | 10.9 | **9.4** | 15.3 | 10.3 | **9.1** |
+
+So a realistic warm start now saves **43 %** against v0.18.0 (13.9 → 7.9 µs
+bubble, 13.2 → 7.5 µs dew at 0.5 K / 5 %), where §11 measured ≈ 25–30 %. Most of
+the cold-solve gain is the T-only derivatives. The full step adds ≈ 15 % on
+warm starts here, where SS is already fast. The **floor is now per-iteration
+cost, not iteration count**: from 0.05 K the solve takes 3 K evaluations (a
+step, a correction, the acceptance check) against 5–6 before. An exact guess
+still takes one.
+
+**Near critical, where SS is slow**, the full step dominates. PR
+methane/ethane 50/50, same harness style:
+
+| P (kPa) | | v0.18.0 cold | now cold | v0.18.0 warm | now warm |
+|---|---|---:|---:|---:|---:|
+| 4000 | bubble / dew | 11.9 / 13.9 | 5.5 / 4.7 | 9.4 / 11.7 | 3.1 / 3.1 |
+| 5500 | bubble / dew | 18.9 / 24.0 | 6.4 / 5.7 | 15.6 / 19.5 | 4.1 / 4.1 |
+| 6000 | bubble | 24.8 | 6.5 | 20.8 | 4.2 |
+
+K evaluations (test `full_newton_cuts_iterations_near_critical_and_agrees`):
+cold 20 → 7, 26 → 6, 27 → 7, and warm 17 → 4, 22 → 4, 23 → 4, with the same
+answers to 1e-7. Points that failed before still fail, falling through to the
+bisection fallback, which returns the same `NoConvergence`: PR C1/C2 dew at
+6000 kPa, and three C1/n-C10 points at 5 and 10 MPa.
+
+### Criterion — `flash_multi`, against the pre-change baseline
+
+| bench | n = 2 | n = 4 | n = 6 | n = 8 |
+|---|---:|---:|---:|---:|
+| `bubble_temperature` | −24 % | −24 % | −27 % | −27 % |
+| `dew_temperature` | −30 % | −26 % | −27 % | −27 % |
+| `bubble_temperature_warm` (0.5 K, 5 %) | −24 % | −38 % | −45 % | −41 % |
+| `dew_temperature_warm` | −57 % | −61 % | −58 % | −56 % |
+| `bubble_pressure` / `dew_pressure` | +5.5 / +5.3 % | +1.2 / +4.1 % | +0.3 / +0.5 % | +0.3 / −0.8 % |
+
+**The pressure rows are not on the changed path.** An instrumented run of
+`bubble_pressure` and `dew_pressure` on the n = 2 bench mixture never enters
+`newton_temperature`, and their only use of `flash/system.rs` is the
+unchanged `k_values`. The +5 % at n = 2 repeated across two runs and is
+recorded as code-layout variance (the ±5 % band of the 2026-08-15 note in
+`SECOND_OPINION_TRIAL.md`).
+
+The v0.18.0 dew warm-start anomaly (warm slower than cold at N = 4 and 6) is
+gone: warm is now 0.60–0.65× cold at every size.
+
+### Tests
+
+- `full_newton_cuts_iterations_near_critical_and_agrees`: full vs SS-only
+  from the same start (cold Wilson and warm), same answer to 1e-7, and at
+  most half the K evaluations.
+- `full_newton_agrees_with_ss_only_across_model_pairs`: RKS binary,
+  close-boiling benzene/cyclohexane, and γ-φ bubble (ideal-gas vapor).
+  Never more evaluations than SS-only, and ≤ 3 on the φ-φ binary (quadratic
+  convergence).
+- `full_newton_is_skipped_where_no_composition_jacobian_exists`: γ-φ dew
+  runs the SS rule unchanged.
+- Existing: Newton vs bisection (binary, close-boiling, γ-φ, 10-component),
+  warm ≡ cold from near, far, absurd and malformed guesses, the
+  near-critical decline tests, Chapter IV validation.
+- Mutants, each caught: full step never taken; incipient-Jacobian term
+  dropped; sum-row sign; T-column sign; dew Jacobian on the vapor root and
+  bubble Jacobian on the liquid root. The last two still converge (the
+  acceptance test is SS's) and were caught only after the ≤ 3 evaluation
+  assertion was added.
+
+### Not done, recorded
+
+- **γ-φ dew points** stay on the SS rule: no ∂ln γ/∂x is exposed. The
+  generic activity code could supply it through duals, but nothing measured
+  asks for it.
+- **Newton on ln P** for the pressure solves stays open (MODERNIZATION_PLAN
+  §K). Same machinery, unmeasured need.
+- **Allocation:** the full step allocates its (n+1)² matrix and the
+  `d_ln_phi_d_n` rows per iteration. The 11×11 LU costs 0.32 µs at n = 10,
+  so this is not the floor.
 
 ---
 

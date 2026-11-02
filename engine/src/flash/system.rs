@@ -826,6 +826,7 @@ fn vapor_lnphi_derivs(
     t: f64,
     p: f64,
     y: &[f64],
+    want_p: bool,
 ) -> Result<(Vec<f64>, Vec<f64>), FlashError> {
     let n = spec.n();
     match spec.vapor {
@@ -834,8 +835,14 @@ fn vapor_lnphi_derivs(
             let ms = spec.mixture_spec(eos);
             let dt = crate::mixture::d_ln_phi_d_t(&ms, t, p, y, PhaseId::Vapor)
                 .map_err(|e| FlashError::Thermo(e.to_string()))?;
-            let dp = crate::mixture::d_ln_phi_d_p(&ms, t, p, y, PhaseId::Vapor)
-                .map_err(|e| FlashError::Thermo(e.to_string()))?;
+            // The P-derivative is a separate dual evaluation; skip it when
+            // the caller only needs ∂/∂T (`k_values_with_t_derivs`).
+            let dp = if want_p {
+                crate::mixture::d_ln_phi_d_p(&ms, t, p, y, PhaseId::Vapor)
+                    .map_err(|e| FlashError::Thermo(e.to_string()))?
+            } else {
+                vec![0.0; n]
+            };
             Ok((dt, dp))
         }
         VaporModel::Virial => Err(FlashError::Unsupported(
@@ -916,9 +923,35 @@ pub fn k_values_with_derivs(
     x: &[f64],
     y: &[f64],
 ) -> Result<KValueDerivs, FlashError> {
+    k_values_with_derivs_impl(spec, t, p, x, y, true)
+}
+
+/// [`k_values_with_derivs`] without the pressure derivative: the returned
+/// `d_ln_k_d_p` is all zeros and must not be read. `k` and `d_ln_k_d_t` are
+/// identical to the full call. For the saturation-temperature solver, which
+/// never uses ∂/∂P — skipping it removes one dual evaluation per cubic phase
+/// per iteration (≈ ⅓ of the call at n = 10, `OPTIMIZATION_PLAN_PART1.md` §14).
+pub(crate) fn k_values_with_t_derivs(
+    spec: &SystemSpec,
+    t: f64,
+    p: f64,
+    x: &[f64],
+    y: &[f64],
+) -> Result<KValueDerivs, FlashError> {
+    k_values_with_derivs_impl(spec, t, p, x, y, false)
+}
+
+fn k_values_with_derivs_impl(
+    spec: &SystemSpec,
+    t: f64,
+    p: f64,
+    x: &[f64],
+    y: &[f64],
+    want_p: bool,
+) -> Result<KValueDerivs, FlashError> {
     let n = spec.n();
     let k = k_values(spec, t, p, x, y)?;
-    let (vap_dt, vap_dp) = vapor_lnphi_derivs(spec, t, p, y)?;
+    let (vap_dt, vap_dp) = vapor_lnphi_derivs(spec, t, p, y, want_p)?;
 
     match spec.liquid {
         // --- φ-φ: ∂lnKᵢ = ∂lnφ̂ᵢᴸ − ∂lnφ̂ᵢⱽ ---
@@ -926,8 +959,12 @@ pub fn k_values_with_derivs(
             let ms = spec.mixture_spec(eos);
             let liq_dt = crate::mixture::d_ln_phi_d_t(&ms, t, p, x, PhaseId::Liquid)
                 .map_err(|e| FlashError::Thermo(e.to_string()))?;
-            let liq_dp = crate::mixture::d_ln_phi_d_p(&ms, t, p, x, PhaseId::Liquid)
-                .map_err(|e| FlashError::Thermo(e.to_string()))?;
+            let liq_dp = if want_p {
+                crate::mixture::d_ln_phi_d_p(&ms, t, p, x, PhaseId::Liquid)
+                    .map_err(|e| FlashError::Thermo(e.to_string()))?
+            } else {
+                vec![0.0; n]
+            };
             let d_ln_k_d_t = (0..n).map(|i| liq_dt[i] - vap_dt[i]).collect();
             let d_ln_k_d_p = (0..n).map(|i| liq_dp[i] - vap_dp[i]).collect();
             Ok(KValueDerivs {

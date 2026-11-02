@@ -3,8 +3,8 @@
 *Drafted 2026-10-30 by Claude Code using Claude Opus 5.5, after v0.18.0.*
 
 **Status: in progress.** Step 0 is done (Part 1 §12), and so are the
-correctness findings it raised (Part 1 §13) and Step 1 (Part 2 §8). All
-three are unreleased. Steps 2–3 are not started. **No release until every step is done** (owner's decision,
+correctness findings it raised (Part 1 §13), Step 1 (Part 2 §8) and Step 2
+(Part 1 §14). All four are unreleased. Step 3 is not started. **No release until every step is done** (owner's decision,
 2026-10-31): see *Unreleased changes* at the end, which is the draft of the
 release notes. This is an ordering of the
 optimization items that
@@ -27,7 +27,7 @@ this file's status lines so it never claims more than the code does.
 | ~~Public `stability_analysis` reports an unconverged trial as `Stable`~~ | Part 1 §12, §13 | **done**: now `NoConvergence` (behaviour change, no signature change) |
 | ~~Fixed-width dual (`DualSVec64<W>`) for WS/MHV `∂lnφ̂ᵢ/∂nⱼ`~~ | Part 2 §6, §8; `SECOND_OPINION_TRIAL.md` | **done** (Step 1): 2.5× (n = 4) → 4.2× (n = 50) |
 | `MixtureScratch<'a, D>` instead of `SmallVec` for duals | Part 2 §7 | performance, same path as §6; no profile taken yet |
-| Simultaneous (n+1)-variable Newton for bubble/dew T | Part 1 §8, §11; ROADMAP M9.1 | performance + warm-start payoff |
+| ~~Simultaneous (n+1)-variable Newton for bubble/dew T~~ | Part 1 §8, §11, §14; ROADMAP M9.1 | **done** (Step 2): warm start −43 %, near-critical 2–5× |
 | Newton on ln P for near-critical bubble/dew pressure | ROADMAP M9.1 | robustness/performance |
 | Full Newton finish on ln K for the isothermal flash | Part 1 §5, §6 | performance, unmeasured need |
 | ~~Multi-seed stability analysis~~ | Part 1 §7, §12, §13 | **done**: Wilson pair then near-pure seeds; 250 → 0 |
@@ -124,6 +124,35 @@ open because no profile has been taken. Original plan text follows.
 
 ## Step 2: simultaneous (n+1)-variable Newton for bubble/dew temperature
 
+**Done (unreleased, 2026-11-01)**: see Part 1 §14. The full Newton step on
+{ln K, ln T} uses the incipient phase's exact ∂ln φ̂/∂n (Step 1's dual where
+the mixing rule needs it). It switches in near the root only where SS is
+slow. Both rules share the v0.18.0 acceptance test, so warm ≡ cold still
+holds and every answer is unchanged. The unused ∂/∂P derivative is no
+longer computed, which turned out to be most of the cold-solve gain.
+
+On the 10-component RKS mixture, a 0.5 K / 5 % guess costs 7.9 µs (bubble)
+and 7.5 µs (dew), against 13.9 / 13.2 µs in v0.18.0: −43 %, where §11 had
+measured ≈ 25–30 %. Cold solves are −28 % / −27 %. Near the PR
+methane/ethane critical region solves are 2–5× faster: K evaluations
+20–27 → 6–7 cold and 17–23 → 4 warm.
+
+Rejected, measured: an unconditional full step made the cold 10-component
+dew point 31 % slower, because SS there already contracts 30× per step.
+Two other switch rules lost elsewhere (§14).
+
+**Downstream consumer:** realistic warm starts now pay about 1.8×, so a
+caller with its own Newton warm path should re-measure against
+`*_temperature_from` before keeping it. The floor is now per-iteration cost
+(3 K evaluations from a near guess), not iteration count.
+
+Follow-ons still open:
+- Newton on ln P for the pressure solves.
+- The full step for γ-φ dew points (needs ∂ln γ/∂x).
+- A Newton finish for the isothermal flash (only if measured).
+
+Original plan text follows.
+
 - **Evidence:** Part 1 §11. The current 1/T Newton moves composition by one
   successive-substitution step per iteration, so composition converges
   linearly (≈ 8 iterations at N = 10). That is why a realistic warm start
@@ -183,6 +212,13 @@ and `engine/README.md` when the optimization work is released.
   on Wong-Sandler and MHV1: 2.5×
   faster at 4 components, 4.2× at 50. Results agree with the previous path to
   1e-12.
+- **Faster saturation temperatures** (Part 1 §14). `bubble_temperature`,
+  `dew_temperature` and their `*_from` warm starts take a simultaneous
+  (n+1)-variable Newton step near the root, with the same answers to solver
+  tolerance. On a
+  10-component mixture a realistic warm start is 43 % cheaper (13.9 →
+  7.9 µs) and a cold solve 27–28 %; near a critical point solves are 2–5×
+  faster. γ-φ dew points keep the previous update rule.
 - **Costs, measured:** vapor single-phase flash exits ≈ 2–2.5× (+0.22–0.45 µs
   at n = 2–8), liquid exits +9–10 %, stable-feed stability 2–4.5×; two-phase
   flashes unchanged.
