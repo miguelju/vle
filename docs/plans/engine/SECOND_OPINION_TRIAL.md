@@ -295,6 +295,16 @@ what it was.
    Gibbs–Helmholtz invariants, neither of which this trial exercised.
 5. Check compile time and wasm binary size against the added monomorphizations.
 
+> **Adopted, 2026-10-31.** Ported onto `main` as
+> `OPTIMIZATION_NEXT_STEPS.md` Step 1, record in
+> [`OPTIMIZATION_PLAN_PART2.md`](OPTIMIZATION_PLAN_PART2.md) §8. The checklist
+> above: (1) widths measured at n = 4, 5, 6, 8, 20, 50 — W = 4 up to n = 4,
+> W = 8 above; the model's W = 16 / W = 32 buckets measured 1.6× and 3.1×
+> slower than W = 8 at n = 20 and were not used. (2) `dual_jacobian` bench
+> group committed at n = 4 / 8 / 20 / 50. (4) PyO3 surface and the full test
+> suite pass. (5) release compile of `vle-thermo` +33 % (3.9 → 5.3 s); wasm
+> size unchanged, because the wasm wrapper does not expose `d_ln_phi_d_n`.
+
 ## 8. Would this be worth repeating?
 
 On this evidence, yes, under three conditions:
