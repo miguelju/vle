@@ -68,7 +68,7 @@ audit files under **Part 2** §1/§3/§4. A 2× flash speedup is a Part 2 outcom
 | 6 | Full Newton finish | **Deferred** | not shipped |
 | 7 | Stability rewrite | **Split**: buffers + numerics executed, multi-seed deferred | partly shipped |
 | 8 | `min_gibbs_ln_phi` shares one mixture state | **Executed**, modified | shipped |
-| 9 | Analytic envelope Jacobian | **Deferred**, then **executed** 2026-11-01 (§15) | shipped (unreleased): 1.8× (n = 2) → 3.7× (n = 10) |
+| 9 | Analytic envelope Jacobian | **Deferred**, then **executed** 2026-11-01 (§15) | shipped (v0.19.0): 1.8× (n = 2) → 3.7× (n = 10) |
 
 ### Where this plan departs from the audit, and why
 
@@ -401,7 +401,7 @@ repository, not this one.
 
 **Not done, recorded:** the fully simultaneous `(n+1)`-variable Newton of
 MODERNIZATION_PLAN §K (the 1/T step ignores ∂K/∂composition, so the
-composition converges linearly — ≈ 8 iterations at N = 10) *(done, unreleased
+composition converges linearly — ≈ 8 iterations at N = 10) *(done, v0.19.0
 — §14)*; a Newton on ln P
 for the pressure solves (already 15–40 µs, not worth it on this evidence); and
 a warm-start entry point (`T₀`, `K₀`) for callers that re-solve near a known
@@ -584,7 +584,7 @@ it *would* help is the 55 grid points (0.25 %) where the flash fails to
 converge near the critical locus: stability says *stable* at every one, so a
 stability check **on flash failure** would turn those errors into correct
 single-phase answers at no cost on the normal path. That fallback is the
-recommendation; it is not implemented yet. *(Shipped, unreleased, 2026-10-31 —
+recommendation; it is not implemented yet. *(Shipped, v0.19.0, 2026-10-31 —
 §12, which also corrects this paragraph: at 2 of the failure points the
 "stable" verdict was an unconverged trial, and the points are two-phase.)* Caveat: hydrocarbons with
 classical mixing only — liquid–liquid-prone systems (water/hydrocarbon, γ-φ)
@@ -639,11 +639,11 @@ release delivers the *entry point* — callers can now hand over what they
 know, and an exact neighbor is 6.7× cheaper — while the change that makes a
 realistic warm start pay is the simultaneous (n+1)-variable Newton, which
 converges composition quadratically. That stays the open follow-up, now with
-a measured reason. *(Done, unreleased — §14: a 0.5 K / 5 % guess now saves
+a measured reason. *(Done, v0.19.0 — §14: a 0.5 K / 5 % guess now saves
 43 % against this table's cold column, 13.9 → 7.9 µs bubble.)* A downstream caller with its own Newton warm path should
 measure before replacing it with this one.
 
-## 12. Addendum (unreleased, 2026-10-31): stability fallback on non-convergence, and the liquid–liquid sweep
+## 12. Addendum (v0.19.0, 2026-10-31): stability fallback on non-convergence, and the liquid–liquid sweep
 
 *The three open findings below — the wrong single-phase answers, the 250
 two-seed misses, and `stability_analysis` reporting an unconverged trial as
@@ -768,7 +768,7 @@ only on a single-phase exit from a system that contains a strongly
 non-ideal pair (e.g. any kij ≥ 0.2, or water present). γ-φ liquids cannot be
 swept at all: `stability_analysis` is cubic-only.
 
-## 13. Addendum (unreleased, 2026-10-31): fixing the §12 findings
+## 13. Addendum (v0.19.0, 2026-10-31): fixing the §12 findings
 
 §12 left three correctness findings open. All three are fixed here. Every
 number below comes from
@@ -906,7 +906,7 @@ convergence for an unstable verdict (1), and reading an inconclusive run as
 
 ---
 
-## 14. Addendum (unreleased, 2026-11-01): the simultaneous (n+1) Newton for bubble/dew temperature
+## 14. Addendum (v0.19.0, 2026-11-01): the simultaneous (n+1) Newton for bubble/dew temperature
 
 *Executed by Claude Code using Claude Opus 5.5. `OPTIMIZATION_NEXT_STEPS.md`
 Step 2. Closes the follow-up §8 and §11 left open.*
@@ -1060,7 +1060,7 @@ gone: warm is now 0.60–0.65× cold at every size.
 
 ---
 
-## 15. Addendum (unreleased, 2026-11-01): the analytic envelope Jacobian (audit §9)
+## 15. Addendum (v0.19.0, 2026-11-01): the analytic envelope Jacobian (audit §9)
 
 `OPTIMIZATION_NEXT_STEPS.md` Step 3. §2 deferred audit §9 until the envelope
 had a benchmark; it has had one since v0.17.0, so this is the measured

@@ -849,6 +849,59 @@ impl System {
         Ok((kv.k, kv.d_ln_k_d_t, kv.d_ln_k_d_p))
     }
 
+    /// K-values and their exact temperature derivative only, at
+    /// `(t [K], p [kPa])` for trial compositions `x` (liquid), `y` (vapor).
+    ///
+    /// Returns `(k, d_ln_k_d_t [1/K])` — the same numbers as
+    /// [`Self::k_values_with_derivs`], without paying for ∂/∂P.
+    fn k_values_with_t_derivs(
+        &self,
+        t: f64,
+        p: f64,
+        x: Vec<f64>,
+        y: Vec<f64>,
+    ) -> PyResult<(Vec<f64>, Vec<f64>)> {
+        let kv =
+            crate::flash::k_values_with_t_derivs(&self.spec(), t, p, &x, &y).map_err(flash_err)?;
+        Ok((kv.k, kv.d_ln_k_d_t))
+    }
+
+    /// One stage's thermodynamics in one call at `(t [K], p [kPa], x, y)`:
+    /// K-values, ∂ln K/∂T, and H and Cp of both phases
+    /// (`OPTIMIZATION_PLAN_PART2.md` §10).
+    ///
+    /// Returns `(k, d_ln_k_d_t [1/K], h_liquid [kJ/kmol],
+    /// cp_liquid [kJ/(kmol·K)], h_vapor [kJ/kmol], cp_vapor [kJ/(kmol·K)])`.
+    /// Enthalpies are relative to the System's `t_ref`. For a cubic liquid
+    /// and vapor this is one second-order dual pass per phase; other model
+    /// pairs are assembled from the separate calls.
+    #[allow(clippy::type_complexity)]
+    fn stage_thermo(
+        &self,
+        t: f64,
+        p: f64,
+        x: Vec<f64>,
+        y: Vec<f64>,
+    ) -> PyResult<(Vec<f64>, Vec<f64>, f64, f64, f64, f64)> {
+        // `vec![0.0; n]` allocates the two output buffers the Rust function
+        // fills in place.
+        let n = self.components.len();
+        let (mut k, mut d) = (vec![0.0; n], vec![0.0; n]);
+        let st = crate::flash::stage_thermo_into(
+            &self.spec(),
+            t,
+            p,
+            &x,
+            &y,
+            self.t_ref,
+            &[],
+            &mut k,
+            &mut d,
+        )
+        .map_err(flash_err)?;
+        Ok((k, d, st.h_liquid, st.cp_liquid, st.h_vapor, st.cp_vapor))
+    }
+
     /// Total molar enthalpy and entropy of one phase relative to the System's
     /// `(t_ref, p_ref)` ideal-gas reference. Returns `(H [kJ/kmol],
     /// S [kJ/(kmol·K)])`.

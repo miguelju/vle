@@ -1070,7 +1070,7 @@ fn three_param_uw<D: DualNum<f64> + Copy>(
 /// derivative components since the real part is already converged). This is
 /// the standard implicit-function trick for differentiating through a root
 /// solve (used by FeOS for the same purpose).
-fn z_mix_generic<D: DualNum<f64> + Copy>(
+pub(crate) fn z_mix_generic<D: DualNum<f64> + Copy>(
     pars: &MixtureParams<D>,
     phase: PhaseId,
 ) -> Result<D, MixError> {
@@ -2018,6 +2018,73 @@ pub fn d_ln_phi_d_t(
     let xd: Buf<Dual64> = x.iter().map(|&xi| Dual64::from(xi)).collect();
     let lnphi = ln_phi_all_generic(spec, td, pd, &xd, phase)?;
     Ok(lnphi.iter().map(|v| v.eps).collect())
+}
+
+/// ln φ̂ᵢ, ∂ln φ̂ᵢ/∂T, and the first two temperature derivatives of
+/// `g = Σᵢ xᵢ·ln φ̂ᵢ = G^R/(RT)`, all from **one** second-order dual pass.
+///
+/// A second-order dual number (`num_dual::Dual2_64`) carries a value, a first
+/// derivative and a second derivative through every arithmetic operation. So
+/// one evaluation of the fugacity core with T seeded gives, per component,
+/// `ln φ̂ᵢ` (the value) and `∂ln φ̂ᵢ/∂T` (the first derivative), and summed
+/// over composition `g′` and `g″`. Those two sums are the residual enthalpy
+/// and heat capacity:
+///
+/// ```text
+/// H^R  = −R·T²·g′
+/// Cp^R = −R·(2·T·g′ + T²·g″)
+/// ```
+///
+/// Separate calls to [`ln_phi_mix`], [`d_ln_phi_d_t`] and [`residual_cp`]
+/// return the same numbers from three passes
+/// (`OPTIMIZATION_PLAN_PART2.md` §10).
+///
+/// # Arguments
+/// * `t` — Temperature in **K**; `p` — pressure in **kPa absolute**.
+/// * `x` — Phase mole fractions (length N, sum to 1), held fixed.
+/// * `phase` — Which Z root the phase uses.
+/// * `ln_phi` — receives ln φ̂ᵢ, **dimensionless** (length N).
+/// * `d_ln_phi_d_t` — receives ∂ln φ̂ᵢ/∂T in **1/K** (length N).
+///
+/// # Returns
+/// `(g′, g″)` in **1/K** and **1/K²**.
+///
+/// # Errors
+/// [`MixError::Dimension`] if an output slice is not length N; otherwise as
+/// [`ln_phi_mix`].
+pub fn ln_phi_t2_into(
+    spec: &MixtureSpec,
+    t: f64,
+    p: f64,
+    x: &[f64],
+    phase: PhaseId,
+    ln_phi: &mut [f64],
+    d_ln_phi_d_t: &mut [f64],
+) -> Result<(f64, f64), MixError> {
+    use num_dual::Dual2_64;
+    let n = x.len();
+    if ln_phi.len() != n || d_ln_phi_d_t.len() != n {
+        return Err(MixError::Dimension(format!(
+            "x.len()={n}, ln_phi.len()={}, d_ln_phi_d_t.len()={}",
+            ln_phi.len(),
+            d_ln_phi_d_t.len()
+        )));
+    }
+    // `.derivative()` seeds T: first-derivative part 1, second 0. P and the
+    // composition are plain constants (`from` gives zero derivative parts).
+    let td = Dual2_64::from(t).derivative();
+    let pd = Dual2_64::from(p);
+    let xd: Buf<Dual2_64> = x.iter().map(|&xi| Dual2_64::from(xi)).collect();
+    let lnphi = ln_phi_all_generic(spec, td, pd, &xd, phase)?;
+    let (mut g1, mut g2) = (0.0, 0.0);
+    for i in 0..n {
+        // `.re` is the value, `.v1` the first and `.v2` the second derivative.
+        ln_phi[i] = lnphi[i].re;
+        d_ln_phi_d_t[i] = lnphi[i].v1;
+        g1 += x[i] * lnphi[i].v1;
+        g2 += x[i] * lnphi[i].v2;
+    }
+    Ok((g1, g2))
 }
 
 /// ∂ln φ̂ᵢ/∂P at constant T and composition, for every component.

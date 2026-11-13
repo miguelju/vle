@@ -53,7 +53,7 @@
 use crate::activity::{ActivityModel, excess_enthalpy, excess_entropy};
 use crate::eos::{EosState, PhaseId};
 use crate::mixing::MixingRule;
-use crate::mixture::{MixError, MixtureSpec, ln_phi_mix, z_mix};
+use crate::mixture::{MixError, MixtureSpec, ln_phi_mix, z_mix_generic};
 use crate::types::{Component, R_GAS};
 
 /// Ideal-gas heat capacity Cpᵢ°(T) for one component.
@@ -238,7 +238,9 @@ fn mix_attractive_pieces(
     phase: PhaseId,
 ) -> Result<(f64, f64, f64), MixError> {
     let pars = crate::mixture::mixture_params::<f64>(spec, t, p, x)?;
-    let z = z_mix(spec, t, p, x, phase)?;
+    // Solve the cubic on the parameters just built. `z_mix` would build the
+    // same `pars` again before solving.
+    let z = z_mix_generic::<f64>(&pars, phase)?;
     let (a, u, w) = (pars.big_a, pars.u, pars.w);
     // Ĩ(Z; U, W): the generalized attractive integral (same three branches
     // as the EOS layer). g = A·Ĩ; recover Ĩ = g/A.
@@ -532,9 +534,19 @@ pub fn phase_enthalpy_entropy(
 ) -> Result<(f64, f64), MixError> {
     let h_ideal = ideal_enthalpy_mix(spec.components, x, t, t_ref, h_ref);
     let s_ideal = ideal_entropy_mix(spec.components, x, t, p, t_ref, p_ref, s_ref);
-    let h_res = h_departure_rt_mix(spec, t, p, x, phase)? * R_GAS * t;
-    let s_res = s_departure_r_mix(spec, t, p, x, phase)? * R_GAS;
-    Ok((h_ideal + h_res, s_ideal + s_res))
+    // H^R/(RT) feeds both results, so it is computed once here. Calling
+    // `s_departure_r_mix` would compute it a second time internally (that
+    // was the measured cost: `OPTIMIZATION_PLAN_PART2.md` §10).
+    let h_rt = h_departure_rt_mix(spec, t, p, x, phase)?;
+    // Lewis-Randall: S^R/R = H^R/(RT) − G^R/(RT), with G^R/(RT) = Σ xᵢ ln φ̂ᵢ.
+    // `.zip` pairs each ln φ̂ᵢ with its mole fraction; `.sum()` adds the
+    // products.
+    let g_rt: f64 = ln_phi_mix(spec, t, p, x, phase)?
+        .iter()
+        .zip(x)
+        .map(|(lnphi, xi)| xi * lnphi)
+        .sum();
+    Ok((h_ideal + h_rt * R_GAS * t, s_ideal + (h_rt - g_rt) * R_GAS))
 }
 
 /// Partial molar enthalpy H̄ᵢ of every component in one phase, in **kJ/kmol**
@@ -903,6 +915,35 @@ mod tests {
             (h_rt - h_rt_oracle).abs() < 1e-5 * h_rt_oracle.abs().max(1.0),
             "analytic {h_rt} vs G-derivative oracle {h_rt_oracle}"
         );
+    }
+
+    /// `phase_enthalpy_entropy` computes H^R once and derives S^R from it.
+    /// The result must still equal the two standalone departure functions.
+    #[test]
+    fn phase_enthalpy_entropy_equals_the_standalone_departures() {
+        let comps = vec![methane(), n_pentane()];
+        let kij = kij2(0.023);
+        for rule in [MixingRule::Classical, MixingRule::IVDW] {
+            let spec = MixtureSpec {
+                eos: CubicEos::PR1976,
+                rule,
+                components: &comps,
+                kij: &kij,
+                ge: None,
+            };
+            let x = [0.4, 0.6];
+            let (t, p, t_ref, p_ref) = (350.0, 2000.0, 298.15, 101.325);
+            for phase in [PhaseId::Liquid, PhaseId::Vapor] {
+                let (h, s) =
+                    phase_enthalpy_entropy(&spec, t, p, &x, phase, t_ref, p_ref, &[], &[]).unwrap();
+                let h_expect = ideal_enthalpy_mix(&comps, &x, t, t_ref, &[])
+                    + h_departure_rt_mix(&spec, t, p, &x, phase).unwrap() * R_GAS * t;
+                let s_expect = ideal_entropy_mix(&comps, &x, t, p, t_ref, p_ref, &[])
+                    + s_departure_r_mix(&spec, t, p, &x, phase).unwrap() * R_GAS;
+                assert!((h - h_expect).abs() <= 1e-12 * h_expect.abs().max(1.0));
+                assert!((s - s_expect).abs() <= 1e-12 * s_expect.abs().max(1.0));
+            }
+        }
     }
 
     #[test]

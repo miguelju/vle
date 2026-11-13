@@ -43,6 +43,7 @@ from vle.results import (
     FlashResult,
     FreeWaterFlashResult,
     LeeKeslerDeparture,
+    StageThermoResult,
 )
 from vle.units import to_canonical
 
@@ -558,6 +559,56 @@ class System:
         return self._engine.k_values_with_derivs(
             _as_temperature(t), _as_pressure(p), list(x), list(y)
         )
+
+    def k_values_with_t_derivs(
+        self, t: Scalar, p: Scalar, x: Sequence[float], y: Sequence[float]
+    ) -> tuple[list[float], list[float]]:
+        """K-values and their exact temperature derivative only.
+
+        Returns ``(k, d_ln_k_d_t)`` with ``k`` dimensionless and
+        ``d_ln_k_d_t`` in **1/K** — the same numbers as
+        :meth:`k_values_with_derivs`, without computing ∂/∂P. Use it when the
+        pressure derivative is not needed.
+
+        Args:
+            t: Temperature in **K** (or a unit string / quantity)
+            p: Pressure in **kPa absolute** (or a unit string / quantity)
+            x: Liquid mole fractions
+            y: Vapor mole fractions
+        """
+        return self._engine.k_values_with_t_derivs(
+            _as_temperature(t), _as_pressure(p), list(x), list(y)
+        )
+
+    def stage_thermo(
+        self, t: Scalar, p: Scalar, x: Sequence[float], y: Sequence[float]
+    ) -> StageThermoResult:
+        """One equilibrium stage's thermodynamics in a single call.
+
+        Returns K-values, ∂ln K/∂T and the molar enthalpy and heat capacity
+        of both phases at ``(t, p, x, y)``. The numbers equal those from
+        :meth:`k_values_with_derivs`, :meth:`enthalpy_entropy` and
+        :meth:`phase_cp` called separately. For a cubic liquid and vapor
+        (φ-φ) they come from one second-order dual pass per phase instead of
+        five separate mixture evaluations; other model pairs are assembled
+        from the separate calls.
+
+        Args:
+            t: Temperature in **K** (or a unit string / quantity)
+            p: Pressure in **kPa absolute** (or a unit string / quantity)
+            x: Liquid mole fractions
+            y: Vapor mole fractions
+
+        Returns:
+            :class:`StageThermoResult` — ``k`` (dimensionless),
+            ``d_ln_k_d_t`` in **1/K**, ``h_liquid`` / ``h_vapor`` in
+            **kJ/kmol** relative to the System's reference temperature,
+            ``cp_liquid`` / ``cp_vapor`` in **kJ/(kmol·K)**.
+        """
+        k, d, hl, cpl, hv, cpv = self._engine.stage_thermo(
+            _as_temperature(t), _as_pressure(p), list(x), list(y)
+        )
+        return StageThermoResult(k, d, hl, cpl, hv, cpv)
 
     def enthalpy_entropy(self, t: Scalar, p: Scalar, x: Sequence[float], phase: str) -> tuple[float, float]:
         """Molar (H [kJ/kmol], S [kJ/(kmol·K)]) of ``phase`` vs the reference state.

@@ -956,10 +956,14 @@ pub fn k_values_with_derivs(
 
 /// [`k_values_with_derivs`] without the pressure derivative: the returned
 /// `d_ln_k_d_p` is all zeros and must not be read. `k` and `d_ln_k_d_t` are
-/// identical to the full call. For the saturation-temperature solver, which
-/// never uses ∂/∂P — skipping it removes one dual evaluation per cubic phase
-/// per iteration (≈ ⅓ of the call at n = 10, `OPTIMIZATION_PLAN_PART1.md` §14).
-pub(crate) fn k_values_with_t_derivs(
+/// identical to the full call. For callers that never use ∂/∂P — the
+/// saturation-temperature solver here, and a column solver fitting a
+/// temperature-only K model downstream. Skipping it removes one dual
+/// evaluation per cubic phase (≈ ⅓ of the call at n = 10,
+/// `OPTIMIZATION_PLAN_PART1.md` §14).
+///
+/// `t` in **K**, `p` in **kPa absolute**; `d_ln_k_d_t` in **1/K**.
+pub fn k_values_with_t_derivs(
     spec: &SystemSpec,
     t: f64,
     p: f64,
@@ -1158,6 +1162,157 @@ pub fn phase_enthalpy_entropy(
             Ok((h_ideal - h_cond + he, s_ideal - s_cond + se))
         }
     }
+}
+
+// ===========================================================================
+// One stage's thermodynamics in a single call (OPTIMIZATION_PLAN_PART2 §10).
+// ===========================================================================
+
+/// Enthalpy and heat capacity of both phases at one `(T, P, x, y)` — the
+/// scalar half of [`stage_thermo_into`]'s answer.
+///
+/// `#[derive(Clone, Copy)]` makes this a plain value type: four `f64`s that
+/// are copied, never borrowed.
+///
+/// Python receives these as fields of `vle.StageThermoResult`, built from the
+/// tuple `System.stage_thermo` returns (the same pattern as
+/// [`KValueDerivs`]), so this struct carries no `pyclass` attribute.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StageThermo {
+    /// Liquid molar enthalpy, **kJ/kmol**, relative to the ideal gas at `t_ref`.
+    pub h_liquid: f64,
+    /// Liquid isobaric heat capacity `(∂H/∂T)_{P,x}`, **kJ/(kmol·K)**.
+    pub cp_liquid: f64,
+    /// Vapor molar enthalpy, **kJ/kmol**, relative to the ideal gas at `t_ref`.
+    pub h_vapor: f64,
+    /// Vapor isobaric heat capacity `(∂H/∂T)_{P,y}`, **kJ/(kmol·K)**.
+    pub cp_vapor: f64,
+}
+
+/// Everything a staged-separation solver asks of one stage, in one call:
+/// `Kᵢ`, `∂ln Kᵢ/∂T`, and the enthalpy and heat capacity of both phases.
+///
+/// The same numbers come from five separate calls —
+/// [`k_values_with_t_derivs`], [`phase_enthalpy_entropy`] twice and
+/// [`phase_cp`] twice — and this function agrees with them to round-off
+/// (asserted by test). It exists because those five calls each rebuild the
+/// mixture at the same `(T, P)` and composition.
+///
+/// **Cubic liquid and cubic vapor (φ-φ):** one second-order dual pass per
+/// phase ([`crate::mixture::ln_phi_t2_into`]) yields `ln φ̂ᵢ`, `∂ln φ̂ᵢ/∂T`
+/// and the two derivatives of `G^R/(RT)` that are `H^R` and `Cp^R`. Measured
+/// against the five calls on RKS alkanes: 544 ns vs 2.60 µs at n = 4 (4.8×)
+/// and 786 ns vs 3.54 µs at n = 8 (4.5×) (`OPTIMIZATION_PLAN_PART2.md` §10).
+///
+/// **Every other model pair** (γ-φ, ideal-gas vapor, …): assembled from the
+/// five calls above. Same answer, no speed-up; what those calls do not
+/// support (virial vapor, the Chao-Seader family) is `Unsupported` here too.
+///
+/// # Arguments
+/// * `t` — Temperature in **K**; `p` — pressure in **kPa absolute**.
+/// * `x`, `y` — liquid and vapor mole fractions (length N, each sums to 1).
+/// * `t_ref` — ideal-gas enthalpy reference temperature in **K**.
+/// * `h_ref` — per-component reference enthalpy Hᵢ° in **kJ/kmol** (pass
+///   `&[]` for the all-zero convention).
+/// * `k` — receives Kᵢ, **dimensionless** (length N).
+/// * `d_ln_k_d_t` — receives ∂ln Kᵢ/∂T in **1/K** (length N).
+///
+/// # Errors
+/// [`FlashError::Dimension`] on a length mismatch; [`FlashError::Thermo`] if
+/// a fugacity evaluation fails; [`FlashError::Unsupported`] as noted above.
+#[allow(clippy::too_many_arguments)]
+pub fn stage_thermo_into(
+    spec: &SystemSpec,
+    t: f64,
+    p: f64,
+    x: &[f64],
+    y: &[f64],
+    t_ref: f64,
+    h_ref: &[f64],
+    k: &mut [f64],
+    d_ln_k_d_t: &mut [f64],
+) -> Result<StageThermo, FlashError> {
+    use crate::energy::{ideal_cp, ideal_enthalpy_mix};
+    const R: f64 = 8.31451; // kJ/(kmol·K)
+
+    let n = spec.n();
+    if x.len() != n || y.len() != n || k.len() != n || d_ln_k_d_t.len() != n {
+        return Err(FlashError::Dimension(format!(
+            "components={n}, x={}, y={}, k={}, d_ln_k_d_t={}",
+            x.len(),
+            y.len(),
+            k.len(),
+            d_ln_k_d_t.len()
+        )));
+    }
+
+    // `if let … else` handles the one fast case and falls through otherwise.
+    let (LiquidModel::Cubic(liq_eos), VaporModel::Cubic(vap_eos)) = (spec.liquid, spec.vapor)
+    else {
+        // Not φ-φ: assemble from the public calls. `p` stands in for the
+        // entropy reference pressure, which the enthalpy does not depend on.
+        let d = k_values_with_t_derivs(spec, t, p, x, y)?;
+        k.copy_from_slice(&d.k);
+        d_ln_k_d_t.copy_from_slice(&d.d_ln_k_d_t);
+        let h = |comp: &[f64], phase| {
+            phase_enthalpy_entropy(spec, t, p, comp, phase, t_ref, p, h_ref, &[]).map(|hs| hs.0)
+        };
+        return Ok(StageThermo {
+            h_liquid: h(x, PhaseId::Liquid)?,
+            cp_liquid: phase_cp(spec, t, p, x, PhaseId::Liquid)?,
+            h_vapor: h(y, PhaseId::Vapor)?,
+            cp_vapor: phase_cp(spec, t, p, y, PhaseId::Vapor)?,
+        });
+    };
+
+    let mix_err = |e: crate::mixture::MixError| FlashError::Thermo(e.to_string());
+    // The liquid pass writes straight into the caller's slices; the vapor
+    // pass needs two scratch buffers. `SmallVec` keeps them on the stack up
+    // to 8 components and moves to the heap above that.
+    type Scratch = smallvec::SmallVec<[f64; 8]>;
+    let mut vap_ln_phi: Scratch = smallvec::smallvec![0.0; n];
+    let mut vap_dt: Scratch = smallvec::smallvec![0.0; n];
+    let (gl1, gl2) = crate::mixture::ln_phi_t2_into(
+        &spec.mixture_spec(liq_eos),
+        t,
+        p,
+        x,
+        PhaseId::Liquid,
+        k,
+        d_ln_k_d_t,
+    )
+    .map_err(mix_err)?;
+    let (gv1, gv2) = crate::mixture::ln_phi_t2_into(
+        &spec.mixture_spec(vap_eos),
+        t,
+        p,
+        y,
+        PhaseId::Vapor,
+        &mut vap_ln_phi,
+        &mut vap_dt,
+    )
+    .map_err(mix_err)?;
+    // ln Kᵢ = ln φ̂ᵢᴸ − ln φ̂ᵢⱽ, and the same difference for the T-derivative.
+    for i in 0..n {
+        k[i] = (k[i] - vap_ln_phi[i]).exp();
+        d_ln_k_d_t[i] -= vap_dt[i];
+    }
+
+    // Ideal-gas mixture Cp at a composition: Σ zᵢ·Cp°ᵢ(T).
+    let cp_ideal = |z: &[f64]| -> f64 {
+        z.iter()
+            .zip(spec.components)
+            .map(|(zi, c)| zi * ideal_cp(c, t))
+            .sum()
+    };
+    // H = H_ideal + H^R with H^R = −R·T²·g′; Cp = Cp_ideal + Cp^R with
+    // Cp^R = −R·(2·T·g′ + T²·g″)  — see `ln_phi_t2_into`.
+    Ok(StageThermo {
+        h_liquid: ideal_enthalpy_mix(spec.components, x, t, t_ref, h_ref) - R * t * t * gl1,
+        cp_liquid: cp_ideal(x) - R * (2.0 * t * gl1 + t * t * gl2),
+        h_vapor: ideal_enthalpy_mix(spec.components, y, t, t_ref, h_ref) - R * t * t * gv1,
+        cp_vapor: cp_ideal(y) - R * (2.0 * t * gv1 + t * t * gv2),
+    })
 }
 
 // ===========================================================================
@@ -1919,5 +2074,236 @@ mod tests {
             phase_cp(&van_laar, t, p, &[1.0], PhaseId::Liquid),
             Err(FlashError::Dimension(_))
         ));
+    }
+
+    /// The five public calls `stage_thermo_into` replaces, assembled the way
+    /// a consumer made them before it existed. This is the test oracle: it
+    /// shares no code with the single-pass route above the mixture core.
+    fn stage_thermo_by_separate_calls(
+        spec: &SystemSpec,
+        t: f64,
+        p: f64,
+        x: &[f64],
+        y: &[f64],
+        t_ref: f64,
+        h_ref: &[f64],
+    ) -> (Vec<f64>, Vec<f64>, StageThermo) {
+        let d = k_values_with_derivs(spec, t, p, x, y).unwrap();
+        let h = |c: &[f64], ph| {
+            phase_enthalpy_entropy(spec, t, p, c, ph, t_ref, 101.325, h_ref, &[])
+                .unwrap()
+                .0
+        };
+        let st = StageThermo {
+            h_liquid: h(x, PhaseId::Liquid),
+            cp_liquid: phase_cp(spec, t, p, x, PhaseId::Liquid).unwrap(),
+            h_vapor: h(y, PhaseId::Vapor),
+            cp_vapor: phase_cp(spec, t, p, y, PhaseId::Vapor).unwrap(),
+        };
+        (d.k, d.d_ln_k_d_t, st)
+    }
+
+    /// Assert the single call and the separate calls agree to `tol`
+    /// (relative, with an absolute floor of `tol` for values near zero).
+    #[allow(clippy::too_many_arguments)]
+    fn assert_stage_thermo_agrees(
+        label: &str,
+        spec: &SystemSpec,
+        t: f64,
+        p: f64,
+        x: &[f64],
+        y: &[f64],
+        h_ref: &[f64],
+        tol: f64,
+    ) {
+        let n = spec.n();
+        let (k0, d0, s0) = stage_thermo_by_separate_calls(spec, t, p, x, y, 298.15, h_ref);
+        let (mut k, mut d) = (vec![0.0; n], vec![0.0; n]);
+        let s = stage_thermo_into(spec, t, p, x, y, 298.15, h_ref, &mut k, &mut d).unwrap();
+        let close = |a: f64, b: f64| (a - b).abs() <= tol * b.abs().max(1.0);
+        for i in 0..n {
+            assert!(close(k[i], k0[i]), "{label}: K[{i}] {} vs {}", k[i], k0[i]);
+            assert!(
+                (d[i] - d0[i]).abs() <= tol * d0[i].abs().max(1e-3),
+                "{label}: dlnK/dT[{i}] {} vs {}",
+                d[i],
+                d0[i]
+            );
+        }
+        for (name, a, b) in [
+            ("H_L", s.h_liquid, s0.h_liquid),
+            ("Cp_L", s.cp_liquid, s0.cp_liquid),
+            ("H_V", s.h_vapor, s0.h_vapor),
+            ("Cp_V", s.cp_vapor, s0.cp_vapor),
+        ] {
+            assert!(close(a, b), "{label}: {name} {a} vs {b}");
+        }
+    }
+
+    /// `stage_thermo_into` returns what the five separate public calls
+    /// return, for the single-pass φ-φ route (classical with and without
+    /// kij, two EOS, a GE mixing rule, a 3-parameter EOS, non-zero reference
+    /// enthalpies) and for the assembled route (γ-φ, mixed).
+    #[test]
+    fn stage_thermo_matches_the_five_separate_calls() {
+        let comps = cp_pair();
+        let (x, y) = ([0.4, 0.6], [0.75, 0.25]);
+        let (t, p) = (350.0, 300.0);
+        let kij = vec![vec![0.0, 0.03], vec![0.03, 0.0]];
+        let a_wilson = vec![vec![0.0, 1200.0], vec![-300.0, 0.0]];
+        let a_vl = vec![vec![0.0, 0.7], vec![1.1, 0.0]];
+        let vl = [100.4, 147.5];
+
+        let rks = classical(&comps, &[]);
+        let rks_kij = classical(&comps, &kij);
+        let mut pr = classical(&comps, &kij);
+        pr.vapor = VaporModel::Cubic(CubicEos::PR1976);
+        pr.liquid = LiquidModel::Cubic(CubicEos::PR1976);
+        let mut patel_teja = classical(&comps, &[]);
+        patel_teja.vapor = VaporModel::Cubic(CubicEos::PatelTeja);
+        patel_teja.liquid = LiquidModel::Cubic(CubicEos::PatelTeja);
+        let mut wong_sandler = pr;
+        wong_sandler.mixing_rule = MixingRule::WongSandler;
+        wong_sandler.aij = &a_wilson;
+        wong_sandler.vl = &vl;
+        wong_sandler.ge_model = Some(ActivityModel::Wilson);
+        // Assembled route: γ-φ, and an activity liquid under a cubic vapor.
+        let mut van_laar = classical(&comps, &[]);
+        van_laar.vapor = VaporModel::IdealGas;
+        van_laar.liquid = LiquidModel::Activity(ActivityModel::VanLaar);
+        van_laar.aij = &a_vl;
+        let mut wilson_cubic = classical(&comps, &[]);
+        wilson_cubic.vapor = VaporModel::Cubic(CubicEos::PR1976);
+        wilson_cubic.liquid = LiquidModel::Activity(ActivityModel::Wilson);
+        wilson_cubic.aij = &a_wilson;
+        wilson_cubic.vl = &vl;
+
+        for (label, spec) in [
+            ("RKS", &rks),
+            ("RKS + kij", &rks_kij),
+            ("PR + kij", &pr),
+            ("Patel-Teja", &patel_teja),
+            ("PR Wong-Sandler", &wong_sandler),
+            ("van Laar / ideal gas", &van_laar),
+            ("Wilson / PR vapor", &wilson_cubic),
+        ] {
+            assert_stage_thermo_agrees(label, spec, t, p, &x, &y, &[], 1e-10);
+        }
+        // Reference enthalpies shift H and nothing else.
+        assert_stage_thermo_agrees("RKS + h_ref", &rks, t, p, &x, &y, &[1500.0, -700.0], 1e-10);
+        assert_stage_thermo_agrees(
+            "van Laar + h_ref",
+            &van_laar,
+            t,
+            p,
+            &x,
+            &y,
+            &[1500.0, -700.0],
+            1e-10,
+        );
+    }
+
+    /// Eleven components: above the 8-wide inline buffers, so the scratch
+    /// vectors live on the heap. Same agreement required.
+    #[test]
+    fn stage_thermo_matches_separate_calls_at_eleven_components() {
+        let [a, b] = cp_pair();
+        // Eleven pseudo-components interpolated between n-butane and
+        // n-heptane, so each has distinct critical constants and Cp°.
+        let comps: Vec<Component> = (0..11)
+            .map(|i| {
+                let f = i as f64 / 10.0;
+                let mix = |u: f64, v: f64| u + f * (v - u);
+                Component {
+                    name: format!("pseudo-{i}"),
+                    tc: mix(a.tc, b.tc),
+                    pc: mix(a.pc, b.pc),
+                    omega: mix(a.omega, b.omega),
+                    cp_coeffs: [
+                        mix(a.cp_coeffs[0], b.cp_coeffs[0]),
+                        mix(a.cp_coeffs[1], b.cp_coeffs[1]),
+                        mix(a.cp_coeffs[2], b.cp_coeffs[2]),
+                        0.0,
+                        0.0,
+                    ],
+                    ..Component::default()
+                }
+            })
+            .collect();
+        let norm = |v: Vec<f64>| -> Vec<f64> {
+            let s: f64 = v.iter().sum();
+            v.into_iter().map(|u| u / s).collect()
+        };
+        let x = norm((0..11).map(|i| 1.0 + i as f64).collect());
+        let y = norm((0..11).map(|i| 11.0 - i as f64).collect());
+        let spec = classical(&comps, &[]);
+        assert_stage_thermo_agrees("RKS n=11", &spec, 400.0, 800.0, &x, &y, &[], 1e-10);
+    }
+
+    /// Wrong-length inputs and unsupported models are errors, not panics.
+    #[test]
+    fn stage_thermo_rejects_bad_lengths_and_unsupported_models() {
+        let comps = cp_pair();
+        let spec = classical(&comps, &[]);
+        let (mut k, mut d) = (vec![0.0; 2], vec![0.0; 2]);
+        let mut short = vec![0.0; 1];
+        assert!(matches!(
+            stage_thermo_into(
+                &spec,
+                350.0,
+                300.0,
+                &[1.0],
+                &[0.5, 0.5],
+                298.15,
+                &[],
+                &mut k,
+                &mut d
+            ),
+            Err(FlashError::Dimension(_))
+        ));
+        assert!(matches!(
+            stage_thermo_into(
+                &spec,
+                350.0,
+                300.0,
+                &[0.5, 0.5],
+                &[0.5, 0.5],
+                298.15,
+                &[],
+                &mut short,
+                &mut d
+            ),
+            Err(FlashError::Dimension(_))
+        ));
+        let mut cs = classical(&comps, &[]);
+        cs.liquid = LiquidModel::ChaoSeader;
+        assert!(matches!(
+            stage_thermo_into(
+                &cs,
+                350.0,
+                300.0,
+                &[0.5, 0.5],
+                &[0.5, 0.5],
+                298.15,
+                &[],
+                &mut k,
+                &mut d
+            ),
+            Err(FlashError::Unsupported(_))
+        ));
+    }
+
+    /// `k_values_with_t_derivs` is the full call minus the pressure column.
+    #[test]
+    fn t_only_derivs_equal_the_full_call() {
+        let comps = cp_pair();
+        let spec = classical(&comps, &[]);
+        let (x, y) = ([0.4, 0.6], [0.75, 0.25]);
+        let full = k_values_with_derivs(&spec, 350.0, 300.0, &x, &y).unwrap();
+        let t_only = k_values_with_t_derivs(&spec, 350.0, 300.0, &x, &y).unwrap();
+        assert_eq!(t_only.k, full.k);
+        assert_eq!(t_only.d_ln_k_d_t, full.d_ln_k_d_t);
+        assert!(full.d_ln_k_d_p.iter().all(|v| *v != 0.0));
+        assert!(t_only.d_ln_k_d_p.iter().all(|v| *v == 0.0));
     }
 }

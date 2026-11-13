@@ -31,6 +31,7 @@ from vle.results import (
     FlashResult,
     FreeWaterFlashResult,
     LeeKeslerDeparture,
+    StageThermoResult,
 )
 from vle.system import System
 from vle import petroleum, refinery, steam
@@ -55,6 +56,7 @@ __all__ = [
     "BatchSaturationResult",
     "FreeWaterFlashResult",
     "LeeKeslerDeparture",
+    "StageThermoResult",
     "CubicEos",
     "ActivityModel",
     "MixingRule",
