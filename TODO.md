@@ -773,10 +773,11 @@ lessons: [OPTIMIZATION_AUDIT_HISTORY.md](docs/plans/engine/OPTIMIZATION_AUDIT_HI
 
 ### Deferred (each its own change)
 - [x] Audit P2 §6 — fixed-width dual for composition derivatives — `mixture::d_ln_phi_d_n_dual::<W>` (`num_dual::DualSVec64`, W = 4 for n ≤ 4, W = 8 above, chosen by a width sweep); Wong-Sandler/MHV1 `d_ln_phi_d_n` 2.5× faster at n = 4 → 4.2× at n = 50, still O(n³); only production caller is the Python binding — no in-tree flash uses it yet (`OPTIMIZATION_PLAN_PART2.md` §8)
-- [ ] Audit P2 §7 (`MixtureScratch`) and §10 (Rayon SoA batch output — profile first)
+- [ ] Audit P2 §7 (`MixtureScratch`) — no profile of the dual path yet
+- [x] Audit P2 §10 — Rayon SoA batch output — profiled first: the single-threaded transpose was 19–23 % of a parallel 200 000-point call; `BatchOut` flat columns written by the workers; parallel `flash_pt_batch` / bubble-dew batches −24…−32 %, serial −4 %, bit-identical; `ln_phi_batch` not converted (`OPTIMIZATION_PLAN_PART2.md` §9)
 - [ ] Audit P1 §6 — the §J Newton finish, as its own milestone with its own validation
 - [x] Audit P1 §7 — multi-seed stability (a correctness change, not a perf one) — `Seeds::WilsonThenPure`; the 250 water/propane/n-heptane two-seed misses → 0; stable-feed stability 2–4.5× slower (`OPTIMIZATION_PLAN_PART1.md` §13)
-- [ ] Audit P1 §9 — analytic envelope Jacobian (benchmark the envelope first)
+- [x] Audit P1 §9 — analytic envelope Jacobian — `envelope::jacobian` (incipient ∂ln φ̂/∂n + `mixture::d_ln_phi_d_tp`, on the min-Gibbs root); tracing 1.8× (n = 2) → 3.7× (n = 10) faster, criterion −48.8 %, every point equal to `main` to ≤ 7e-9; FD kept as test oracle (`OPTIMIZATION_PLAN_PART1.md` §15)
 
 ---
 

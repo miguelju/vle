@@ -25,10 +25,11 @@
 //!   `#[pymethods]` block below it defines what Python sees as methods.
 //! - `Option<&[f64]>` ("maybe a slice") models Python's `None`-able
 //!   arguments at zero cost — no allocation when the argument is absent.
-//! - The `PointOut` struct is a plain "struct of results" used to move a
-//!   batch point's numbers out of the parallel region; collecting a
-//!   `Vec<PointOut>` and *then* building numpy arrays keeps all Python
-//!   API calls outside the GIL-released section (a PyO3 requirement).
+//! - The `PointOut` struct is a plain "struct of results" for one batch
+//!   point. The rayon workers copy each one straight into a [`BatchOut`] —
+//!   flat, column-per-output buffers (struct-of-arrays) — and the numpy
+//!   arrays are built from those buffers *after* the GIL-released section,
+//!   which keeps every Python API call outside it (a PyO3 requirement).
 //!
 //! ## Units
 //!
@@ -38,7 +39,8 @@
 //! in **m³/kmol** to match the thesis tables).
 
 use numpy::{
-    IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2, PyUntypedArrayMethods,
+    IntoPyArray, PyArray1, PyArray2, PyArrayMethods, PyReadonlyArray1, PyReadonlyArray2,
+    PyUntypedArrayMethods,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -241,29 +243,166 @@ fn batch_len(a: usize, b: usize) -> PyResult<usize> {
 /// chunk, i.e. one fully warm-started sequential chain.
 fn chunked_run<Carry: Default + Send>(
     m: usize,
+    n: usize,
     parallel: bool,
+    want_comp_b: bool,
     f: impl (Fn(usize, &mut Carry) -> PointOut) + Sync,
-) -> Vec<PointOut> {
+) -> BatchOut {
+    let mut out = BatchOut::new(m, n, want_comp_b);
+    if m == 0 {
+        return out;
+    }
     let n_chunks = if parallel {
         rayon::current_num_threads().min(m).max(1)
     } else {
         1
     };
     let chunk_size = m.div_ceil(n_chunks);
-    // Each chunk is an independent warm-start chain; rayon's collect
-    // preserves chunk order, so flattening restores point order.
-    (0..n_chunks)
-        .into_par_iter()
-        .map(|c| {
-            let lo = c * chunk_size;
-            let hi = ((c + 1) * chunk_size).min(m);
-            let mut carry = Carry::default();
-            (lo..hi).map(|i| f(i, &mut carry)).collect::<Vec<_>>()
-        })
-        .collect::<Vec<Vec<_>>>()
-        .into_iter()
-        .flatten()
-        .collect()
+    // Each chunk is an independent warm-start chain writing into its own
+    // disjoint window of every output column, so no reordering or
+    // concatenation is needed afterwards.
+    out.chunks(chunk_size).into_par_iter().for_each(|mut c| {
+        let mut carry = Carry::default();
+        for local in 0..c.len() {
+            c.write(local, f(c.lo + local, &mut carry));
+        }
+    });
+    out
+}
+
+/// Struct-of-arrays output of a batch run (`OPTIMIZATION_PLAN_PART2.md`
+/// §9): one flat buffer per output column, length `m` for scalars and
+/// `m × n` (row-major, row = point) for compositions and K.
+///
+/// Before this, the workers returned a `Vec<PointOut>` that was flattened,
+/// then every row was cloned into a `Vec<Vec<f64>>` and copied again into
+/// numpy — all single-threaded after the parallel region, and 19–23 % of a
+/// parallel 200 000-point call. Now the copy happens on the worker that
+/// computed the point, and the 2-D numpy arrays reuse these buffers.
+struct BatchOut {
+    n: usize,
+    value: Vec<f64>,
+    beta: Vec<f64>,
+    comp_a: Vec<f64>,
+    /// Empty (length 0) when the method has no second composition — the
+    /// saturation batches report only the incipient phase.
+    comp_b: Vec<f64>,
+    k: Vec<f64>,
+    iterations: Vec<u64>,
+    two_phase: Vec<bool>,
+    converged: Vec<bool>,
+}
+
+/// One chunk's disjoint mutable window into every [`BatchOut`] column.
+/// `lo` is the global index of the chunk's first point.
+struct ChunkOut<'a> {
+    lo: usize,
+    n: usize,
+    value: &'a mut [f64],
+    beta: &'a mut [f64],
+    comp_a: &'a mut [f64],
+    comp_b: &'a mut [f64],
+    k: &'a mut [f64],
+    iterations: &'a mut [u64],
+    two_phase: &'a mut [bool],
+    converged: &'a mut [bool],
+}
+
+/// Split the first `len` items off a mutable slice, leaving the rest in
+/// place. `mem::take` moves the borrow out so the two halves can live on
+/// independently (the standard way to carve a `&mut [T]` in a loop).
+fn split_off<'a, T>(rest: &mut &'a mut [T], len: usize) -> &'a mut [T] {
+    let (head, tail) = std::mem::take(rest).split_at_mut(len);
+    *rest = tail;
+    head
+}
+
+impl BatchOut {
+    fn new(m: usize, n: usize, want_comp_b: bool) -> Self {
+        Self {
+            n,
+            value: vec![f64::NAN; m],
+            beta: vec![f64::NAN; m],
+            comp_a: vec![f64::NAN; m * n],
+            comp_b: if want_comp_b {
+                vec![f64::NAN; m * n]
+            } else {
+                Vec::new()
+            },
+            k: vec![f64::NAN; m * n],
+            iterations: vec![0; m],
+            two_phase: vec![false; m],
+            converged: vec![false; m],
+        }
+    }
+
+    /// Carve every column into consecutive windows of `chunk_size` points.
+    fn chunks(&mut self, chunk_size: usize) -> Vec<ChunkOut<'_>> {
+        let n = self.n;
+        let m = self.value.len();
+        let has_b = !self.comp_b.is_empty();
+        let (mut value, mut beta) = (&mut self.value[..], &mut self.beta[..]);
+        let (mut comp_a, mut comp_b) = (&mut self.comp_a[..], &mut self.comp_b[..]);
+        let mut k = &mut self.k[..];
+        let mut iterations = &mut self.iterations[..];
+        let mut two_phase = &mut self.two_phase[..];
+        let mut converged = &mut self.converged[..];
+        let mut chunks = Vec::with_capacity(m.div_ceil(chunk_size));
+        let mut lo = 0;
+        while lo < m {
+            let len = chunk_size.min(m - lo);
+            chunks.push(ChunkOut {
+                lo,
+                n,
+                value: split_off(&mut value, len),
+                beta: split_off(&mut beta, len),
+                comp_a: split_off(&mut comp_a, len * n),
+                comp_b: split_off(&mut comp_b, if has_b { len * n } else { 0 }),
+                k: split_off(&mut k, len * n),
+                iterations: split_off(&mut iterations, len),
+                two_phase: split_off(&mut two_phase, len),
+                converged: split_off(&mut converged, len),
+            });
+            lo += len;
+        }
+        chunks
+    }
+}
+
+impl ChunkOut<'_> {
+    fn len(&self) -> usize {
+        self.value.len()
+    }
+
+    /// Copy point `local` (chunk-relative) into the columns. A composition
+    /// the point does not carry (e.g. `comp_b` of a saturation point) is
+    /// left as NaN; one the batch does not store is ignored.
+    fn write(&mut self, local: usize, p: PointOut) {
+        let n = self.n;
+        self.value[local] = p.value;
+        self.beta[local] = p.beta;
+        let row = local * n..(local + 1) * n;
+        if p.comp_a.len() == n {
+            self.comp_a[row.clone()].copy_from_slice(&p.comp_a);
+        }
+        if !self.comp_b.is_empty() && p.comp_b.len() == n {
+            self.comp_b[row.clone()].copy_from_slice(&p.comp_b);
+        }
+        if p.k.len() == n {
+            self.k[row].copy_from_slice(&p.k);
+        }
+        self.iterations[local] = p.iterations;
+        self.two_phase[local] = p.two_phase;
+        self.converged[local] = p.converged;
+    }
+}
+
+/// An `m × n` numpy array from a flat row-major buffer, without copying it
+/// a second time: the `Vec` becomes a 1-D numpy array (ownership moves to
+/// Python) and the reshape to 2-D is a view of the same contiguous memory.
+fn flat_to_2d<'py>(py: Python<'py>, v: Vec<f64>, n: usize) -> PyResult<Bound<'py, PyArray2<f64>>> {
+    let m = v.len().checked_div(n).unwrap_or(0);
+    v.into_pyarray_bound(py).reshape([m, n])
 }
 
 /// Assemble the `(values, incipient, k, converged)` numpy tuple shared by
@@ -275,18 +414,13 @@ type SatBatch<'py> = (
     Bound<'py, PyArray1<bool>>,
 );
 
-fn sat_batch_out<'py>(py: Python<'py>, n: usize, pts: Vec<PointOut>) -> PyResult<SatBatch<'py>> {
-    let values: Vec<f64> = pts.iter().map(|p| p.value).collect();
-    let converged: Vec<bool> = pts.iter().map(|p| p.converged).collect();
-    let incipient: Vec<Vec<f64>> = pts.iter().map(|p| p.comp_a.clone()).collect();
-    let k: Vec<Vec<f64>> = pts.iter().map(|p| p.k.clone()).collect();
-    let _ = n;
+fn sat_batch_out<'py>(py: Python<'py>, out: BatchOut) -> PyResult<SatBatch<'py>> {
+    let n = out.n;
     Ok((
-        values.into_pyarray_bound(py),
-        PyArray2::from_vec2_bound(py, &incipient)
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?,
-        PyArray2::from_vec2_bound(py, &k).map_err(|e| PyRuntimeError::new_err(e.to_string()))?,
-        converged.into_pyarray_bound(py),
+        out.value.into_pyarray_bound(py),
+        flat_to_2d(py, out.comp_a, n)?,
+        flat_to_2d(py, out.k, n)?,
+        out.converged.into_pyarray_bound(py),
     ))
 }
 
@@ -965,8 +1099,8 @@ impl System {
         let m = batch_len(ts.len(), ps.len())?;
 
         // Release the GIL for the whole compute region: pure Rust below.
-        let pts = py.allow_threads(|| {
-            chunked_run::<Option<Vec<f64>>>(m, parallel, |i, carry| {
+        let out = py.allow_threads(|| {
+            chunked_run::<Option<Vec<f64>>>(m, n, parallel, true, |i, carry| {
                 let seed = if warm_start { carry.as_deref() } else { None };
                 match flash_isothermal_warm(
                     &self.spec(),
@@ -1000,24 +1134,14 @@ impl System {
             })
         });
 
-        let beta: Vec<f64> = pts.iter().map(|p| p.beta).collect();
-        let iters: Vec<u64> = pts.iter().map(|p| p.iterations).collect();
-        let two_phase: Vec<bool> = pts.iter().map(|p| p.two_phase).collect();
-        let converged: Vec<bool> = pts.iter().map(|p| p.converged).collect();
-        let x: Vec<Vec<f64>> = pts.iter().map(|p| p.comp_a.clone()).collect();
-        let y: Vec<Vec<f64>> = pts.iter().map(|p| p.comp_b.clone()).collect();
-        let k: Vec<Vec<f64>> = pts.iter().map(|p| p.k.clone()).collect();
         Ok((
-            beta.into_pyarray_bound(py),
-            PyArray2::from_vec2_bound(py, &x)
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?,
-            PyArray2::from_vec2_bound(py, &y)
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?,
-            PyArray2::from_vec2_bound(py, &k)
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?,
-            iters.into_pyarray_bound(py),
-            two_phase.into_pyarray_bound(py),
-            converged.into_pyarray_bound(py),
+            out.beta.into_pyarray_bound(py),
+            flat_to_2d(py, out.comp_a, n)?,
+            flat_to_2d(py, out.comp_b, n)?,
+            flat_to_2d(py, out.k, n)?,
+            out.iterations.into_pyarray_bound(py),
+            out.two_phase.into_pyarray_bound(py),
+            out.converged.into_pyarray_bound(py),
         ))
     }
 
@@ -1248,8 +1372,8 @@ impl System {
                 fixed.len()
             )));
         }
-        let pts = py.allow_threads(|| {
-            chunked_run::<()>(m, parallel, |i, _| {
+        let out = py.allow_threads(|| {
+            chunked_run::<()>(m, n, parallel, false, |i, _| {
                 // Row i of the C-contiguous m×n matrix.
                 let row = &comps[i * n..(i + 1) * n];
                 match solve(&self.spec(), bcast(fixed, i), row) {
@@ -1267,6 +1391,6 @@ impl System {
                 }
             })
         });
-        sat_batch_out(py, n, pts)
+        sat_batch_out(py, out)
     }
 }

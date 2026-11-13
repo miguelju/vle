@@ -2,11 +2,13 @@
 
 *Drafted 2026-10-30 by Claude Code using Claude Opus 5.5, after v0.18.0.*
 
-**Status: in progress.** Step 0 is done (Part 1 §12), and so are the
-correctness findings it raised (Part 1 §13), Step 1 (Part 2 §8) and Step 2
-(Part 1 §14). All four are unreleased. Step 3 is not started. **No release until every step is done** (owner's decision,
-2026-10-31): see *Unreleased changes* at the end, which is the draft of the
-release notes. This is an ordering of the
+**Status: every step is done; nothing is released.** Step 0 (Part 1 §12),
+the correctness findings it raised (Part 1 §13), Step 1 (Part 2 §8), Step 2
+(Part 1 §14) and Step 3 (Part 1 §15, Part 2 §9) are all unreleased. **No
+release until every step is done** (owner's decision, 2026-10-31). That
+condition is now met. The release itself is still the owner's call. Items
+in the inventory that no step covers stay open (see *Still open*). *Unreleased
+changes* at the end is the draft of the release notes. This is an ordering of the
 optimization items that
 [`OPTIMIZATION_PLAN_PART1.md`](OPTIMIZATION_PLAN_PART1.md) (flash layer),
 [`OPTIMIZATION_PLAN_PART2.md`](OPTIMIZATION_PLAN_PART2.md) (mixture core) and
@@ -31,8 +33,8 @@ this file's status lines so it never claims more than the code does.
 | Newton on ln P for near-critical bubble/dew pressure | ROADMAP M9.1 | robustness/performance |
 | Full Newton finish on ln K for the isothermal flash | Part 1 §5, §6 | performance, unmeasured need |
 | ~~Multi-seed stability analysis~~ | Part 1 §7, §12, §13 | **done**: Wilson pair then near-pure seeds; 250 → 0 |
-| Analytic phase-envelope Jacobian | Part 1 §9 | performance |
-| Rayon batch writes straight into SoA output | Part 2 §10 | performance, needs a profile |
+| ~~Analytic phase-envelope Jacobian~~ | Part 1 §9, §15 | **done** (Step 3): 1.8× (n = 2) → 3.7× (n = 10) |
+| ~~Rayon batch writes straight into SoA output~~ | Part 2 §9, §10 | **done** (Step 3): parallel batch −24…−32 % |
 | Flat `kij` storage | Part 2 §3 | parked: needs a 1.0 API break |
 | `Component` struct-of-arrays | Part 2 §2 | parked: no profile shows it |
 
@@ -172,6 +174,30 @@ Original plan text follows.
 
 ## Step 3: only when a profile justifies it
 
+**Done (unreleased, 2026-11-01).** Both measurements justified the change.
+
+- **Envelope Jacobian** (Part 1 §15). It is now exact: the incipient phase's
+  ∂ln φ̂/∂n, plus one two-lane T/P dual pass per phase, on the root
+  min-Gibbs chose. It was a forward difference costing 2(n+2) min-Gibbs
+  evaluations per Newton iteration. Tracing is 1.8× faster at n = 2 and
+  3.7× at n = 10 (criterion −48.8 %). Every traced point matches `main` to
+  ≤ 7e-9.
+- **Batch SoA output** (Part 2 §9). The profile contradicted the deferral
+  reason. The single-threaded transpose after the parallel region was
+  19–23 % of a parallel 200 000-point call (3–4 % serial). Workers now write
+  into flat column buffers that become the numpy arrays without another
+  copy. Parallel batches are −32 % (n = 2) and −24 % (n = 10), serial −4 %,
+  and the output is bit-identical.
+- **Multi-seed stability** was done earlier (Part 1 §13).
+
+### Still open (no step covers them)
+
+The Step 2 follow-ons (Newton on ln P, the γ-φ dew full step, an
+isothermal-flash Newton finish if measured), Part 2 §7 `MixtureScratch` (no
+profile yet), and the *Parked* items below.
+
+Original plan text follows.
+
 - **Part 2 §10, batch SoA output:** profile the batch path first. It already
   runs at 0.29 µs/point with the GIL released.
 - **Part 1 §9, analytic envelope Jacobian:** now measurable. The
@@ -219,6 +245,14 @@ and `engine/README.md` when the optimization work is released.
   10-component mixture a realistic warm start is 43 % cheaper (13.9 →
   7.9 µs) and a cold solve 27–28 %; near a critical point solves are 2–5×
   faster. γ-φ dew points keep the previous update rule.
+- **Faster phase envelopes** (Part 1 §15). `trace_envelope` /
+  `System.phase_envelope` use an exact Jacobian in place of finite
+  differences. They are 1.8× faster for a binary and 3.7× for 10
+  components, and trace the same points.
+- **Faster parallel batches** (Part 2 §9). `flash_pt_batch` and the four
+  bubble/dew `_batch` methods build their numpy output without a
+  single-threaded copy after the parallel region. Parallel calls are
+  24–32 % faster, and the results are bit-identical.
 - **Costs, measured:** vapor single-phase flash exits ≈ 2–2.5× (+0.22–0.45 µs
   at n = 2–8), liquid exits +9–10 %, stable-feed stability 2–4.5×; two-phase
   flashes unchanged.

@@ -821,8 +821,14 @@ Provenance and lessons: [`OPTIMIZATION_AUDIT_HISTORY.md`](docs/plans/engine/OPTI
       composition derivatives: Wong-Sandler/MHV1 `d_ln_phi_d_n` 2.5× (n = 4) → 4.2× (n = 50)
       faster, still O(n³); no in-tree flash calls it yet (`OPTIMIZATION_PLAN_PART2.md` §8).
       Multi-seed stability (Part 1 §7) shipped too (Part 1 §13)
-- [ ] Deferred, each as its own change: audit Part 2 §7, §10; and from Part 1 the §J
-      Newton finish (§6), the analytic envelope Jacobian (§9 — benchmark first)
+- [x] Audit Part 2 §10 — batch results written straight into struct-of-arrays output
+      (`py_system.rs` `BatchOut`), after a profile showed the single-threaded transpose was
+      19–23 % of a parallel call: parallel `flash_pt_batch` / bubble-dew batches −24…−32 %,
+      bit-identical output; `ln_phi_batch` still uses the old pattern (`OPTIMIZATION_PLAN_PART2.md` §9)
+- [x] Audit Part 1 §9 — exact envelope Jacobian (`envelope::jacobian`): 1.8× (n = 2) → 3.7×
+      (n = 10) faster tracing, same points to ≤ 7e-9 (`OPTIMIZATION_PLAN_PART1.md` §15)
+- [ ] Deferred, each as its own change: audit Part 2 §7; and from Part 1 the §J
+      Newton finish (§6)
 
 ---
 

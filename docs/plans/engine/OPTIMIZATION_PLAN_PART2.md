@@ -55,7 +55,7 @@ That is audit Part 2 §1, and it is where the work went.
 | 7 | `MixtureScratch<'a, D>` instead of `SmallVec` for duals | **Deferred** |
 | 8 | Stack LU; stop inverting the Broyden Jacobian | **Rejected** |
 | 9 | Flatten + single-pass virial `Bᵢⱼ` | **Executed** |
-| 10 | Rayon batch writes straight into SoA output | **Deferred** |
+| 10 | Rayon batch writes straight into SoA output | **Deferred**, then **executed 2026-11-01** (§9) after a profile: parallel batch −24…−32 % |
 | 11 | Cache-line alignment / false sharing | **Rejected** (no measured contention) |
 | 12 | Function-pointer kernel dispatch outside inner loops | **Rejected as written**; the real problem was found and fixed |
 | 13 | Separate checked APIs from `unsafe` unchecked kernels | **Principle adopted, `unsafe` rejected** |
@@ -320,7 +320,9 @@ In the order the evidence now supports:
    §2 and [`SECOND_OPINION_TRIAL.md`](SECOND_OPINION_TRIAL.md).
    **Done 2026-10-31 — see §8.** Widths chosen by measurement (W = 4 up to
    n = 4, W = 8 above); 2.5× at n = 4 rising to 4.2× at n = 50.
-2. **§10 — batch SoA output.** Profile the batch path first.
+2. **§10 — batch SoA output.** Profile the batch path first. **Done
+   2026-11-01 (§9):** the profile showed the transpose was 19–23 % of a
+   parallel call.
 3. **§3 — flat `kij`.** Only worth it bundled with a deliberate 1.0 API break.
 4. **§2 — `Component` SoA.** Only if a post-§1 profile still shows it.
 5. **§7 — `MixtureScratch`.** Same trigger as §6; they are the same code path.
@@ -615,6 +617,85 @@ simultaneous bubble/dew Newton later.
 - `cargo test --workspace` green; Python 515 passed / 1 skipped against a fresh
   wheel (includes `test_m8_mixture.py`'s `mixture_d_ln_phi_d_n` checks);
   clippy `+1.99.1` clean with and without `component-db`.
+
+---
+
+## 9. Audit §10 shipped — batch results written straight into struct-of-arrays output
+
+`OPTIMIZATION_NEXT_STEPS.md` Step 3. §2 deferred §10 with "the AoS→SoA
+transpose is not obviously dominant", because the batch ran at
+0.29 µs/point. That number was a *serial-equivalent* view of a parallel
+run. The profile below says the guess was wrong.
+
+### The profile
+
+Temporary timers (not committed) inside `flash_pt_batch`, release wheel,
+Apple M4 Pro (14 threads), 200 000 points, RKS:
+
+| Case | compute | transpose + numpy build | drop of per-point `Vec`s | share |
+|---|---|---|---|---|
+| n = 2 nC7/nC4, parallel | 39.1 ms | 9.0 ms | 3.8 ms | **23 %** |
+| n = 2, serial | 301.4 ms | 8.7 ms | 3.6 ms | 4 % |
+| n = 10 C3–nC10, parallel | 113.4 ms | 20.9 ms | 6.8 ms | **19 %** |
+| n = 10, serial | 962.7 ms | 18.9 ms | 5.5 ms | 3 % |
+
+The compute parallelizes. The assembly ran afterwards on one thread: it
+cloned every `x`/`y`/`k` row into a `Vec<Vec<f64>>`, copied those again into
+numpy (`from_vec2`), and freed 3m small vectors. So its share grows with
+the thread count, and it was a fifth of a parallel call.
+
+### What changed (`engine/src/py_system.rs`)
+
+- `chunked_run` preallocates a `BatchOut`: one flat buffer per output
+  column, length m or m × n row-major. Each rayon chunk gets disjoint
+  `&mut` windows of every column (`ChunkOut`, carved with `split_at_mut`; no
+  `unsafe`). The worker that solved a point copies it in, and its owned
+  vectors are freed on that worker.
+- The 2-D numpy arrays take ownership of those buffers (`into_pyarray` then
+  `reshape`, a view of the same memory). Nothing is copied after the
+  parallel region.
+- All five batch methods share it: `flash_pt_batch` and the four bubble/dew
+  batches. The flash itself is untouched. Each point still allocates its
+  owned `FlashResult` / `SaturationResult` vectors; see *Not done*.
+
+### Results — A/B, same harness, both builds `maturin develop --release`, mean of two runs
+
+| Case (200 000 points) | `main` | this change | |
+|---|---|---|---|
+| n = 2, parallel | 56.1 ms | 38.3 ms | **−32 %** |
+| n = 10, parallel | 156.8 ms | 119.6 ms | **−24 %** |
+| n = 2, serial | 319.1 ms | 307.3 ms | −4 % |
+| n = 10, serial | 1 002.4 ms | 964.6 ms | −4 % |
+
+So the n = 2 parallel batch is now 0.19 µs/point, against 0.29 in §5.
+
+**Same answers, bit for bit.** Every array returned by `flash_pt_batch`
+(5 000 points, n = 10), `bubble_pressure_batch` and `dew_temperature_batch`
+(300 points each) was saved from both builds and compared with
+`np.array_equal`: all 15 arrays identical, NaN positions included.
+
+### Tests
+
+- `test_flash_pt_batch_every_point_lands_in_its_row` (m = 1, 2, 7, 33, 257:
+  sizes that do not divide evenly over 14 threads), against the scalar
+  flash, which shares no batch code. It also asserts C-contiguity.
+- `test_empty_batches_return_empty_arrays`: m = 0 for the flash and a
+  saturation batch, with shapes `(0, n)`.
+- Mutant caught: dropping each chunk's index offset fails 7 batch tests.
+- Python 521 passed / 1 skipped against a fresh wheel.
+
+### Not done, recorded
+
+- **Per-point allocation in the flash.** Each point still returns owned
+  `x`, `y`, `k` vectors that are copied and freed. Removing them needs a
+  public `flash_isothermal_with_workspace` / `_into` entry point. Part 1 §2
+  ruled out committing that API surface before a real consumer exists.
+  What those allocations cost now was not measured separately. Serial
+  solves are 1.5 µs (n = 2) and 4.8 µs (n = 10) per point.
+- **The other batch methods** (`z_factor_batch`, `ln_phi_batch`,
+  `enthalpy_entropy_batch`) do not go through `chunked_run` and were not
+  profiled. `ln_phi_batch` still collects a `Vec<Vec<f64>>` and copies it
+  with `from_vec2`, which is the same pattern this change removed.
 
 ---
 

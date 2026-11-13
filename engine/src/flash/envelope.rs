@@ -22,7 +22,7 @@
 //! ```
 //!
 //! where `w̄ = w/Σw`. The fugacity coefficients use the **minimum-Gibbs
-//! root** at each composition (via [`super::system::min_gibbs_ln_phi`]), so
+//! root** at each composition (via `system::min_gibbs_ln_phi_root_into`), so
 //! the bulk and incipient phases automatically pick liquid- vs vapor-like
 //! roots away from the critical point and merge onto the single root at it —
 //! the key to passing through the critical point without special-casing.
@@ -34,8 +34,11 @@
 //! tangent (keeps the parameterization well-conditioned near the
 //! cricondentherm/cricondenbar where P or T alone would fold back). A
 //! first-order tangent predictor seeds the Newton corrector. The
-//! `(n+2)×(n+2)` corrector Jacobian is numerical — an outer-loop Jacobian of
-//! the whole state, not a thermodynamic composition derivative.
+//! `(n+2)×(n+2)` Jacobian (corrector and tangent) is **exact**: the
+//! incipient phase's ∂ln φ̂/∂n plus one two-lane T/P dual pass per phase, on
+//! the roots the residual's min-Gibbs selection chose (see [`jacobian`]).
+//! Until 2026-11 it was a forward difference costing n+2 extra residuals per
+//! iteration (`OPTIMIZATION_PLAN_PART1.md` §15).
 //!
 //! Restricted to the φ-φ (cubic both phases) path.
 //!
@@ -47,7 +50,9 @@ use nalgebra::{DMatrix, DVector};
 use super::FlashError;
 use super::bubble::bubble_temperature;
 use super::init::wilson_k_values;
-use super::system::{SystemSpec, min_gibbs_ln_phi};
+use super::system::{SystemSpec, min_gibbs_ln_phi_root_into};
+use crate::eos::PhaseId;
+use crate::mixture::{d_ln_phi_d_n, d_ln_phi_d_tp};
 
 /// One converged point on the phase envelope.
 #[derive(Debug, Clone, PartialEq)]
@@ -62,40 +67,121 @@ pub struct EnvelopePoint {
     pub incipient: Vec<f64>,
 }
 
+/// Which cubic root the min-Gibbs selection chose for the incipient phase
+/// (`w`) and the bulk phase (`z`) at one evaluation of [`residual`]. The
+/// analytic [`jacobian`] differentiates on exactly these roots.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Roots {
+    w: PhaseId,
+    z: PhaseId,
+}
+
+/// The incipient composition `w̄ = (K∘z)/Σ(K∘z)` and `Σ(K∘z)` from the
+/// unknowns `X` (its first n entries are ln K).
+fn incipient(z: &[f64], x: &DVector<f64>) -> (Vec<f64>, f64) {
+    let n = z.len();
+    let w_un: Vec<f64> = (0..n).map(|i| x[i].exp() * z[i]).collect();
+    let sw: f64 = w_un.iter().sum();
+    (w_un.iter().map(|wi| wi / sw).collect(), sw)
+}
+
 /// Residual vector `g(X)` of the envelope system (length n+2), given the
-/// unknowns `X = (ln K…, ln T, ln P)` and the continuation spec `(s_idx, s_val)`.
+/// unknowns `X = (ln K…, ln T, ln P)` and the continuation spec `(s_idx, s_val)`,
+/// plus the roots the two min-Gibbs evaluations chose.
 fn residual(
     spec: &SystemSpec,
     z: &[f64],
     x: &DVector<f64>,
     s_idx: usize,
     s_val: f64,
-) -> Result<DVector<f64>, FlashError> {
+) -> Result<(DVector<f64>, Roots), FlashError> {
     let n = z.len();
-    let k: Vec<f64> = (0..n).map(|i| x[i].exp()).collect();
     let t = x[n].exp();
     let p = x[n + 1].exp();
-    // Incipient composition w = K∘z, normalized.
-    let w_un: Vec<f64> = (0..n).map(|i| k[i] * z[i]).collect();
-    let sw: f64 = w_un.iter().sum();
-    let w: Vec<f64> = w_un.iter().map(|wi| wi / sw).collect();
+    let (w, _) = incipient(z, x);
 
-    let ln_phi_w = min_gibbs_ln_phi(spec, t, p, &w)?;
-    let ln_phi_z = min_gibbs_ln_phi(spec, t, p, z)?;
+    let mut ln_phi_w = vec![0.0; n];
+    let mut ln_phi_z = vec![0.0; n];
+    let roots = Roots {
+        w: min_gibbs_ln_phi_root_into(spec, t, p, &w, &mut ln_phi_w)?,
+        z: min_gibbs_ln_phi_root_into(spec, t, p, z, &mut ln_phi_z)?,
+    };
 
     let mut g = DVector::zeros(n + 2);
     for i in 0..n {
         g[i] = x[i] + ln_phi_w[i] - ln_phi_z[i];
     }
     // Σ zᵢ(Kᵢ − 1) = 0.
-    g[n] = (0..n).map(|i| z[i] * (k[i] - 1.0)).sum();
+    g[n] = (0..n).map(|i| z[i] * (x[i].exp() - 1.0)).sum();
     // Continuation: X_s − S = 0.
     g[n + 1] = x[s_idx] - s_val;
-    Ok(g)
+    Ok((g, roots))
 }
 
-/// Numerical `(n+2)×(n+2)` Jacobian of [`residual`] w.r.t. `X`.
+/// Exact `(n+2)×(n+2)` Jacobian of [`residual`] with respect to
+/// `X = (ln K…, ln T, ln P)`, on the roots the residual chose.
+///
+/// With `Gᵢⱼ = ∂ln φ̂ᵢ/∂nⱼ` of the incipient phase at `w̄` (ln φ̂ is
+/// intensive, so the mole-number derivative at total `Σw = Σ Kz` is `G/Σw`,
+/// and `∂wⱼ/∂ln Kⱼ = wⱼ`) — the same identity as the saturation solver's full
+/// Newton step (`incipient::full_newton_step`):
+/// ```text
+///   ∂gᵢ/∂ln Kⱼ = δᵢⱼ + Gᵢⱼ·w̄ⱼ
+///   ∂gᵢ/∂ln T  = T·(∂ln φ̂ᵢʷ/∂T − ∂ln φ̂ᵢᶻ/∂T)
+///   ∂gᵢ/∂ln P  = P·(∂ln φ̂ᵢʷ/∂P − ∂ln φ̂ᵢᶻ/∂P)
+///   ∂gₙ₊₁/∂ln Kⱼ = zⱼKⱼ,   ∂gₙ₊₂/∂Xₖ = δₖ,ₛ
+/// ```
+/// The bulk phase `z` is fixed, so it contributes only T and P columns. G
+/// comes from [`d_ln_phi_d_n`] (analytic for classical mixing, fixed-width
+/// duals for GE rules); the T and P columns from one two-lane dual pass per
+/// phase ([`d_ln_phi_d_tp`]). This replaced a forward-difference Jacobian
+/// that cost n+2 further residuals — `2(n+2)` min-Gibbs evaluations — per
+/// Newton iteration (`OPTIMIZATION_PLAN_PART1.md` §15).
 fn jacobian(
+    spec: &SystemSpec,
+    z: &[f64],
+    x: &DVector<f64>,
+    s_idx: usize,
+    roots: Roots,
+) -> Result<DMatrix<f64>, FlashError> {
+    let n = z.len();
+    let t = x[n].exp();
+    let p = x[n + 1].exp();
+    let (w, _) = incipient(z, x);
+    let eos = match spec.liquid {
+        crate::eos::LiquidModel::Cubic(eos) => eos,
+        _ => {
+            return Err(FlashError::Unsupported(
+                "phase envelope requires a cubic (φ-φ) system".into(),
+            ));
+        }
+    };
+    let ms = spec.mixture_spec(eos);
+    let thermo = |e: crate::mixture::MixError| FlashError::Thermo(e.to_string());
+    let g_w = d_ln_phi_d_n(&ms, t, p, &w, roots.w).map_err(thermo)?;
+    let (dt_w, dp_w) = d_ln_phi_d_tp(&ms, t, p, &w, roots.w).map_err(thermo)?;
+    let (dt_z, dp_z) = d_ln_phi_d_tp(&ms, t, p, z, roots.z).map_err(thermo)?;
+
+    let mut j = DMatrix::zeros(n + 2, n + 2);
+    for i in 0..n {
+        for c in 0..n {
+            j[(i, c)] = g_w[i][c] * w[c];
+        }
+        j[(i, i)] += 1.0;
+        j[(i, n)] = t * (dt_w[i] - dt_z[i]);
+        j[(i, n + 1)] = p * (dp_w[i] - dp_z[i]);
+    }
+    for c in 0..n {
+        j[(n, c)] = z[c] * x[c].exp();
+    }
+    j[(n + 1, s_idx)] = 1.0;
+    Ok(j)
+}
+
+/// The forward-difference Jacobian the analytic [`jacobian`] replaced — kept
+/// only as a test oracle (CLAUDE.md: numerical derivatives are test oracles).
+#[cfg(test)]
+fn jacobian_fd(
     spec: &SystemSpec,
     z: &[f64],
     x: &DVector<f64>,
@@ -103,22 +189,29 @@ fn jacobian(
     s_val: f64,
 ) -> Result<DMatrix<f64>, FlashError> {
     let m = x.len();
-    let g0 = residual(spec, z, x, s_idx, s_val)?;
+    let (g0, _) = residual(spec, z, x, s_idx, s_val)?;
     let mut j = DMatrix::zeros(m, m);
     for col in 0..m {
+        // Central differences: the oracle should be well below the
+        // tolerance the comparison test asserts.
         let h = 1e-6 * x[col].abs().max(1.0);
         let mut xp = x.clone();
+        let mut xm = x.clone();
         xp[col] += h;
-        let gp = residual(spec, z, &xp, s_idx, s_val)?;
+        xm[col] -= h;
+        let (gp, _) = residual(spec, z, &xp, s_idx, s_val)?;
+        let (gm, _) = residual(spec, z, &xm, s_idx, s_val)?;
         for row in 0..m {
-            j[(row, col)] = (gp[row] - g0[row]) / h;
+            j[(row, col)] = (gp[row] - gm[row]) / (2.0 * h);
         }
     }
+    let _ = g0;
     Ok(j)
 }
 
 /// Newton-correct the unknowns `X` to satisfy the envelope system at the
-/// given continuation spec. Returns the converged `X`.
+/// given continuation spec. Returns the converged `X` and the roots its
+/// final residual chose (which the tangent's Jacobian reuses).
 fn correct(
     spec: &SystemSpec,
     z: &[f64],
@@ -127,13 +220,13 @@ fn correct(
     s_val: f64,
     tol: f64,
     max_iter: usize,
-) -> Result<DVector<f64>, FlashError> {
+) -> Result<(DVector<f64>, Roots), FlashError> {
     for iter in 0..max_iter {
-        let g = residual(spec, z, &x, s_idx, s_val)?;
+        let (g, roots) = residual(spec, z, &x, s_idx, s_val)?;
         if g.amax() < tol {
-            return Ok(x);
+            return Ok((x, roots));
         }
-        let j = jacobian(spec, z, &x, s_idx, s_val)?;
+        let j = jacobian(spec, z, &x, s_idx, roots)?;
         let dx = j.lu().solve(&(-&g)).ok_or(FlashError::NoConvergence {
             what: "envelope corrector (singular Jacobian)",
             iters: iter,
@@ -146,7 +239,7 @@ fn correct(
         };
         x += scale * dx;
         if iter + 1 == max_iter {
-            let g = residual(spec, z, &x, s_idx, s_val)?;
+            let (g, _) = residual(spec, z, &x, s_idx, s_val)?;
             return Err(FlashError::NoConvergence {
                 what: "envelope corrector",
                 iters: max_iter,
@@ -228,7 +321,7 @@ pub fn trace_envelope(
 
     // Correct the seed with P fixed (spec = ln P index n+1).
     let s_idx0 = n + 1;
-    let mut x = correct(spec, z, x, s_idx0, p_start.ln(), 1e-9, 100)?;
+    let (mut x, mut roots) = correct(spec, z, x, s_idx0, p_start.ln(), 1e-9, 100)?;
 
     let mut points = Vec::with_capacity(max_points);
     let record = |x: &DVector<f64>| -> EnvelopePoint {
@@ -261,7 +354,7 @@ pub fn trace_envelope(
     let mut p_max = p_start;
     for _ in 1..max_points {
         // Tangent dX/dS: solve J·t = e_{last} (the spec row derivative).
-        let j = jacobian(spec, z, &x, s_idx, x[s_idx])?;
+        let j = jacobian(spec, z, &x, s_idx, roots)?;
         let mut rhs = DVector::zeros(n + 2);
         rhs[n + 1] = 1.0; // ∂g_{n+2}/∂S = −1 → tangent solves J·t = e
         let mut tangent = match j.lu().solve(&rhs) {
@@ -291,7 +384,7 @@ pub fn trace_envelope(
         let x_pred = &x + scale * &tangent;
 
         match correct(spec, z, x_pred, s_idx, s_val, 1e-9, 60) {
-            Ok(x_new) => {
+            Ok((x_new, roots_new)) => {
                 // Reject a step that barely moved or blew up.
                 let moved = (&x_new - &x).amax();
                 if !x_new.iter().all(|v| v.is_finite()) || moved < 1e-9 {
@@ -299,6 +392,7 @@ pub fn trace_envelope(
                 }
                 prev_dir = Some(&x_new - &x);
                 x = x_new;
+                roots = roots_new;
                 let pt = record(&x);
                 let p_now = pt.p;
                 points.push(pt);
@@ -327,6 +421,7 @@ pub fn trace_envelope(
 mod tests {
     use super::*;
     use crate::eos::{CubicEos, LiquidModel, VaporModel};
+    use crate::flash::system::min_gibbs_ln_phi;
     use crate::mixing::MixingRule;
     use crate::types::Component;
 
@@ -363,6 +458,133 @@ mod tests {
             delta: &[],
             sat_models: &[],
             ge_model: None,
+        }
+    }
+
+    /// Unknowns `X = (ln K…, ln T, ln P)` of a traced envelope point.
+    fn unknowns(pt: &EnvelopePoint) -> DVector<f64> {
+        let n = pt.k.len();
+        DVector::from_fn(n + 2, |r, _| match r {
+            r if r < n => pt.k[r].ln(),
+            r if r == n => pt.t.ln(),
+            _ => pt.p.ln(),
+        })
+    }
+
+    /// Largest entrywise disagreement between the analytic and the
+    /// central-difference Jacobian, relative to the entry (floored at 1).
+    fn jacobian_mismatch(spec: &SystemSpec, z: &[f64], x: &DVector<f64>, s_idx: usize) -> f64 {
+        let (_, roots) = residual(spec, z, x, s_idx, x[s_idx]).unwrap();
+        let got = jacobian(spec, z, x, s_idx, roots).unwrap();
+        let fd = jacobian_fd(spec, z, x, s_idx, x[s_idx]).unwrap();
+        got.iter()
+            .zip(fd.iter())
+            .map(|(a, b)| (a - b).abs() / b.abs().max(1.0))
+            .fold(0.0, f64::max)
+    }
+
+    /// The analytic Jacobian against a central-difference oracle at every
+    /// point of two traced envelopes — up the bubble branch, through the
+    /// critical point (where the two roots merge) and down the dew branch —
+    /// for every choice of continuation variable. A point where the
+    /// min-Gibbs root flips inside the ±h stencil makes the oracle itself
+    /// meaningless, so such points are skipped and counted, never silently.
+    #[test]
+    fn analytic_jacobian_matches_finite_differences_along_the_envelope() {
+        for comps in [[methane(), ethane()], [n_butane(), n_heptane()]] {
+            let spec = pr(&comps);
+            let z = [0.5, 0.5];
+            let env = trace_envelope(&spec, &z, 100.0, 400).unwrap();
+            let mut checked = 0;
+            for pt in &env {
+                let x = unknowns(pt);
+                let (_, r0) = residual(&spec, &z, &x, 3, x[3]).unwrap();
+                let flips = (0..x.len()).any(|c| {
+                    let h = 1e-6 * x[c].abs().max(1.0);
+                    [h, -h].iter().any(|d| {
+                        let mut xs = x.clone();
+                        xs[c] += d;
+                        residual(&spec, &z, &xs, 3, xs[3]).unwrap().1 != r0
+                    })
+                });
+                if flips {
+                    continue;
+                }
+                for s_idx in 0..x.len() {
+                    let err = jacobian_mismatch(&spec, &z, &x, s_idx);
+                    assert!(
+                        err < 1e-6,
+                        "{}: T={} P={} s={s_idx}: mismatch {err:e}",
+                        comps[0].name,
+                        pt.t,
+                        pt.p
+                    );
+                }
+                checked += 1;
+            }
+            assert!(
+                checked * 10 >= env.len() * 9,
+                "{}: compared only {checked} of {} points",
+                comps[0].name,
+                env.len()
+            );
+        }
+    }
+
+    /// Same oracle for the non-classical mixing rules, whose composition
+    /// Jacobian comes from the fixed-width dual path rather than the
+    /// analytic closed form, at a ternary (state taken off a classical
+    /// trace; the Jacobian is defined at any X, converged or not).
+    #[test]
+    fn analytic_jacobian_matches_finite_differences_for_ge_mixing_rules() {
+        use crate::activity::ActivityModel;
+        let comps = [
+            Component {
+                liquid_volume: 52.0,
+                ..methane()
+            },
+            Component {
+                liquid_volume: 68.0,
+                ..ethane()
+            },
+            Component {
+                liquid_volume: 101.0,
+                ..n_butane()
+            },
+        ];
+        let z = [0.4, 0.35, 0.25];
+        let classical = pr(&comps);
+        let env = trace_envelope(&classical, &z, 500.0, 6).unwrap();
+        let aij = vec![
+            vec![0.0, 150.0, 400.0],
+            vec![-120.0, 0.0, 200.0],
+            vec![-300.0, -150.0, 0.0],
+        ];
+        let vl: Vec<f64> = comps.iter().map(|c| c.liquid_volume).collect();
+        for rule in [
+            MixingRule::WongSandler,
+            MixingRule::MHV1,
+            MixingRule::HuronVidalOriginal,
+        ] {
+            let spec = SystemSpec {
+                mixing_rule: rule,
+                aij: &aij,
+                vl: &vl,
+                ge_model: Some(ActivityModel::Wilson),
+                ..pr(&comps)
+            };
+            for pt in &env {
+                let x = unknowns(pt);
+                for s_idx in [z.len(), z.len() + 1] {
+                    let err = jacobian_mismatch(&spec, &z, &x, s_idx);
+                    assert!(
+                        err < 1e-6,
+                        "{rule:?} T={} P={}: mismatch {err:e}",
+                        pt.t,
+                        pt.p
+                    );
+                }
+            }
         }
     }
 

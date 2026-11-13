@@ -45,6 +45,37 @@ def test_flash_pt_batch_serial_equals_parallel(heptane_butane):
     assert par.beta == pytest.approx(ser.beta, abs=1e-9, nan_ok=True)
 
 
+@pytest.mark.parametrize("m", [1, 2, 7, 33, 257])
+def test_flash_pt_batch_every_point_lands_in_its_row(heptane_butane, m):
+    """Each rayon chunk writes into its own window of flat output columns
+    (OPTIMIZATION_PLAN_PART2 §9). Sizes that do not divide evenly into
+    chunks must still put point i in row i of every array — checked against
+    the scalar flash, which shares no batch code."""
+    sys = heptane_butane
+    ts = np.linspace(290.0, 320.0, m)
+    ps = np.full(m, 100.0)
+    z = [0.5, 0.5]
+    batch = sys.flash_pt_batch(ts, ps, z, parallel=True, warm_start=False)
+    assert batch.x.shape == (m, 2) and batch.x.flags["C_CONTIGUOUS"]
+    for i in range(m):
+        s = sys.flash_pt(float(ts[i]), float(ps[i]), z)
+        assert batch.beta[i] == pytest.approx(s.beta, abs=1e-9)
+        assert batch.x[i] == pytest.approx(s.x, abs=1e-9)
+        assert batch.y[i] == pytest.approx(s.y, abs=1e-9)
+        assert batch.k[i] == pytest.approx(s.k, rel=1e-9)
+        assert bool(batch.two_phase[i]) == s.two_phase
+
+
+def test_empty_batches_return_empty_arrays(heptane_butane):
+    sys = heptane_butane
+    empty = np.array([], dtype=float)
+    flash = sys.flash_pt_batch(empty, empty, [0.5, 0.5])
+    assert len(flash) == 0
+    assert flash.x.shape == (0, 2) and flash.k.shape == (0, 2)
+    sat = sys.bubble_pressure_batch(np.zeros((0, 2)), np.array([300.0]))
+    assert sat.value.shape == (0,) and sat.incipient.shape == (0, 2)
+
+
 def test_bubble_pressure_batch_matches_scalar():
     sys = System(["n-heptane", "n-butane"], eos="RKS")
     x1 = np.linspace(0.2, 0.8, 20)

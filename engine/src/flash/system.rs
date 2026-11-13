@@ -690,6 +690,10 @@ pub fn ln_k_values_into(
 /// # Errors
 /// [`FlashError::Unsupported`] for non-cubic liquid models;
 /// [`FlashError::Thermo`] if the fugacity evaluation fails.
+///
+/// Test-only since the phase envelope moved to the root-reporting
+/// [`min_gibbs_ln_phi_root_into`]; production callers use the `_into` forms.
+#[cfg(test)]
 pub fn min_gibbs_ln_phi(
     spec: &SystemSpec,
     t: f64,
@@ -701,10 +705,11 @@ pub fn min_gibbs_ln_phi(
     Ok(out)
 }
 
-/// [`min_gibbs_ln_phi`] written into a caller-owned slice — **no allocation**.
+/// The owned-return `min_gibbs_ln_phi` written into a caller-owned slice —
+/// **no allocation**.
 ///
 /// The stability test calls this once per trial-phase iteration, so the owned
-/// return of [`min_gibbs_ln_phi`] was one allocation per iteration per trial.
+/// return of `min_gibbs_ln_phi` was one allocation per iteration per trial.
 /// Both cubic roots are now evaluated against a single shared mixture state
 /// (see [`ln_phi_mix_min_gibbs_into`]) instead of walking the whole mixture
 /// path twice.
@@ -760,6 +765,29 @@ pub fn min_gibbs_ln_phi_into(
         }
     };
     ln_phi_mix_min_gibbs_into(&spec.mixture_spec(eos), t, p, w, out)
+        .map_err(|e| FlashError::Thermo(e.to_string()))
+}
+
+/// [`min_gibbs_ln_phi_into`] that also reports which cubic root won
+/// (`PhaseId::Liquid` or `PhaseId::Vapor`). `t` in **K**, `p` in **kPa
+/// absolute**; same errors. Used by the phase-envelope corrector, whose
+/// analytic Jacobian must differentiate the same root the residual used.
+pub(crate) fn min_gibbs_ln_phi_root_into(
+    spec: &SystemSpec,
+    t: f64,
+    p: f64,
+    w: &[f64],
+    out: &mut [f64],
+) -> Result<PhaseId, FlashError> {
+    let eos = match spec.liquid {
+        LiquidModel::Cubic(eos) => eos,
+        _ => {
+            return Err(FlashError::Unsupported(
+                "min-Gibbs ln φ is defined only for a cubic (φ-φ) system".into(),
+            ));
+        }
+    };
+    crate::mixture::ln_phi_mix_min_gibbs_root_into(&spec.mixture_spec(eos), t, p, w, out)
         .map_err(|e| FlashError::Thermo(e.to_string()))
 }
 
