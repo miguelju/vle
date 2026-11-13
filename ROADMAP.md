@@ -833,7 +833,7 @@ Provenance and lessons: [`OPTIMIZATION_AUDIT_HISTORY.md`](docs/plans/engine/OPTI
       those calls with no speed-up. `phase_enthalpy_entropy` no longer computes the
       departure enthalpy twice (−50 %; adiabatic flash −19 %). `k_values_with_t_derivs`
       public. v0.19.0 (`OPTIMIZATION_PLAN_PART2.md` §10)
-- [ ] Deferred, each as its own change: audit Part 2 §7; and from Part 1 the §J
+- [ ] Deferred, each as its own change: audit Part 2 §7 (profiled 2026-11-12, `OPTIMIZATION_PLAN_PART2.md` §11: heap traffic is 29 % of the stage-thermodynamics call at 10 components and 9 % at 100; not built); and from Part 1 the §J
       Newton finish (§6)
 
 ---

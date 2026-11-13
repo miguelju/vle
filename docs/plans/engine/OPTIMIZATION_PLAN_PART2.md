@@ -327,7 +327,9 @@ In the order the evidence now supports:
 4. **§2 — `Component` SoA.** Only if a post-§1 profile still shows it.
 5. **§7 — `MixtureScratch`.** Same trigger as §6; they are the same code path.
    Still open after §8: no profile has been taken of the blocked dual path, so
-   there is no evidence yet that `SmallVec` is its cost.
+   there is no evidence yet that `SmallVec` is its cost. **Profiled 2026-11-12
+   for the stage-thermodynamics pass (§11):** 29 % of that call at 10
+   components, 9 % at 100. Not built.
 
 ---
 
@@ -833,12 +835,74 @@ differences change the inner path.
   saturation and Poynting terms carried through one second-order dual.
   Unmeasured.
 - **Allocation.** The single pass still builds its `Dual2` buffers per
-  call, on the heap above 8 components. See the rejected item above.
+  call, on the heap above 8 components. See the rejected item above, and
+  §11 for the profile taken afterwards.
 - **`d_ln_phi_d_t` discards the value its dual pass computes**, so
   `k_values_with_derivs` still evaluates each phase twice (value, then
   derivative). `stage_thermo_into` does not have that problem; the
   standalone call was left alone.
 - **Not bound in FFI (Swift/Kotlin) or wasm.**
+
+---
+
+## 11. Profile: heap traffic of the stage-thermodynamics dual pass (audit §7, `MixtureScratch`)
+
+*Measured 2026-11-12 by Claude Code using Claude Fable 5.2, on v0.19.0. A
+measurement only; no engine code changed.*
+
+**Question.** §10 left "a caller-owned workspace for the dual path" as the one
+item worth profiling: above 8 components every `SmallVec<[D; 8]>` buffer of
+the mixture core spills to the heap. Is that cost large enough to justify
+threading a workspace through the generic code?
+
+**Harness.** `engine/examples/stage_thermo_alloc.rs` installs a counting
+global allocator and calls `stage_thermo_into` (RKS liquid and vapor,
+classical mixing, empty `kij`, 400 K, 1000 kPa) on synthetic alkane-like
+mixtures. The shares come from the macOS `sample` profiler on the same
+binary (`--spin <n>`), Apple M4 Pro.
+
+| n | allocations / call | bytes / call | ns / call | heap share of the call |
+|---:|---:|---:|---:|---:|
+| 8 | 0 | 0 | 745 | 0 |
+| 9 | 26 | 7 680 | 1 063 | |
+| 10 | 26 | 7 936 | 1 103 | 29 % |
+| 20 | 28 | 16 640 | 1 697 | |
+| 40 | 30 | 34 048 | 2 651 | 19 % |
+| 100 | 32 | 73 984 | 5 349 | 9 % |
+| 300 | 36 | 272 640 | 15 218 | not sampled |
+
+"Heap share" is `malloc`, `free`, `realloc` and `SmallVec::try_grow` at the
+top of the stack. A further 7–9 % at every size is buffer fill and copy
+(`SmallVec::resize`, `memmove`), most of which a workspace would still pay.
+
+**What it shows.**
+
+- The spill costs 13 allocations per phase and about 0.3 µs per call. The
+  step from 8 to 9 components is +318 ns where the per-component trend adds
+  about 40 ns, which agrees with the sampled share.
+- The cost is nearly constant in n while the call grows linearly, so the
+  share falls: 29 % at 10 components, 19 % at 40, 9 % at 100. By
+  extrapolation it is a few percent at 300.
+- So the workspace is **not** justified by the crude-column target
+  (hundreds of pseudocomponents). It would matter most for mixtures of 9 to
+  about 40 components.
+
+**Decision: do not build `MixtureScratch` now.** The upper bound on the gain
+is the heap share above, on this one call. For the downstream consumer's
+40 × 10 column that is consistent with the 3–4 % of a solve measured when the
+inline capacity was widened to 16 (§10, rejected for its small-mixture cost).
+The workspace has to be generic over the dual type and passed through
+`mixture_params_with` and `ln_phi_all_generic`, which is a wide change for
+that return.
+
+**Cheaper idea, not tried:** the 13 buffers per phase could share one
+allocation (one buffer of 13·n slots, split into slices). That would remove
+most of the allocator calls above 8 components with no new public API and no
+change below 9. It is a hypothesis until measured, including on the small-n
+benches.
+
+**Not profiled:** the blocked dual composition Jacobian (`d_ln_phi_d_n`, §8).
+It is a different entry point and is not in the consumer's per-stage loop.
 
 ---
 
