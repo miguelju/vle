@@ -2,7 +2,8 @@
 
 *Drafted 2026-10-30 by Claude Code using Claude Opus 5.5, after v0.18.0.*
 
-**Status: every step is done; nothing is released.** Step 0 (Part 1 §12),
+**Status: every step is done, plus one addition found afterwards (Part 2
+§10, 2026-11-11); nothing is released.** Step 0 (Part 1 §12),
 the correctness findings it raised (Part 1 §13), Step 1 (Part 2 §8), Step 2
 (Part 1 §14) and Step 3 (Part 1 §15, Part 2 §9) are all unreleased. **No
 release until every step is done** (owner's decision, 2026-10-31). That
@@ -35,6 +36,7 @@ this file's status lines so it never claims more than the code does.
 | ~~Multi-seed stability analysis~~ | Part 1 §7, §12, §13 | **done**: Wilson pair then near-pure seeds; 250 → 0 |
 | ~~Analytic phase-envelope Jacobian~~ | Part 1 §9, §15 | **done** (Step 3): 1.8× (n = 2) → 3.7× (n = 10) |
 | ~~Rayon batch writes straight into SoA output~~ | Part 2 §9, §10 | **done** (Step 3): parallel batch −24…−32 % |
+| ~~One-pass stage thermodynamics; duplicated departure enthalpy~~ | Part 2 §10 (found 2026-11-11 by profiling the downstream consumer) | **done**, unreleased: `stage_thermo_into` 4.5–4.8× the five calls; `phase_enthalpy_entropy` −50 % |
 | Flat `kij` storage | Part 2 §3 | parked: needs a 1.0 API break |
 | `Component` struct-of-arrays | Part 2 §2 | parked: no profile shows it |
 
@@ -206,6 +208,19 @@ Original plan text follows.
 - **Part 1 §7, multi-seed stability:** only if Step 0's liquid–liquid sweep
   finds missed phase splits.
 
+## After Step 3: found by profiling the downstream consumer — **done** (Part 2 §10)
+
+Not in the original inventory. A profile of the consumer's column solve on
+this branch (2026-11-11) put 56 % of it in five overlapping calls per stage.
+Shipped, unreleased: the departure enthalpy is computed once
+(`phase_enthalpy_entropy` −50 %, adiabatic flash −19 %),
+`k_values_with_t_derivs` is public (−32 % against the full call), and
+`stage_thermo_into` returns K, ∂ln K/∂T, H and Cp of both phases from one
+second-order dual pass per cubic phase (4.5–4.8× the five calls). The
+consumer's 40 × 10 SRK solve goes 4.62 → 2.52 ms once it switches, which
+needs a release of this crate first. Rejected, measured: widening the inline
+buffers from 8 to 16.
+
 ## Parked
 
 - **Part 2 §3, flat `kij`:** only bundled with a deliberate 1.0 API break.
@@ -253,6 +268,16 @@ and `engine/README.md` when the optimization work is released.
   bubble/dew `_batch` methods build their numpy output without a
   single-threaded copy after the parallel region. Parallel calls are
   24–32 % faster, and the results are bit-identical.
+- **One call for a column stage** (Part 2 §10). New `stage_thermo_into` /
+  `System.stage_thermo` returns K-values, ∂ln K/∂T and the enthalpy and heat
+  capacity of both phases. For a cubic liquid and vapor it is 4.5–4.8×
+  faster than the five separate calls and returns the same numbers; other
+  model pairs are assembled from those calls. New `k_values_with_t_derivs` /
+  `System.k_values_with_t_derivs` skips the pressure derivative (−32 %).
+- **Faster enthalpies** (Part 2 §10). `phase_enthalpy_entropy` /
+  `System.enthalpy_entropy` on a cubic phase no longer computes the
+  departure enthalpy twice: −50 %. The adiabatic (PH) flash is 19 % faster
+  on the benchmarked binary. Same answers.
 - **Costs, measured:** vapor single-phase flash exits ≈ 2–2.5× (+0.22–0.45 µs
   at n = 2–8), liquid exits +9–10 %, stable-feed stability 2–4.5×; two-phase
   flashes unchanged.

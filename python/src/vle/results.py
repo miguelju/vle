@@ -171,6 +171,30 @@ class CriticalResult:
 
 
 @dataclass(frozen=True)
+class StageThermoResult:
+    """One equilibrium stage's thermodynamics (:meth:`vle.System.stage_thermo`).
+
+    ``frozen=True`` makes instances read-only, like every result class here.
+
+    Attributes:
+        k: K-values ``yᵢ/xᵢ``, dimensionless
+        d_ln_k_d_t: ``∂ln Kᵢ/∂T`` at constant P and compositions, **1/K**
+        h_liquid: liquid molar enthalpy, **kJ/kmol**, relative to the
+            System's reference temperature
+        cp_liquid: liquid isobaric heat capacity, **kJ/(kmol·K)**
+        h_vapor: vapor molar enthalpy, **kJ/kmol**, same reference
+        cp_vapor: vapor isobaric heat capacity, **kJ/(kmol·K)**
+    """
+
+    k: list[float]
+    d_ln_k_d_t: list[float]
+    h_liquid: float
+    cp_liquid: float
+    h_vapor: float
+    cp_vapor: float
+
+
+@dataclass(frozen=True)
 class BatchFlashResult:
     """Vectorized isothermal-flash result over m state points.
 

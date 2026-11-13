@@ -827,6 +827,12 @@ Provenance and lessons: [`OPTIMIZATION_AUDIT_HISTORY.md`](docs/plans/engine/OPTI
       bit-identical output; `ln_phi_batch` still uses the old pattern (`OPTIMIZATION_PLAN_PART2.md` §9)
 - [x] Audit Part 1 §9 — exact envelope Jacobian (`envelope::jacobian`): 1.8× (n = 2) → 3.7×
       (n = 10) faster tracing, same points to ≤ 7e-9 (`OPTIMIZATION_PLAN_PART1.md` §15)
+- [x] One-pass stage thermodynamics (`flash::stage_thermo_into` / `System.stage_thermo`):
+      K, ∂ln K/∂T, H and Cp of both phases from one second-order dual pass per cubic
+      phase, 4.5–4.8× the five separate calls; other model pairs are assembled from
+      those calls with no speed-up. `phase_enthalpy_entropy` no longer computes the
+      departure enthalpy twice (−50 %; adiabatic flash −19 %). `k_values_with_t_derivs`
+      public. Unreleased (`OPTIMIZATION_PLAN_PART2.md` §10)
 - [ ] Deferred, each as its own change: audit Part 2 §7; and from Part 1 the §J
       Newton finish (§6)
 
