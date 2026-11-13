@@ -2,13 +2,14 @@
 
 *Drafted 2026-10-30 by Claude Code using Claude Opus 5.5, after v0.18.0.*
 
-**Status: every step is done; nothing is released.** Step 0 (Part 1 §12),
+**Status: every step is done, plus one addition found afterwards (Part 2
+§10, 2026-11-11); all of it is released in v0.19.0 (2026-11-12).** Step 0 (Part 1 §12),
 the correctness findings it raised (Part 1 §13), Step 1 (Part 2 §8), Step 2
-(Part 1 §14) and Step 3 (Part 1 §15, Part 2 §9) are all unreleased. **No
-release until every step is done** (owner's decision, 2026-10-31). That
-condition is now met. The release itself is still the owner's call. Items
-in the inventory that no step covers stay open (see *Still open*). *Unreleased
-changes* at the end is the draft of the release notes. This is an ordering of the
+(Part 1 §14) and Step 3 (Part 1 §15, Part 2 §9) ship together in v0.19.0,
+following the owner's decision of 2026-10-31 that there would be no release
+until every step was done. Items
+in the inventory that no step covers stay open (see *Still open*). *Changes in
+v0.19.0* at the end is the release notes. This is an ordering of the
 optimization items that
 [`OPTIMIZATION_PLAN_PART1.md`](OPTIMIZATION_PLAN_PART1.md) (flash layer),
 [`OPTIMIZATION_PLAN_PART2.md`](OPTIMIZATION_PLAN_PART2.md) (mixture core) and
@@ -35,6 +36,7 @@ this file's status lines so it never claims more than the code does.
 | ~~Multi-seed stability analysis~~ | Part 1 §7, §12, §13 | **done**: Wilson pair then near-pure seeds; 250 → 0 |
 | ~~Analytic phase-envelope Jacobian~~ | Part 1 §9, §15 | **done** (Step 3): 1.8× (n = 2) → 3.7× (n = 10) |
 | ~~Rayon batch writes straight into SoA output~~ | Part 2 §9, §10 | **done** (Step 3): parallel batch −24…−32 % |
+| ~~One-pass stage thermodynamics; duplicated departure enthalpy~~ | Part 2 §10 (found 2026-11-11 by profiling the downstream consumer) | **done**, v0.19.0: `stage_thermo_into` 4.5–4.8× the five calls; `phase_enthalpy_entropy` −50 % |
 | Flat `kij` storage | Part 2 §3 | parked: needs a 1.0 API break |
 | `Component` struct-of-arrays | Part 2 §2 | parked: no profile shows it |
 
@@ -42,7 +44,7 @@ this file's status lines so it never claims more than the code does.
 
 ## Step 0: stability fallback on flash failure (small, correctness)
 
-**Done (unreleased, 2026-10-31)** — see Part 1 §12 for the numbers. In short:
+**Done (v0.19.0, 2026-10-31)** — see Part 1 §12 for the numbers. In short:
 all 89 hydrocarbon and 6 water/hydrocarbon failures on the rebuilt sweep
 resolve. 2 of them are genuine near-critical splits: §10 had called them
 stable because their 200-iteration trials had not converged. The fallback
@@ -89,7 +91,7 @@ owner's call and is not decided here.**
 
 ## Step 1: Part 2 §6, fixed-width dual for WS/MHV composition derivatives
 
-**Done (unreleased, 2026-10-31)**: see Part 2 §8. Ported as
+**Done (v0.19.0, 2026-10-31)**: see Part 2 §8. Ported as
 `mixture::d_ln_phi_d_n_dual::<W>` with W = 4 for n ≤ 4 and W = 8 above,
 chosen by a width sweep. The patch's W = 16 / 32 buckets were 1.6× / 3.1×
 slower at n = 20. Wong-Sandler `d_ln_phi_d_n` runs 2.5× faster at n = 4, 4.0×
@@ -126,7 +128,7 @@ open because no profile has been taken. Original plan text follows.
 
 ## Step 2: simultaneous (n+1)-variable Newton for bubble/dew temperature
 
-**Done (unreleased, 2026-11-01)**: see Part 1 §14. The full Newton step on
+**Done (v0.19.0, 2026-11-01)**: see Part 1 §14. The full Newton step on
 {ln K, ln T} uses the incipient phase's exact ∂ln φ̂/∂n (Step 1's dual where
 the mixing rule needs it). It switches in near the root only where SS is
 slow. Both rules share the v0.18.0 acceptance test, so warm ≡ cold still
@@ -174,7 +176,7 @@ Original plan text follows.
 
 ## Step 3: only when a profile justifies it
 
-**Done (unreleased, 2026-11-01).** Both measurements justified the change.
+**Done (v0.19.0, 2026-11-01).** Both measurements justified the change.
 
 - **Envelope Jacobian** (Part 1 §15). It is now exact: the incipient phase's
   ∂ln φ̂/∂n, plus one two-lane T/P dual pass per phase, on the root
@@ -206,6 +208,19 @@ Original plan text follows.
 - **Part 1 §7, multi-seed stability:** only if Step 0's liquid–liquid sweep
   finds missed phase splits.
 
+## After Step 3: found by profiling the downstream consumer — **done** (Part 2 §10)
+
+Not in the original inventory. A profile of the consumer's column solve on
+this branch (2026-11-11) put 56 % of it in five overlapping calls per stage.
+Shipped, v0.19.0: the departure enthalpy is computed once
+(`phase_enthalpy_entropy` −50 %, adiabatic flash −19 %),
+`k_values_with_t_derivs` is public (−32 % against the full call), and
+`stage_thermo_into` returns K, ∂ln K/∂T, H and Cp of both phases from one
+second-order dual pass per cubic phase (4.5–4.8× the five calls). The
+consumer's 40 × 10 SRK solve goes 4.62 → 2.52 ms once it switches to the
+v0.19.0 call (measured against a local build of this crate). Rejected, measured: widening the inline
+buffers from 8 to 16.
+
 ## Parked
 
 - **Part 2 §3, flat `kij`:** only bundled with a deliberate 1.0 API break.
@@ -213,10 +228,10 @@ Original plan text follows.
 
 ---
 
-## Unreleased changes (draft release notes)
+## Changes in v0.19.0 (release notes)
 
-Nothing below is published yet. Carry it into `README.md`, `python/README.md`
-and `engine/README.md` when the optimization work is released.
+Everything below ships in v0.19.0. `README.md`, `python/README.md` and
+`engine/README.md` carry the summary.
 
 - **Stability fallback on flash non-convergence** (Part 1 §12). A flash that
   runs out of iterations now asks the stability test before raising. It
@@ -253,6 +268,16 @@ and `engine/README.md` when the optimization work is released.
   bubble/dew `_batch` methods build their numpy output without a
   single-threaded copy after the parallel region. Parallel calls are
   24–32 % faster, and the results are bit-identical.
+- **One call for a column stage** (Part 2 §10). New `stage_thermo_into` /
+  `System.stage_thermo` returns K-values, ∂ln K/∂T and the enthalpy and heat
+  capacity of both phases. For a cubic liquid and vapor it is 4.5–4.8×
+  faster than the five separate calls and returns the same numbers; other
+  model pairs are assembled from those calls. New `k_values_with_t_derivs` /
+  `System.k_values_with_t_derivs` skips the pressure derivative (−32 %).
+- **Faster enthalpies** (Part 2 §10). `phase_enthalpy_entropy` /
+  `System.enthalpy_entropy` on a cubic phase no longer computes the
+  departure enthalpy twice: −50 %. The adiabatic (PH) flash is 19 % faster
+  on the benchmarked binary. Same answers.
 - **Costs, measured:** vapor single-phase flash exits ≈ 2–2.5× (+0.22–0.45 µs
   at n = 2–8), liquid exits +9–10 %, stable-feed stability 2–4.5×; two-phase
   flashes unchanged.

@@ -1389,6 +1389,117 @@ fn bench_flash_solvers(c: &mut Criterion) {
     g.finish();
 }
 
+/// One column stage's thermodynamics: K, ∂ln K/∂T, and H and Cp of both
+/// phases at one (T, P, x, y) — what a staged-separation solver asks for at
+/// every stage each time it refits its local models
+/// (`OPTIMIZATION_PLAN_PART2.md` §10).
+///
+/// - `separate_calls_n*` — the five public calls a consumer made before
+///   `stage_thermo_into` existed. Every one of them rebuilds the mixture.
+/// - `single_pass_n*` — `stage_thermo_into`: one second-order dual pass per
+///   phase.
+/// - `phase_enthalpy_n*` — one liquid `phase_enthalpy_entropy` on its own.
+/// - `k_with_derivs_n*` / `k_with_t_derivs_n*` — the K-derivative call with
+///   and without the pressure derivative.
+fn bench_stage_thermo(c: &mut Criterion) {
+    use vle_thermo::eos::{LiquidModel, VaporModel};
+    use vle_thermo::flash::{
+        SystemSpec, k_values_with_derivs, k_values_with_t_derivs, phase_cp, phase_enthalpy_entropy,
+        stage_thermo_into,
+    };
+    use vle_thermo::mixing::MixingRule;
+
+    let mut g = c.benchmark_group("stage_thermo");
+    for n in [4usize, 8] {
+        // The alkane fixtures carry no ideal-gas Cp; give each a plausible
+        // polynomial so the enthalpy terms do real work.
+        let comps: Vec<Component> = alkane_subset(n)
+            .into_iter()
+            .enumerate()
+            .map(|(i, c)| Component {
+                cp_coeffs: [
+                    2.0 + i as f64,
+                    2.0e-2 + 5.0e-3 * i as f64,
+                    -1.0e-5,
+                    0.0,
+                    0.0,
+                ],
+                ..c
+            })
+            .collect();
+        let sys = SystemSpec {
+            components: &comps,
+            vapor: VaporModel::Cubic(CubicEos::RKS1972),
+            liquid: LiquidModel::Cubic(CubicEos::RKS1972),
+            mixing_rule: MixingRule::Classical,
+            kij: &[],
+            aij: &[],
+            alpha: &[],
+            vl: &[],
+            delta: &[],
+            sat_models: &[],
+            ge_model: None,
+        };
+        // A liquid weighted to the heavy end and a vapor weighted to the
+        // light end, both normalized.
+        let norm = |v: Vec<f64>| -> Vec<f64> {
+            let s: f64 = v.iter().sum();
+            v.into_iter().map(|a| a / s).collect()
+        };
+        let x = norm((0..n).map(|i| 1.0 + i as f64).collect());
+        let y = norm((0..n).map(|i| (n - i) as f64).collect());
+        let (t, p, t_ref, p_ref) = (FLASH_T, FLASH_P, 298.15, 101.325);
+
+        g.bench_function(format!("separate_calls_n{n}"), |b| {
+            b.iter(|| {
+                let d = k_values_with_derivs(black_box(&sys), t, p, &x, &y).unwrap();
+                let hl =
+                    phase_enthalpy_entropy(&sys, t, p, &x, PhaseId::Liquid, t_ref, p_ref, &[], &[])
+                        .unwrap();
+                let hv =
+                    phase_enthalpy_entropy(&sys, t, p, &y, PhaseId::Vapor, t_ref, p_ref, &[], &[])
+                        .unwrap();
+                let cl = phase_cp(&sys, t, p, &x, PhaseId::Liquid).unwrap();
+                let cv = phase_cp(&sys, t, p, &y, PhaseId::Vapor).unwrap();
+                black_box((d, hl, hv, cl, cv))
+            })
+        });
+        g.bench_function(format!("single_pass_n{n}"), |b| {
+            let mut k = vec![0.0; n];
+            let mut d = vec![0.0; n];
+            b.iter(|| {
+                black_box(
+                    stage_thermo_into(black_box(&sys), t, p, &x, &y, t_ref, &[], &mut k, &mut d)
+                        .unwrap(),
+                )
+            })
+        });
+        g.bench_function(format!("phase_enthalpy_n{n}"), |b| {
+            b.iter(|| {
+                phase_enthalpy_entropy(
+                    black_box(&sys),
+                    t,
+                    p,
+                    &x,
+                    PhaseId::Liquid,
+                    t_ref,
+                    p_ref,
+                    &[],
+                    &[],
+                )
+                .unwrap()
+            })
+        });
+        g.bench_function(format!("k_with_derivs_n{n}"), |b| {
+            b.iter(|| k_values_with_derivs(black_box(&sys), t, p, &x, &y).unwrap())
+        });
+        g.bench_function(format!("k_with_t_derivs_n{n}"), |b| {
+            b.iter(|| k_values_with_t_derivs(black_box(&sys), t, p, &x, &y).unwrap())
+        });
+    }
+    g.finish();
+}
+
 criterion_group!(
     benches,
     bench_alpha,
@@ -1402,6 +1513,7 @@ criterion_group!(
     bench_mixture_scaling,
     bench_derivatives,
     bench_dual_jacobian,
-    bench_flash_solvers
+    bench_flash_solvers,
+    bench_stage_thermo
 );
 criterion_main!(benches);

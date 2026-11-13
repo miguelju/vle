@@ -527,8 +527,7 @@ flash first.
 ## 8. Audit §6 shipped — fixed-width dual composition Jacobian
 
 *Executed 2026-10-31 by Claude Code using Claude Opus 5.5.
-`OPTIMIZATION_NEXT_STEPS.md` Step 1. Unreleased (no release until the
-optimization plan is done).*
+`OPTIMIZATION_NEXT_STEPS.md` Step 1. Released in v0.19.0.*
 
 ### What changed
 
@@ -696,6 +695,150 @@ So the n = 2 parallel batch is now 0.19 µs/point, against 0.29 in §5.
   `enthalpy_entropy_batch`) do not go through `chunked_run` and were not
   profiled. `ln_phi_batch` still collects a `Vec<Vec<f64>>` and copies it
   with `from_vec2`, which is the same pattern this change removed.
+
+---
+
+## 10. One stage's thermodynamics in one pass — found by profiling the downstream consumer
+
+*Executed 2026-11-11 by Claude Code using Claude Fable 5.2. v0.19.0. Not an
+audit item: it came from profiling the staged-separation consumer against
+this branch.*
+
+### The profile
+
+The consumer's inside-out solver refits a local model at every stage on
+every outer iteration. Each refit asks five questions at one `(T, P, x, y)`:
+`k_values_with_derivs`, `phase_enthalpy_entropy` for each phase, and
+`phase_cp` for each phase. A sampling profile of its 40-stage, 10-component
+SRK solve (macOS `sample`, 4 698 samples in the solve):
+
+| Where | Share of the solve |
+|---|---|
+| The five calls, all stages | **56 %** |
+| — `phase_enthalpy_entropy` (two per stage) | 27 % |
+| — `k_values_with_derivs` | 19 % (∂/∂P alone ≈ 6 %, never read by the caller) |
+| — `phase_cp` (two per stage) | 10 % |
+| The consumer's own linear algebra and inner loop | the rest |
+
+Three separate causes.
+
+1. **`energy::phase_enthalpy_entropy` computed the departure enthalpy
+   twice.** It called `h_departure_rt_mix`, then `s_departure_r_mix`, which
+   calls `h_departure_rt_mix` again. Inside, `mix_attractive_pieces` built
+   the mixture parameters and then called `z_mix`, which built them again.
+2. **The pressure derivative was computed for a caller that never reads
+   it.** The T-only variant existed (Part 1 §14) but was `pub(crate)`.
+3. **The five calls share no work.** Per cubic phase they made about eight
+   mixture evaluations. One second-order dual pass in T already contains
+   everything: `ln φ̂ᵢ` is the value, `∂ln φ̂ᵢ/∂T` the first derivative, and
+   with `g = Σxᵢ ln φ̂ᵢ = G^R/(RT)`, `H^R = −RT²g′` and
+   `Cp^R = −R(2Tg′ + T²g″)`.
+
+### What changed
+
+- **`energy::phase_enthalpy_entropy`** computes `H^R/(RT)` once and forms
+  `S^R` from it; `mix_attractive_pieces` solves the cubic on the parameters
+  it already built. No API change. The adiabatic flash calls this function
+  inside its loop, so it benefits too.
+- **`flash::k_values_with_t_derivs`** is public, with `System.k_values_with_t_derivs`
+  in Python.
+- **`mixture::ln_phi_t2_into`** (new): the one `Dual2_64` pass.
+- **`flash::stage_thermo_into`** (new) returns K, ∂ln K/∂T and a
+  `StageThermo { h_liquid, cp_liquid, h_vapor, cp_vapor }`. Cubic liquid +
+  cubic vapor takes the single pass per phase. Every other model pair is
+  assembled from the existing calls: same answer, no speed-up. Python:
+  `System.stage_thermo` → `StageThermoResult`.
+
+### Results — `stage_thermo` criterion group (new), RKS alkanes, 350 K / 2000 kPa
+
+Before/after on the same machine and session (`--save-baseline` on the
+unmodified engine, then `--baseline`):
+
+| Bench | Before | After | |
+|---|---:|---:|---|
+| `phase_enthalpy_n4` | 783 ns | 391 ns | **−50 %** |
+| `phase_enthalpy_n8` | 1 078 ns | 520 ns | **−51 %** |
+| `separate_calls_n4` (the five calls) | 3.40 µs | 2.60 µs | −24 % |
+| `separate_calls_n8` | 4.74 µs | 3.54 µs | −26 % |
+| `flash_solvers/adiabatic_pr_binary` | 11.59 µs | 9.37 µs | **−19 %** |
+| `k_with_derivs_n4` / `n8` (untouched code — the control) | 1.24 / 1.74 µs | 1.20 / 1.59 µs | −3 % / −7 % |
+
+The control row moved 3–7 % with no code change, so read single-digit
+differences here as build-to-build layout noise (§7.5).
+
+New entry points, same run:
+
+| Bench | n = 4 | n = 8 | Against |
+|---|---:|---:|---|
+| `single_pass` (`stage_thermo_into`) | 544 ns | 786 ns | the five calls *after* the fix: **4.8×** / **4.5×**; before it: 6.3× / 6.0× |
+| `k_with_t_derivs` | 822 ns | 1 075 ns | `k_with_derivs`: **−32 %** / **−32 %** |
+
+### Results — the consumer, criterion, three builds in one session
+
+A = its `main` on this engine before the change. B = its `main` on this
+engine after (fix 1 only reaches it). C = its refit switched to
+`stage_thermo_into`.
+
+| Its bench | A | B | C |
+|---|---:|---:|---:|
+| inside-out, 40 × 10 SRK | 4.62 ms | 3.85 ms (−17 %) | **2.52 ms (−46 %)** |
+| inside-out, 5 × 3 SRK | 216 µs | 179 µs (−18 %) | **70 µs (−67 %)** |
+| inside-out, absorber | 592 µs | 449 µs (−25 %) | **160 µs (−73 %)** |
+| one surrogate fit, 5 × 3 | 19.3 µs | 15.0 µs | **3.24 µs (−83 %)** |
+| Wang–Henke, 5 × 3 SRK | 377 µs | 344 µs (−9 %) | 255 µs (−32 %) |
+| sum-rates absorber | 992 µs | 604 µs (−39 %) | 628 µs (−37 %) |
+| 8-case SRK batch, serial | 37.7 ms | 31.1 ms | **19.7 ms (−48 %)** |
+
+Its one-bubble-point bench, which touches none of this, read −9 % in both
+B and C: the same layout noise as the control above.
+
+**Same answers.** The single call agrees with the five to 1e-10 relative in
+the tests (1.7e-15 at the state checked by hand). The 40 × 10 column
+converges in the same 8 outer iterations to stage temperatures within
+1e-9 K. Its inner-iteration count moved (120 ↔ 154) because round-off-level
+differences change the inner path.
+
+### Tried and rejected, with the measurement
+
+- **Wider inline buffers: `Buf<D> = SmallVec<[D; 8]>` → `[D; 16]`.** At
+  10 components every buffer spills to the heap, and `malloc`/`free` were
+  about 20 % of the baseline profile's samples. Widening gave the consumer's
+  40 × 10 solve only 3–4 % (2.67 → 2.55 ms; within noise of the control),
+  and this engine's small-mixture benches got slower in the same session:
+  `isothermal_n4` 3.40 → 3.58 µs (+5 %), `isothermal_n8` 4.62 → 4.75 µs
+  (+3 %), `ln_phi_mix_n2` 142.7 → 155.4 ns (+9 %). **Do not widen it.** The
+  way to that 20 % is a workspace on these entry points (§7.6; audit §7),
+  not a bigger stack buffer.
+
+### Tests
+
+- `stage_thermo_matches_the_five_separate_calls`: RKS, RKS + kij, PR + kij,
+  Patel-Teja (3-parameter), PR Wong-Sandler (GE rule, where `db/dT ≠ 0`),
+  van Laar / ideal gas and Wilson / PR vapor (assembled route), and
+  non-zero reference enthalpies. 1e-10 relative.
+- `stage_thermo_matches_separate_calls_at_eleven_components` (above the
+  8-wide inline buffers), `stage_thermo_rejects_bad_lengths_and_unsupported_models`,
+  `t_only_derivs_equal_the_full_call`,
+  `phase_enthalpy_entropy_equals_the_standalone_departures`.
+- Mutants, each caught: vapor `∂/∂T` not subtracted (2 tests fail), the
+  `2Tg′` term dropped from Cp (2), `h_ref` ignored (1).
+- `cargo test --workspace` green (412 engine unit tests); Python
+  527 passed / 1 skipped against a fresh wheel (6 new in
+  `test_stage_thermo.py`); clippy `+1.99.1` clean.
+
+### Not done, recorded
+
+- **The γ-φ route gets no speed-up.** `stage_thermo_into` assembles it from
+  the separate calls. A single-pass γ-φ assembly would need the activity,
+  saturation and Poynting terms carried through one second-order dual.
+  Unmeasured.
+- **Allocation.** The single pass still builds its `Dual2` buffers per
+  call, on the heap above 8 components. See the rejected item above.
+- **`d_ln_phi_d_t` discards the value its dual pass computes**, so
+  `k_values_with_derivs` still evaluates each phase twice (value, then
+  derivative). `stage_thermo_into` does not have that problem; the
+  standalone call was left alone.
+- **Not bound in FFI (Swift/Kotlin) or wasm.**
 
 ---
 

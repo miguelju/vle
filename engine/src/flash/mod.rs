@@ -56,8 +56,8 @@ mod incipient;
 mod system;
 
 pub use system::{
-    KValueDerivs, SystemSpec, k_values, k_values_with_derivs, ln_k_values_into, phase_cp,
-    phase_enthalpy_entropy,
+    KValueDerivs, StageThermo, SystemSpec, k_values, k_values_with_derivs, k_values_with_t_derivs,
+    ln_k_values_into, phase_cp, phase_enthalpy_entropy, stage_thermo_into,
 };
 
 /// Errors from the flash / equilibrium layer.
