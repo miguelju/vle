@@ -195,8 +195,9 @@ Original plan text follows.
 ### Still open (no step covers them)
 
 The Step 2 follow-ons (Newton on ln P, the γ-φ dew full step, an
-isothermal-flash Newton finish if measured), Part 2 §7 `MixtureScratch` (no
-profile yet), and the *Parked* items below.
+isothermal-flash Newton finish if measured), Part 2 §7 `MixtureScratch` (profiled
+2026-11-12 on the stage-thermodynamics pass, Part 2 §11: 29 % of that call at
+10 components, 9 % at 100; not built), and the *Parked* items below.
 
 Original plan text follows.
 
