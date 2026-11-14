@@ -4,7 +4,7 @@
 
 **Status: every step is done, plus one addition found afterwards (Part 2
 §10, 2026-11-11); all of it is released in v0.19.0 (2026-11-12). The
-inventory items no step covered were built on 2026-11-14 and are unreleased
+inventory items no step covered were built on 2026-11-14 and released in v0.20.0
 (struck through in the table below).** Step 0 (Part 1 §12),
 the correctness findings it raised (Part 1 §13), Step 1 (Part 2 §8), Step 2
 (Part 1 §14) and Step 3 (Part 1 §15, Part 2 §9) ship together in v0.19.0,
@@ -31,10 +31,10 @@ this file's status lines so it never claims more than the code does.
 | ~~Stability on the single-phase exit for LL-prone systems~~ | Part 1 §12, §13 | **done**: pure-component screen on every cubic single-phase exit; 6 109 → 31 wrong answers |
 | ~~Public `stability_analysis` reports an unconverged trial as `Stable`~~ | Part 1 §12, §13 | **done**: now `NoConvergence` (behaviour change, no signature change) |
 | ~~Fixed-width dual (`DualSVec64<W>`) for WS/MHV `∂lnφ̂ᵢ/∂nⱼ`~~ | Part 2 §6, §8; `SECOND_OPINION_TRIAL.md` | **done** (Step 1): 2.5× (n = 4) → 4.2× (n = 50) |
-| ~~`MixtureScratch<'a, D>` instead of `SmallVec` for duals~~ | Part 2 §7, §11, §12 | **done** 2026-11-14 (unreleased), as a per-thread workspace with no API change: `stage_thermo_into` −25…−43 % |
+| ~~`MixtureScratch<'a, D>` instead of `SmallVec` for duals~~ | Part 2 §7, §11, §12 | **done** 2026-11-14 (v0.20.0), as a per-thread workspace with no API change: `stage_thermo_into` −25…−43 % |
 | ~~Simultaneous (n+1)-variable Newton for bubble/dew T~~ | Part 1 §8, §11, §14; ROADMAP M9.1 | **done** (Step 2): warm start −43 %, near-critical 2–5× |
-| ~~Newton on ln P for near-critical bubble/dew pressure~~ | ROADMAP M9.1; Part 1 §17 | **done** 2026-11-14 (unreleased): 0 disagreements, 48 points gained, `bubble_pressure` 6–69× |
-| ~~Full Newton finish on ln K for the isothermal flash~~ | Part 1 §5, §6, §18 | **done** 2026-11-14 (unreleased), as Newton on the vapor mole numbers: −20 % near-critical, nothing measurable on an ordinary flash |
+| ~~Newton on ln P for near-critical bubble/dew pressure~~ | ROADMAP M9.1; Part 1 §17 | **done** 2026-11-14 (v0.20.0): 0 disagreements, 48 points gained, `bubble_pressure` 6–69× |
+| ~~Full Newton finish on ln K for the isothermal flash~~ | Part 1 §5, §6, §18 | **done** 2026-11-14 (v0.20.0), as Newton on the vapor mole numbers: −20 % near-critical, nothing measurable on an ordinary flash |
 | ~~Multi-seed stability analysis~~ | Part 1 §7, §12, §13 | **done**: Wilson pair then near-pure seeds; 250 → 0 |
 | ~~Analytic phase-envelope Jacobian~~ | Part 1 §9, §15 | **done** (Step 3): 1.8× (n = 2) → 3.7× (n = 10) |
 | ~~Rayon batch writes straight into SoA output~~ | Part 2 §9, §10 | **done** (Step 3): parallel batch −24…−32 % |
@@ -103,7 +103,7 @@ No in-tree flash called `d_ln_phi_d_n` when this step landed, so flash benches
 did not move. Step 2 became the first in-tree consumer and Step 3's envelope
 Jacobian the second (both v0.19.0). The §7 `MixtureScratch` follow-on was
 profiled on 2026-11-12 (Part 2 §11) and built on 2026-11-14 as a per-thread
-workspace (Part 2 §12, unreleased). Original plan text follows.
+workspace (Part 2 §12, v0.20.0). Original plan text follows.
 
 - **Evidence:** Wong-Sandler `d_ln_phi_d_n` is ≈ 5.1× the analytic path
   (Part 2 §2). The trial patch built on `num_dual::DualSVec64<W>` needs no new
@@ -200,7 +200,7 @@ Original plan text follows.
 
 *Update 2026-11-14: the Step 2 follow-ons (Newton on ln P, the γ-φ dew full
 step, the isothermal-flash Newton finish) and Part 2 §7 are built and
-unreleased — Part 1 §16–§18, Part 2 §12. Only the* Parked *items below remain.*
+released in v0.20.0 — Part 1 §16–§18, Part 2 §12. Only the* Parked *items below remain.*
 
 Original plan text follows.
 

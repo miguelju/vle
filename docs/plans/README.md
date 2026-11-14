@@ -205,7 +205,7 @@ rather than from any audit.
 
 **No upstream plan is in execution.** Every plan in the tables above is
 shipped, complete, or parked. The five engine items that were open after
-v0.19.0 were built on 2026-11-14 and are unreleased: the Newton finish of the
+v0.19.0 were built on 2026-11-14 and released in v0.20.0: the Newton finish of the
 isothermal flash, Newton on ln P for the bubble/dew pressures, the γ-φ dew
 full step, a reusable workspace for the dual passes (the `MixtureScratch`
 idea), and a margin on the single-phase screen for the 31 water/hydrocarbon
