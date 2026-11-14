@@ -40,7 +40,7 @@
 //! ## Units
 //!
 //! The public API takes **T in K** and **P in kPa absolute** (the repo canon,
-//! matching [`vle-thermo`]) and returns **mass-basis** properties — what every
+//! matching `vle-thermo`) and returns **mass-basis** properties — what every
 //! steam-table user expects:
 //!
 //! - specific enthalpy `h`, internal energy `u` — **kJ/kg**

@@ -87,8 +87,8 @@ pub fn dew_temperature(
 ///
 /// Same equation, tolerance and answer as [`dew_pressure`]; the guess only
 /// changes the cost. Use it when a nearby solution is at hand — the previous
-/// column stage or iteration, the neighboring point of a sweep. The `P ← P·S`
-/// iteration runs from `p0` (and `k0`); if it does not converge to a genuine
+/// column stage or iteration, the neighboring point of a sweep. The Newton
+/// iteration on `ln P` (then, if it declines, `P ← P·S`) runs from `p0` (and `k0`); if it does not converge to a genuine
 /// (non-trivial) saturation point, or the guess is unusable (non-finite,
 /// non-positive, wrong length), the cold [`dew_pressure`] runs instead.
 ///

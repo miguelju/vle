@@ -891,7 +891,9 @@ top of the stack. A further 7–9 % at every size is buffer fill and copy
   (hundreds of pseudocomponents). It would matter most for mixtures of 9 to
   about 40 components.
 
-**Decision: do not build `MixtureScratch` now.** The upper bound on the gain
+*(Superseded 2026-11-14 by §12, which built a per-thread workspace with no API change.)*
+
+**Decision (2026-11-12): do not build `MixtureScratch` now.** The upper bound on the gain
 is the heap share above, on this one call. For the downstream consumer's
 40 × 10 column that is consistent with the 3–4 % of a solve measured when the
 inline capacity was widened to 16 (§10, rejected for its small-mixture cost).
@@ -907,6 +909,64 @@ benches.
 
 **Not profiled:** the blocked dual composition Jacobian (`d_ln_phi_d_n`, §8).
 It is a different entry point and is not in the consumer's per-stage loop.
+
+---
+
+## 12. Audit §7 shipped — a reusable workspace for the dual-number fugacity passes
+
+*Executed 2026-11-14 by Claude Code using Claude Fable 5.2; unreleased.
+A/B: `main` at `4d76d4f` built in a second worktree, both binaries run back
+to back on the same machine (Apple M4 Pro).*
+
+§11 measured the heap traffic and decided against threading a
+`MixtureScratch` through the public functions. What was built instead needs
+no signature change.
+
+**What changed** (`engine/src/mixture.rs`).
+
+- `GenericWorkspace<D>` owns the 13 buffers one generic evaluation needs
+  (the pure parameters, the mixture parameters, a scratch row, the
+  composition as constants, the output). `pure_params_into` refills a
+  caller's `PureParams` in place; `GenericWorkspace::ln_phi_at` is
+  `ln_phi_all_generic` on those buffers.
+- Two `thread_local!` workspaces, one per dual type on a hot path:
+  `Dual64` (`d_ln_phi_d_t`, `d_ln_phi_d_p`) and `Dual2_64`
+  (`ln_phi_t2_into`, the stage-thermodynamics pass). Each rayon batch worker
+  gets its own; nothing re-enters.
+
+Not converted: the composition Jacobian (`d_ln_phi_d_n_dual`, whose
+composition is not a constant), `d_ln_phi_d_tp`, `residual_cp`. They still
+call `ln_phi_all_generic`.
+
+**Result** — `engine/examples/stage_thermo_alloc.rs`, `stage_thermo_into`:
+
+| n | allocations / call, `main` → now | ns / call, `main` → now | Δ |
+|---:|---|---|---:|
+| 2 | 0 → 0 | 448 → 287 | −36 % |
+| 4 | 0 → 0 | 610 → 433 | −29 % |
+| 8 | 0 → 0 | 781 → 586 | −25 % |
+| 9 | 26 → 2 | 1 080 → 617 | −43 % |
+| 10 | 26 → 2 | 1 127 → 640 | −43 % |
+| 20 | 28 → 2 | 1 721 → 1 030 | −40 % |
+| 40 | 30 → 2 | 2 725 → 1 852 | −32 % |
+| 100 | 32 → 2 | 5 452 → 4 350 | −20 % |
+| 300 | 36 → 2 | 15 579 → 13 275 | −15 % |
+
+**Larger than §11 predicted, and not only above 8 components.** §11's upper
+bound was the allocator's share (29 % at n = 10). The gain at n ≤ 8, where
+`main` allocates nothing, is the 13 `SmallVec`s no longer being built and
+moved on every call — a cost the allocation profile could not show. The two
+remaining allocations are the caller's (`stage_thermo_into`), not the
+mixture core's.
+
+Criterion, against the saved `main` baseline: `stage_thermo/single_pass_n4`
+538 → 371 ns (−31 %), `_n8` 776 → 589 ns (−24 %); `k_with_derivs_n4/n8`
+−25 / −19 %; `k_with_t_derivs_n4/n8` −18 / −14 %; saturation temperatures
+(`flash_multi/{bubble,dew}_temperature_n2…n8`, cold and warm) −9 … −18 %,
+which is the same two passes inside the Newton loop.
+
+Test: `dual_workspace_reuse_across_sizes_matches_a_fresh_evaluation` (sizes
+12, 3, 9, 2, 12 in turn, both roots, bit-equal to the allocating path).
 
 ---
 

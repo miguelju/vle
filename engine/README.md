@@ -25,7 +25,7 @@ critical point), tangent-plane stability analysis, the mixture critical point by
 Heidemann's method, and kij/Aij regression — all with **exact derivatives**
 (hand-derived analytic for the classical paths, `num-dual` dual-number AD for
 the GE-based mixing rules; finite differences survive only as test oracles).
-414 Rust tests back it (522 across the workspace), and the results are checked against the published
+430 Rust tests back it (539 across the workspace), and the results are checked against the published
 Chapter IV tables of the thesis this engine derives from, not merely against
 themselves.
 

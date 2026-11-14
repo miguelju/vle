@@ -23,22 +23,29 @@ use crate::{R, RHO_C, SteamError, T_C};
 
 /// Upper density bound for the region-3 solves, **kg/m³**.
 ///
-/// Region 3 never actually reaches this: its densest physical state is the
-/// corner at 623.15 K and 100 MPa, about **715 kg/m³**. The bound matters
-/// because the IF97 region-3 series is a *fit*, valid only inside the region,
-/// and it misbehaves when extrapolated past it — measured on the shipped
-/// coefficients, `p(ρ)` along the 650 K isotherm rises to 312 MPa at
-/// 900 kg/m³ and then **collapses to 17 MPa at 1000**, and the 863.15 K
-/// isotherm goes outright **negative** there.
+/// Region 3's densest physical state is the corner at 623.15 K and 100 MPa,
+/// **762.3 kg/m³**. The bound must sit above that and below the point where
+/// the IF97 region-3 series stops being usable: it is a *fit*, valid only
+/// inside the region, and it misbehaves when extrapolated past it — measured
+/// on the shipped coefficients, `p(ρ)` along the 650 K isotherm rises to
+/// 312 MPa at 900 kg/m³ and then **collapses to 17 MPa at 1000**, and the
+/// 863.15 K isotherm goes outright **negative** there.
 ///
-/// The earlier `1000.0` therefore put a turning point inside the search
+/// The original `1000.0` therefore put a turning point inside the search
 /// interval: `p(ρ)` was no longer monotone on the dense branch, the endpoints
 /// stopped bracketing the root, and a bracketing scan could in principle
-/// return a spurious root off the descending limb. At 760 kg/m³ the isotherm
-/// is still monotone at every region-3 temperature and already exceeds
-/// 130 MPa — comfortably past IF97's own 100 MPa ceiling — so nothing
-/// physical is excluded.
-const RHO_MAX: f64 = 760.0;
+/// return a spurious root off the descending limb.
+///
+/// Its first replacement, `760.0`, was too low. It rested on a corner density
+/// of "about 715 kg/m³" that was wrong, and it cut off the cold, high-pressure
+/// corner: every state with 623.15 K < T ≲ 624 K near 100 MPa failed with
+/// "region-3 density bracket" (NaN through the array API; found by notebook
+/// 14, 2026-11-14). At 780 kg/m³ the isotherm is monotone at every region-3
+/// temperature — scanning 623.15–863.15 K, the first turning point above the
+/// two-phase loop is at 824 kg/m³, on the 863.15 K isotherm — and the
+/// pressure there is at least 117.9 MPa (its minimum, at 623.15 K), past
+/// IF97's 100 MPa ceiling. Test: `cold_high_pressure_corner_is_inside_the_bracket`.
+const RHO_MAX: f64 = 780.0;
 
 // Exponent windows for the power tables (see [`crate::series`]). Table 30 has
 // `I ∈ [0, 11]` and `J ∈ [0, 26]`; the second derivatives reach two below each.
@@ -506,5 +513,34 @@ mod tests {
         // Without this the skip clause above could quietly hollow the test out
         // — every comparison bypassed, and it would still report green.
         assert!(compared >= 30, "only {compared} density comparisons ran");
+    }
+
+    /// The densest corner of region 3 — just above 623.15 K, up to 100 MPa —
+    /// must solve. With `RHO_MAX = 760` the root (≈ 762 kg/m³) lay outside
+    /// the bracket and every one of these states was an error.
+    #[test]
+    fn cold_high_pressure_corner_is_inside_the_bracket() {
+        for t in [
+            623.150_001,
+            623.16,
+            623.176_870_124_329,
+            623.2,
+            624.0,
+            630.0,
+        ] {
+            for p_kpa in [90_000.0, 99_999.0, 100_000.0] {
+                let rho = density_tp(t, p_kpa)
+                    .unwrap_or_else(|e| panic!("T={t} K, P={p_kpa} kPa: {e:?}"));
+                assert!(rho > 700.0 && rho < RHO_MAX, "T={t} P={p_kpa}: rho={rho}");
+                assert!((pressure(rho, t) / p_kpa - 1.0).abs() < 1e-9);
+            }
+        }
+        // The ceiling stays on the monotone part of every isotherm and above
+        // the 100 MPa limit.
+        for i in 0..=240 {
+            let t = 623.15 + i as f64;
+            assert!(pressure_slope(RHO_MAX, t).1 > 0.0, "slope at T={t}");
+            assert!(pressure(RHO_MAX, t) > 100_000.0, "p(RHO_MAX) at T={t}");
+        }
     }
 }

@@ -15,11 +15,14 @@
 //! The outer driver (in [`super::bubble`] / [`super::dew`]) adjusts the free
 //! variable (T or P) to drive `S → 1`. Two drivers, one per free variable:
 //!
-//! - **Pressure** ([`solve_pressure`]) — the multiplicative update
-//!   `P ← P·S` (bubble) / `P ← P/S` (dew) around an inner successive-
-//!   substitution loop on K. The update is Newton on `ln P` with the
-//!   Raoult-law slope `∂ln S/∂ln P ≈ −1` (bubble), so it needs no derivative
-//!   and already converges in tens of µs.
+//! - **Pressure** ([`solve_pressure`]) — the same Newton loop as the
+//!   temperature solve with P free ([`newton_pressure`]): a step on `ln P`
+//!   with the exact `∂ln Kᵢ/∂P`, and the simultaneous `(N+1)`-variable step
+//!   on `{ln K, ln P}` near the root (`OPTIMIZATION_PLAN_PART1.md` §17). If
+//!   Newton declines, the multiplicative update `P ← P·S` (bubble) /
+//!   `P ← P/S` (dew) around an inner successive-substitution loop on K —
+//!   Newton on `ln P` with the Raoult-law slope `∂ln S/∂ln P ≈ −1`, needing
+//!   no derivative — with its trivial-solution recovery.
 //! - **Temperature** ([`solve_temperature`]) — Newton with the exact
 //!   `∂ln Kᵢ/∂T` (see [`newton_temperature`]). Far from the root, a Newton
 //!   step on `1/T` plus one successive-substitution step on the incipient
@@ -34,9 +37,11 @@
 
 use super::FlashError;
 use super::init::wilson_k_values;
-use super::system::{SystemSpec, k_values, k_values_with_t_derivs};
+use super::system::{
+    SystemSpec, k_values, k_values_with_p_derivs, k_values_with_t_derivs, phase_ln_phi_jacobian,
+};
 use crate::eos::{LiquidModel, PhaseId, VaporModel};
-use crate::mixture::{d_ln_phi_d_n, z_mix};
+use crate::mixture::z_mix;
 
 /// Which saturation point — selects the known phase and the sum condition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,7 +136,13 @@ pub(crate) struct SatPoint {
     pub k: Vec<f64>,
 }
 
-/// Solve for the saturation **pressure** at fixed `t` (bubble-P or dew-P).
+/// Solve for the saturation **pressure** at fixed `t` (bubble-P or dew-P):
+/// `t` in **K**, the returned `var` in **kPa absolute**.
+///
+/// Tries [`newton_pressure`] first and falls back to
+/// [`solve_pressure_multiplicative`] whenever Newton declines. Both solve the
+/// same equation, so the fallback changes the cost, never the answer. The
+/// rest of this comment describes the fallback.
 ///
 /// Multiplicative outer update — `P ← P·S` (bubble) or `P ← P/S` (dew) —
 /// which drives `S → 1` monotonically, warm-starting the K-values across
@@ -151,6 +162,25 @@ pub(crate) struct SatPoint {
 /// — the saturation temperature solved by Newton, inverted by a secant on
 /// `ln P`. [`FlashError::NoConvergence`] only if that fails as well.
 pub(crate) fn solve_pressure(
+    spec: &SystemSpec,
+    t: f64,
+    known: &[f64],
+    point: Point,
+    tol: f64,
+    max_iter: usize,
+) -> Result<SatPoint, FlashError> {
+    // Newton on ln P first (§17); the multiplicative solver below is the
+    // fallback wherever Newton cannot vouch for an answer.
+    match newton_pressure(spec, t, known, point, tol, max_iter) {
+        Some(sp) => Ok(sp),
+        None => solve_pressure_multiplicative(spec, t, known, point, tol, max_iter),
+    }
+}
+
+/// The pre-Newton saturation-pressure solver: `P ← P·S` with trivial-solution
+/// restarts and the [`inverse_pressure`] last resort — see [`solve_pressure`],
+/// which now runs it only when [`newton_pressure`] declines.
+pub(crate) fn solve_pressure_multiplicative(
     spec: &SystemSpec,
     t: f64,
     known: &[f64],
@@ -441,10 +471,10 @@ pub(crate) fn solve_temperature_from(
 /// [`solve_pressure`] **warm-started** from a caller's guess: `p0` in
 /// **kPa**, optional K-values `k0` (Wilson at `(t, p0)` when absent).
 ///
-/// Runs the `P ← P·S` iteration from the guess and accepts a result that is
-/// not the trivial solution ([`is_trivial`]); otherwise — or for an unusable
-/// guess — it runs the cold [`solve_pressure`], trivial-solution recovery
-/// included. Same equation, same tolerance: the guess changes the cost, never
+/// Runs [`newton_pressure_from`] from the guess; if that declines, the
+/// `P ← P·S` iteration from the same guess, accepting a result that is not
+/// the trivial solution ([`is_trivial`]); otherwise — or for an unusable
+/// guess — the cold [`solve_pressure`], trivial-solution recovery included. Same equation, same tolerance: the guess changes the cost, never
 /// the answer.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn solve_pressure_from(
@@ -459,6 +489,9 @@ pub(crate) fn solve_pressure_from(
 ) -> Result<SatPoint, FlashError> {
     if guess_ok(spec, p0, k0) {
         let k = k0.map_or_else(|| wilson_k_init(spec, t, p0), <[f64]>::to_vec);
+        if let Some(sp) = newton_pressure_from(spec, t, known, point, p0, &k, tol, max_iter) {
+            return Ok(sp);
+        }
         if let Ok(sp) = multiplicative_pressure_k(spec, t, p0, k, known, point, tol, max_iter) {
             if !is_trivial(spec, t, sp.var, known, &sp.incipient, point)? {
                 return Ok(sp);
@@ -589,16 +622,10 @@ const FULL_NEWTON_MIN_RATIO: f64 = 0.1;
 const MAX_LN_K_STEP: f64 = 1.0;
 
 /// ∂ln φ̂ᵢ/∂nⱼ of the **incipient** phase at its composition `inc` — the only
-/// composition dependence of K that moves during a saturation-temperature
-/// solve (the known phase is fixed). Returns `None` when the model pair does
-/// not expose it, which keeps that solve on the one-SS-step update.
-///
-/// - Bubble (incipient vapor): ideal gas ⇒ zero; cubic ⇒ the mixture's exact
-///   Jacobian on the vapor root; virial ⇒ `None`.
-/// - Dew (incipient liquid): ideal solution ⇒ zero (γ ≡ 1 and the
-///   Psat/φˢᵃᵗ/Poynting terms are composition-free); cubic ⇒ the exact
-///   Jacobian on the liquid root; activity models and the refinery
-///   correlations ⇒ `None` (no ∂ln γ/∂x is exposed).
+/// composition dependence of K that moves during a saturation solve (the
+/// known phase is fixed). The incipient phase is the vapor at a bubble point
+/// and the liquid at a dew point; see [`phase_ln_phi_jacobian`] for which
+/// model pairs expose it. `None` keeps the solve on the one-SS-step update.
 ///
 /// `t` in **K**, `p` in **kPa absolute**; the result is dimensionless.
 fn incipient_ln_phi_jacobian(
@@ -608,33 +635,21 @@ fn incipient_ln_phi_jacobian(
     inc: &[f64],
     point: Point,
 ) -> Option<Vec<Vec<f64>>> {
-    let n = inc.len();
-    let zeros = || Some(vec![vec![0.0; n]; n]);
-    match point {
-        Point::Bubble => match spec.vapor {
-            VaporModel::IdealGas => zeros(),
-            VaporModel::Cubic(eos) => {
-                d_ln_phi_d_n(&spec.mixture_spec(eos), t, p, inc, PhaseId::Vapor).ok()
-            }
-            VaporModel::Virial => None,
-        },
-        Point::Dew => match spec.liquid {
-            LiquidModel::IdealSolution => zeros(),
-            LiquidModel::Cubic(eos) => {
-                d_ln_phi_d_n(&spec.mixture_spec(eos), t, p, inc, PhaseId::Liquid).ok()
-            }
-            _ => None,
-        },
-    }
+    let phase = match point {
+        Point::Bubble => PhaseId::Vapor,
+        Point::Dew => PhaseId::Liquid,
+    };
+    phase_ln_phi_jacobian(spec, t, p, inc, phase)
 }
 
-/// One full Newton step on the (n+1) unknowns `{ln K₁…ln Kₙ, ln T}`
-/// (`MODERNIZATION_PLAN.md` §K; Michelsen & Mollerup (26) ch. 12).
+/// One full Newton step on the (n+1) unknowns `{ln K₁…ln Kₙ, ln v}`, where
+/// the free variable `v` is T (a saturation temperature) or P (a saturation
+/// pressure) (`MODERNIZATION_PLAN.md` §K; Michelsen & Mollerup (26) ch. 12).
 ///
 /// With the incipient phase derived from the unknowns — bubble
 /// `yᵢ = Kᵢxᵢ/Σ Kx`, dew `xᵢ = (yᵢ/Kᵢ)/Σ y/K` — the equations are
 /// ```text
-///   Fᵢ    = ln Kᵢ − ln Kᵢᵐᵒᵈᵉˡ(T, x, y) = 0      i = 1…n
+///   Fᵢ    = ln Kᵢ − ln Kᵢᵐᵒᵈᵉˡ(T, P, x, y) = 0   i = 1…n
 ///   Fₙ₊₁ = ln Σ Kᵢxᵢ  (bubble)   or   ln Σ yᵢ/Kᵢ  (dew)  = 0
 /// ```
 /// and, writing `Gᵢⱼ = ∂ln φ̂ᵢ/∂nⱼ` of the incipient phase at its normalized
@@ -642,18 +657,19 @@ fn incipient_ln_phi_jacobian(
 /// total S is `G/S`, and `∂nⱼ/∂ln Kⱼ = ±nⱼ`):
 /// ```text
 ///   ∂Fᵢ/∂ln Kⱼ   = δᵢⱼ + Gᵢⱼ·ŵⱼ                  (both points)
-///   ∂Fᵢ/∂ln T    = −T·∂ln Kᵢᵐᵒᵈᵉˡ/∂T
-///   ∂Fₙ₊₁/∂ln Kⱼ = +ŵⱼ (bubble), −ŵⱼ (dew);   ∂Fₙ₊₁/∂ln T = 0
+///   ∂Fᵢ/∂ln v    = −v·∂ln Kᵢᵐᵒᵈᵉˡ/∂v
+///   ∂Fₙ₊₁/∂ln Kⱼ = +ŵⱼ (bubble), −ŵⱼ (dew);   ∂Fₙ₊₁/∂ln v = 0
 /// ```
-/// Returns `(Δln K, Δln T)`, already scaled by the step limits, or `None`
-/// if the system is singular or the step is not finite.
+/// `d_ln_k_d_ln_v` is `v·∂ln Kᵢᵐᵒᵈᵉˡ/∂v` (dimensionless) and `max_dlv` the
+/// largest allowed `|Δln v|`. Returns `(Δln K, Δln v)`, already scaled by the
+/// step limits, or `None` if the system is singular or the step is not finite.
 #[allow(clippy::too_many_arguments)]
 fn full_newton_step(
     point: Point,
-    t: f64,
     ln_k: &[f64],
     model_ln_k: &[f64],
-    d_ln_k_d_t: &[f64],
+    d_ln_k_d_ln_v: &[f64],
+    max_dlv: f64,
     inc: &[f64],
     ln_sum: f64,
     jac_inc: &[Vec<f64>],
@@ -667,7 +683,7 @@ fn full_newton_step(
     // row/column is the sum equation / the ln T unknown.
     let jac = nalgebra::DMatrix::from_fn(n + 1, n + 1, |r, c| match (r < n, c < n) {
         (true, true) => f64::from(u8::from(r == c)) + jac_inc[r][c] * inc[c],
-        (true, false) => -t * d_ln_k_d_t[r],
+        (true, false) => -d_ln_k_d_ln_v[r],
         (false, true) => sign * inc[c],
         (false, false) => 0.0,
     });
@@ -690,8 +706,8 @@ fn full_newton_step(
     if max_dlk > MAX_LN_K_STEP {
         scale = scale.min(MAX_LN_K_STEP / max_dlk);
     }
-    if dlt.abs() > MAX_REL_STEP {
-        scale = scale.min(MAX_REL_STEP / dlt.abs());
+    if dlt.abs() > max_dlv {
+        scale = scale.min(max_dlv / dlt.abs());
     }
     Some((
         delta.rows(0, n).iter().map(|v| v * scale).collect(),
@@ -731,20 +747,105 @@ pub(crate) fn newton_temperature_from(
     tol: f64,
     max_iter: usize,
 ) -> Option<SatPoint> {
-    temperature_iteration(spec, p, known, point, t0, k0, tol, max_iter, true).map(|(sp, _)| sp)
+    saturation_iteration(
+        spec,
+        Free::Temperature,
+        p,
+        known,
+        point,
+        t0,
+        k0,
+        tol,
+        max_iter,
+        true,
+    )
+    .map(|(sp, _)| sp)
 }
 
-/// The loop behind [`newton_temperature_from`], also returning the number of
-/// K evaluations it took. `allow_full = false` pins it to the one-SS-step
-/// update — the v0.18.0 algorithm — which the tests use as the reference the
-/// full Newton step must agree with and beat.
-#[allow(clippy::too_many_arguments)]
-fn temperature_iteration(
+/// Newton solve for the saturation **pressure** at `t` (**K**), Wilson-seeded
+/// — the pressure counterpart of [`newton_temperature`], on the unknown
+/// `ln P` (`OPTIMIZATION_PLAN_PART1.md` §17).
+///
+/// Each iteration evaluates `Kᵢ` and the exact `∂ln Kᵢ/∂P` at the current
+/// `(P, x, y)`, then either takes one successive-substitution step on the
+/// incipient composition plus a Newton step on `ln P` with the exact slope
+/// `∂ln S/∂ln P` — which is the `P ← P·S` update when that slope is the
+/// Raoult-law −1 — or, near the root and where SS is slow, the simultaneous
+/// (n+1)-variable Newton step on `{ln K, ln P}`.
+///
+/// Returns `None` exactly where [`newton_temperature`] would (no `∂ln K/∂P`
+/// for the model pair, a failed K evaluation, a non-finite step, the slope on
+/// the wrong side, `max_iter`, or the trivial solution), and the caller falls
+/// back to the multiplicative solver.
+pub(crate) fn newton_pressure(
     spec: &SystemSpec,
-    p: f64,
+    t: f64,
     known: &[f64],
     point: Point,
-    t0: f64,
+    tol: f64,
+    max_iter: usize,
+) -> Option<SatPoint> {
+    let p0 = wilson_pressure_guess(spec, t, known, point).max(1e-6);
+    let kw = wilson_k_init(spec, t, p0);
+    newton_pressure_from(spec, t, known, point, p0, &kw, tol, max_iter)
+}
+
+/// [`newton_pressure`] from a caller's starting point: pressure `p0` in
+/// **kPa absolute** and K-values `k0`. `t` in **K**.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn newton_pressure_from(
+    spec: &SystemSpec,
+    t: f64,
+    known: &[f64],
+    point: Point,
+    p0: f64,
+    k0: &[f64],
+    tol: f64,
+    max_iter: usize,
+) -> Option<SatPoint> {
+    saturation_iteration(
+        spec,
+        Free::Pressure,
+        t,
+        known,
+        point,
+        p0,
+        k0,
+        tol,
+        max_iter,
+        true,
+    )
+    .map(|(sp, _)| sp)
+}
+
+/// Which of (T, P) a saturation solve is looking for; the other one is fixed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Free {
+    Temperature,
+    Pressure,
+}
+
+/// Largest Newton step allowed in `ln P` (a factor of e in pressure). The
+/// multiplicative update this replaces had no limit; the exact slope can be
+/// far from −1 near the critical point, where an unlimited step leaves the
+/// two-root region.
+const MAX_LN_P_STEP: f64 = 1.0;
+
+/// The loop behind [`newton_temperature_from`] and [`newton_pressure_from`],
+/// also returning the number of K evaluations it took. `fixed` is the
+/// specified variable (P in **kPa** for a temperature solve, T in **K** for a
+/// pressure solve) and `v0` the starting value of the free one.
+/// `allow_full = false` pins it to the one-SS-step update — for temperature,
+/// the v0.18.0 algorithm — which the tests use as the reference the full
+/// Newton step must agree with and beat.
+#[allow(clippy::too_many_arguments)]
+fn saturation_iteration(
+    spec: &SystemSpec,
+    free: Free,
+    fixed: f64,
+    known: &[f64],
+    point: Point,
+    v0: f64,
     k0: &[f64],
     tol: f64,
     max_iter: usize,
@@ -767,7 +868,8 @@ fn temperature_iteration(
         Some((w, s.ln()))
     };
 
-    let mut t = t0;
+    // `v` is the free variable: T in K or P in kPa.
+    let mut v = v0;
     let mut ln_k: Vec<f64> = k0.iter().map(|k| k.ln()).collect();
     let (mut incipient, _) = implied(k0)?;
     // Full Newton is tried only for model pairs that expose the incipient
@@ -782,6 +884,10 @@ fn temperature_iteration(
     let mut in_full = false;
 
     for iter in 0..max_iter.max(1) {
+        let (t, p) = match free {
+            Free::Temperature => (v, fixed),
+            Free::Pressure => (fixed, v),
+        };
         // (x, y) ordering for the K evaluation: the known phase is the
         // liquid for a bubble point and the vapor for a dew point.
         let (x, y) = match point {
@@ -789,23 +895,32 @@ fn temperature_iteration(
             Point::Dew => (incipient.as_slice(), known),
         };
         // `.ok()?` turns any FlashError (including `Unsupported`) into a
-        // `None` return — the signal to fall back to bisection.
-        let d = k_values_with_t_derivs(spec, t, p, x, y).ok()?;
+        // `None` return — the signal to fall back.
+        let d = match free {
+            Free::Temperature => k_values_with_t_derivs(spec, t, p, x, y),
+            Free::Pressure => k_values_with_p_derivs(spec, t, p, x, y),
+        }
+        .ok()?;
+        // ∂ln Kᵢ/∂v for the free variable v.
+        let d_ln_k_d_v = match free {
+            Free::Temperature => &d.d_ln_k_d_t,
+            Free::Pressure => &d.d_ln_k_d_p,
+        };
 
-        let (mut s, mut ds_dt) = (0.0, 0.0);
+        let (mut s, mut ds_dv) = (0.0, 0.0);
         // `zip` walks the three slices in lockstep — no index bounds checks.
-        for ((&k, &z), &dlnk) in d.k.iter().zip(known).zip(&d.d_ln_k_d_t) {
+        for ((&k, &z), &dlnk) in d.k.iter().zip(known).zip(d_ln_k_d_v) {
             let w = weight(k, z);
             s += w;
-            ds_dt += w * dlnk;
+            ds_dv += w * dlnk;
         }
-        // ∂ln S/∂T: K rising with T raises the bubble sum and lowers the dew sum.
-        let dlns_dt = match point {
-            Point::Bubble => ds_dt / s,
-            Point::Dew => -ds_dt / s,
+        // ∂ln S/∂v: K rising raises the bubble sum and lowers the dew sum.
+        let dlns_dv = match point {
+            Point::Bubble => ds_dv / s,
+            Point::Dew => -ds_dv / s,
         };
         let ln_s = s.ln();
-        if !ln_s.is_finite() || !dlns_dt.is_finite() {
+        if !ln_s.is_finite() || !dlns_dv.is_finite() {
             return None;
         }
 
@@ -834,7 +949,7 @@ fn temperature_iteration(
             }
             return Some((
                 SatPoint {
-                    var: t,
+                    var: v,
                     incipient: ss_incipient,
                     k: d.k,
                 },
@@ -842,13 +957,15 @@ fn temperature_iteration(
             ));
         }
 
-        // A saturation sum must rise with T at a bubble point and fall at a
-        // dew point; the opposite sign means we are off the physical branch.
-        let wrong_sign = match point {
-            Point::Bubble => dlns_dt <= 0.0,
-            Point::Dew => dlns_dt >= 0.0,
-        };
-        if wrong_sign {
+        // On the physical branch K rises with T and falls with P, so a
+        // bubble sum rises with T and falls with P, and a dew sum does the
+        // opposite. Any other sign means we are off that branch.
+        let rising = dlns_dv > 0.0;
+        let should_rise = matches!(
+            (free, point),
+            (Free::Temperature, Point::Bubble) | (Free::Pressure, Point::Dew)
+        );
+        if dlns_dv == 0.0 || rising != should_rise {
             return None;
         }
 
@@ -868,30 +985,35 @@ fn temperature_iteration(
                 .iter()
                 .zip(&model_ln_k)
                 .fold(ln_sum.abs(), |m, (a, b)| m.max((a - b).abs()));
+            let d_ln_k_d_ln_v: Vec<f64> = d_ln_k_d_v.iter().map(|dk| v * dk).collect();
+            let max_dlv = match free {
+                Free::Temperature => MAX_REL_STEP,
+                Free::Pressure => MAX_LN_P_STEP,
+            };
             let taken = (residual < last_full_residual)
                 .then(|| incipient_ln_phi_jacobian(spec, t, p, &incipient, point))
                 .flatten()
                 .and_then(|g| {
                     full_newton_step(
                         point,
-                        t,
                         &ln_k,
                         &model_ln_k,
-                        &d.d_ln_k_d_t,
+                        &d_ln_k_d_ln_v,
+                        max_dlv,
                         &incipient,
                         ln_sum,
                         &g,
                     )
                 });
-            if let Some((dlk, dlt)) = taken {
-                for (v, dv) in ln_k.iter_mut().zip(&dlk) {
-                    *v += dv;
+            if let Some((dlk, dlv)) = taken {
+                for (lk, dv) in ln_k.iter_mut().zip(&dlk) {
+                    *lk += dv;
                 }
-                let t_new = t * dlt.exp();
-                let k_new: Vec<f64> = ln_k.iter().map(|v| v.exp()).collect();
-                if let (true, Some((inc, _))) = (t_new.is_finite() && t_new > 0.0, implied(&k_new))
+                let v_new = v * dlv.exp();
+                let k_new: Vec<f64> = ln_k.iter().map(|lk| lk.exp()).collect();
+                if let (true, Some((inc, _))) = (v_new.is_finite() && v_new > 0.0, implied(&k_new))
                 {
-                    t = t_new;
+                    v = v_new;
                     incipient = inc;
                     last_full_residual = residual;
                     in_full = true;
@@ -904,14 +1026,24 @@ fn temperature_iteration(
             full_newton = false;
         }
 
-        // --- One SS step on composition + Newton on u = 1/T. ---
+        // --- One SS step on composition + a Newton step on the free variable. ---
         incipient = ss_incipient;
         ln_k = d.k.iter().map(|k| k.ln()).collect();
-        let u = 1.0 / t;
-        let dlns_du = -t * t * dlns_dt;
-        let du = (-ln_s / dlns_du).clamp(-MAX_REL_STEP * u, MAX_REL_STEP * u);
-        t = 1.0 / (u + du);
-        if !t.is_finite() || t <= 0.0 {
+        v = match free {
+            // Newton on u = 1/T, in which ln S is close to linear.
+            Free::Temperature => {
+                let u = 1.0 / v;
+                let dlns_du = -v * v * dlns_dv;
+                let du = (-ln_s / dlns_du).clamp(-MAX_REL_STEP * u, MAX_REL_STEP * u);
+                1.0 / (u + du)
+            }
+            // Newton on ln P; ∂ln S/∂ln P = P·∂ln S/∂P.
+            Free::Pressure => {
+                let dlnp = (-ln_s / (v * dlns_dv)).clamp(-MAX_LN_P_STEP, MAX_LN_P_STEP);
+                v * dlnp.exp()
+            }
+        };
+        if !v.is_finite() || v <= 0.0 {
             return None;
         }
     }
@@ -1312,7 +1444,7 @@ mod tests {
         }
     }
 
-    /// Run [`temperature_iteration`] with and without the full Newton step
+    /// Run [`saturation_iteration`] with and without the full Newton step
     /// from the same start, and require the same answer. Returns the two
     /// K-evaluation counts `(full, ss_only)`.
     #[allow(clippy::too_many_arguments)]
@@ -1325,10 +1457,32 @@ mod tests {
         k0: &[f64],
     ) -> (usize, usize) {
         let tol = 1e-10;
-        let (full, n_full) = temperature_iteration(spec, p, known, point, t0, k0, tol, 200, true)
-            .unwrap_or_else(|| panic!("full Newton declined {point:?} at p={p}"));
-        let (ss, n_ss) = temperature_iteration(spec, p, known, point, t0, k0, tol, 200, false)
-            .unwrap_or_else(|| panic!("SS-only declined {point:?} at p={p}"));
+        let (full, n_full) = saturation_iteration(
+            spec,
+            Free::Temperature,
+            p,
+            known,
+            point,
+            t0,
+            k0,
+            tol,
+            200,
+            true,
+        )
+        .unwrap_or_else(|| panic!("full Newton declined {point:?} at p={p}"));
+        let (ss, n_ss) = saturation_iteration(
+            spec,
+            Free::Temperature,
+            p,
+            known,
+            point,
+            t0,
+            k0,
+            tol,
+            200,
+            false,
+        )
+        .unwrap_or_else(|| panic!("SS-only declined {point:?} at p={p}"));
         assert!(
             (full.var - ss.var).abs() < 1e-7,
             "{point:?} p={p}: full {} vs SS-only {}",
@@ -1432,25 +1586,17 @@ mod tests {
         }
     }
 
-    /// A model pair with no incipient composition Jacobian (γ-φ dew point:
-    /// no ∂ln γ/∂x is exposed) must run the SS-only update unchanged —
-    /// identical iteration count and answer.
+    /// A model pair with no incipient composition Jacobian (a Grayson–Streed
+    /// liquid at a dew point) must run the SS-only update unchanged.
     #[test]
     fn full_newton_is_skipped_where_no_composition_jacobian_exists() {
         let mw = methanol_water();
-        let aij = vec![vec![0.0, 0.5853], vec![0.3458, 0.0]];
         let spec = SystemSpec {
-            vapor: VaporModel::IdealGas,
-            liquid: LiquidModel::Activity(ActivityModel::VanLaar),
-            aij: &aij,
+            liquid: LiquidModel::GraysonStreed,
             ..rks(&mw)
         };
         let z = [0.4, 0.6];
         assert!(incipient_ln_phi_jacobian(&spec, 350.0, 101.325, &z, Point::Dew).is_none());
-        let ans = newton_temperature(&spec, 101.325, &z, Point::Dew, 1e-10, 200).unwrap();
-        let k_near: Vec<f64> = ans.k.iter().map(|k| k * 1.05).collect();
-        let (full, ss) = full_vs_ss(&spec, 101.325, &z, Point::Dew, ans.var + 0.5, &k_near);
-        assert_eq!(full, ss);
     }
 
     /// Warm-started solve ≡ cold solve, from a near guess (the cold answer
@@ -1592,5 +1738,363 @@ mod tests {
             .collect();
         let spec = rks(&comps);
         assert_warm_matches_cold(&spec, 1000.0, 400.0, &[0.1; 10]);
+    }
+
+    // -----------------------------------------------------------------
+    // Newton on ln P (OPTIMIZATION_PLAN_PART1 §17) and the γ-φ dew-point
+    // full step (§16).
+    // -----------------------------------------------------------------
+
+    /// Newton and the multiplicative solver must land on the same pressure
+    /// and incipient composition wherever both answer.
+    fn assert_pressure_solvers_agree(spec: &SystemSpec, t: f64, known: &[f64], point: Point) {
+        let tol = 1e-10;
+        let nw = newton_pressure(spec, t, known, point, tol, 200)
+            .unwrap_or_else(|| panic!("Newton declined {point:?} at T={t}, z={known:?}"));
+        let mu = solve_pressure_multiplicative(spec, t, known, point, tol, 200).unwrap();
+        assert!(
+            (nw.var / mu.var - 1.0).abs() < 1e-7,
+            "{point:?} T={t} z={known:?}: Newton P={} vs multiplicative P={}",
+            nw.var,
+            mu.var
+        );
+        for (a, b) in nw.incipient.iter().zip(&mu.incipient) {
+            assert!(
+                (a - b).abs() < 1e-7,
+                "{point:?} T={t}: incipient {a} vs {b}"
+            );
+        }
+    }
+
+    #[test]
+    fn newton_pressure_matches_multiplicative_phi_phi() {
+        let comps = [
+            comp("n-butane", 425.12, 3796.0, 0.200),
+            comp("n-heptane", 540.2, 2740.0, 0.350),
+        ];
+        let spec = rks(&comps);
+        for t in [300.0, 350.0, 400.0] {
+            for x1 in [0.05, 0.4, 0.9] {
+                let z = [x1, 1.0 - x1];
+                assert_pressure_solvers_agree(&spec, t, &z, Point::Bubble);
+                assert_pressure_solvers_agree(&spec, t, &z, Point::Dew);
+            }
+        }
+    }
+
+    #[test]
+    fn newton_pressure_matches_multiplicative_gamma_phi() {
+        let comps = methanol_water();
+        let aij = vec![vec![0.0, 0.5853], vec![0.3458, 0.0]];
+        for vapor in [VaporModel::IdealGas, VaporModel::Cubic(CubicEos::RKS1972)] {
+            let spec = SystemSpec {
+                vapor,
+                liquid: LiquidModel::Activity(ActivityModel::VanLaar),
+                aij: &aij,
+                ..rks(&comps)
+            };
+            for t in [298.15, 340.0, 370.0] {
+                for x1 in [0.1, 0.5, 0.9] {
+                    let z = [x1, 1.0 - x1];
+                    assert_pressure_solvers_agree(&spec, t, &z, Point::Bubble);
+                    assert_pressure_solvers_agree(&spec, t, &z, Point::Dew);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn newton_pressure_matches_multiplicative_ten_component_srk() {
+        let comps: Vec<Component> = [
+            ("propane", 369.83, 4248.0, 0.152),
+            ("isobutane", 407.8, 3640.0, 0.184),
+            ("n-butane", 425.12, 3796.0, 0.200),
+            ("isopentane", 460.4, 3380.0, 0.228),
+            ("n-pentane", 469.7, 3370.0, 0.252),
+            ("n-hexane", 507.6, 3025.0, 0.301),
+            ("n-heptane", 540.2, 2740.0, 0.350),
+            ("n-octane", 568.7, 2490.0, 0.399),
+            ("n-nonane", 594.6, 2290.0, 0.445),
+            ("n-decane", 617.7, 2110.0, 0.490),
+        ]
+        .iter()
+        .map(|&(n, tc, pc, w)| comp(n, tc, pc, w))
+        .collect();
+        let spec = rks(&comps);
+        for t in [320.0, 400.0, 480.0] {
+            assert_pressure_solvers_agree(&spec, t, &[0.1; 10], Point::Bubble);
+            assert_pressure_solvers_agree(&spec, t, &[0.1; 10], Point::Dew);
+        }
+    }
+
+    /// The CO₂/n-butane bubble point the multiplicative update could only
+    /// reach through the secant-on-ln-P inversion of the temperature solver
+    /// (it found K ≡ 1 from every restart): Newton on ln P finds it directly.
+    #[test]
+    fn newton_pressure_solves_a_point_the_multiplicative_update_cannot() {
+        let (_, cb) = near_critical_pairs();
+        let kij = vec![vec![0.0, 0.13], vec![0.13, 0.0]];
+        let spec = pr_spec(&cb, &kij);
+        let z = [0.8, 0.2];
+        let direct = multiplicative_pressure(&spec, 310.0, 3000.0, &z, Point::Bubble, 1e-10, 200)
+            .ok()
+            .filter(|sp| {
+                !is_trivial(&spec, 310.0, sp.var, &z, &sp.incipient, Point::Bubble).unwrap()
+            });
+        assert!(direct.is_none(), "the multiplicative update now solves it");
+        let nw = newton_pressure(&spec, 310.0, &z, Point::Bubble, 1e-10, 200)
+            .expect("Newton on ln P declined");
+        let reference =
+            solve_pressure_multiplicative(&spec, 310.0, &z, Point::Bubble, 1e-10, 200).unwrap();
+        assert!(
+            (nw.var / reference.var - 1.0).abs() < 1e-6,
+            "Newton {} vs inverse-secant {}",
+            nw.var,
+            reference.var
+        );
+        assert!(nw.var > 6000.0 && nw.var < 6400.0, "P = {}", nw.var);
+    }
+
+    /// Pressure solve: the full (n+1) step must give the SS-only answer in
+    /// fewer K evaluations where SS is slow.
+    #[test]
+    fn full_newton_pressure_agrees_with_ss_only_and_is_shorter_near_critical() {
+        let (me, _) = near_critical_pairs();
+        let spec = pr_spec(&me, &[]);
+        let z = [0.5, 0.5];
+        let run = |allow_full: bool| {
+            let p0 = wilson_pressure_guess(&spec, 240.0, &z, Point::Bubble);
+            let k0 = wilson_k_init(&spec, 240.0, p0);
+            saturation_iteration(
+                &spec,
+                Free::Pressure,
+                240.0,
+                &z,
+                Point::Bubble,
+                p0,
+                &k0,
+                1e-10,
+                500,
+                allow_full,
+            )
+            .expect("pressure solve declined")
+        };
+        let (full, n_full) = run(true);
+        let (ss, n_ss) = run(false);
+        assert!(
+            (full.var / ss.var - 1.0).abs() < 1e-7,
+            "{} vs {}",
+            full.var,
+            ss.var
+        );
+        assert!(n_full < n_ss, "full {n_full} evaluations vs SS-only {n_ss}");
+    }
+
+    /// A model pair with no ∂ln K/∂P (virial vapor) must still solve, through
+    /// the multiplicative fallback.
+    #[test]
+    fn pressure_solve_falls_back_where_newton_has_no_derivative() {
+        let comps = methanol_water();
+        let aij = vec![vec![0.0, 0.5853], vec![0.3458, 0.0]];
+        let spec = SystemSpec {
+            vapor: VaporModel::Virial,
+            liquid: LiquidModel::Activity(ActivityModel::VanLaar),
+            aij: &aij,
+            ..rks(&comps)
+        };
+        let z = [0.4, 0.6];
+        assert!(newton_pressure(&spec, 340.0, &z, Point::Bubble, 1e-10, 200).is_none());
+        let a = solve_pressure(&spec, 340.0, &z, Point::Bubble, 1e-10, 200).unwrap();
+        let b = solve_pressure_multiplicative(&spec, 340.0, &z, Point::Bubble, 1e-10, 200).unwrap();
+        assert_eq!(a.var, b.var);
+    }
+
+    /// γ-φ dew point: with ∂ln γ/∂n available the full step runs, agrees with
+    /// the SS-only answer, and takes no more K evaluations.
+    #[test]
+    fn gamma_phi_dew_point_takes_the_full_newton_step() {
+        let mw = methanol_water();
+        let aij = vec![vec![0.0, 0.5853], vec![0.3458, 0.0]];
+        let spec = SystemSpec {
+            vapor: VaporModel::IdealGas,
+            liquid: LiquidModel::Activity(ActivityModel::VanLaar),
+            aij: &aij,
+            ..rks(&mw)
+        };
+        let z = [0.4, 0.6];
+        let g = incipient_ln_phi_jacobian(&spec, 350.0, 101.325, &z, Point::Dew)
+            .expect("an activity liquid exposes its composition Jacobian");
+        // ln γ is intensive: Σⱼ xⱼ·Gᵢⱼ = 0 for every i.
+        for row in &g {
+            let s: f64 = row.iter().zip(&z).map(|(a, b)| a * b).sum();
+            assert!(s.abs() < 1e-12, "row sum {s}");
+        }
+        let ans = newton_temperature(&spec, 101.325, &z, Point::Dew, 1e-10, 200).unwrap();
+        let k_near: Vec<f64> = ans.k.iter().map(|k| k * 1.05).collect();
+        let (full, ss) = full_vs_ss(&spec, 101.325, &z, Point::Dew, ans.var + 0.5, &k_near);
+        assert!(full <= ss, "full {full} evaluations vs SS-only {ss}");
+    }
+
+    /// Evidence harness for `OPTIMIZATION_PLAN_PART1.md` §16: γ-φ dew
+    /// temperatures with and without the full Newton step. Run with
+    /// `cargo test --release -p vle-thermo --lib harness_gamma_phi_dew -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement harness; prints a table"]
+    fn harness_gamma_phi_dew() {
+        use std::time::Instant;
+        let mw = methanol_water();
+        let a_vl = vec![vec![0.0, 0.5853], vec![0.3458, 0.0]];
+        let a_nrtl = vec![vec![0.0, -1100.0], vec![3500.0, 0.0]];
+        let alpha = vec![vec![0.0, 0.3], vec![0.3, 0.0]];
+        let van_laar = SystemSpec {
+            vapor: VaporModel::IdealGas,
+            liquid: LiquidModel::Activity(ActivityModel::VanLaar),
+            aij: &a_vl,
+            ..rks(&mw)
+        };
+        let nrtl = SystemSpec {
+            vapor: VaporModel::IdealGas,
+            liquid: LiquidModel::Activity(ActivityModel::Nrtl),
+            aij: &a_nrtl,
+            alpha: &alpha,
+            ..rks(&mw)
+        };
+        println!(
+            "{:<22} {:>6} {:>9} {:>9} {:>9} {:>9}",
+            "system / start", "y1", "ev full", "ev SS", "µs full", "µs SS"
+        );
+        for (label, spec) in [("van Laar", &van_laar), ("NRTL", &nrtl)] {
+            for y1 in [0.1, 0.4, 0.7, 0.9] {
+                let z = [y1, 1.0 - y1];
+                let ans = newton_temperature(spec, 101.325, &z, Point::Dew, 1e-10, 200).unwrap();
+                let t_cold = wilson_temperature(spec, 101.325, &z, Point::Dew).unwrap();
+                let k_cold = wilson_k_init(spec, t_cold, 101.325);
+                let k_warm: Vec<f64> = ans.k.iter().map(|k| k * 1.05).collect();
+                for (start, t0, k0) in [("cold", t_cold, &k_cold), ("warm", ans.var + 0.5, &k_warm)]
+                {
+                    let run = |full: bool| {
+                        let reps = 2000;
+                        let mut evals = 0;
+                        let clock = Instant::now();
+                        for _ in 0..reps {
+                            evals = saturation_iteration(
+                                spec,
+                                Free::Temperature,
+                                101.325,
+                                &z,
+                                Point::Dew,
+                                t0,
+                                k0,
+                                1e-10,
+                                200,
+                                full,
+                            )
+                            .unwrap()
+                            .1;
+                        }
+                        (evals, clock.elapsed().as_secs_f64() * 1e6 / reps as f64)
+                    };
+                    let (ef, tf) = run(true);
+                    let (es, ts) = run(false);
+                    println!(
+                        "{:<22} {:>6} {:>9} {:>9} {:>9.2} {:>9.2}",
+                        format!("{label} {start}"),
+                        y1,
+                        ef,
+                        es,
+                        tf,
+                        ts
+                    );
+                }
+            }
+        }
+    }
+
+    /// Evidence harness for `OPTIMIZATION_PLAN_PART1.md` §16–§17 — not a
+    /// pass/fail test. Run with
+    /// `cargo test --release -p vle-thermo --lib harness_saturation -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement harness; prints a table"]
+    fn harness_saturation_pressure_newton() {
+        use std::time::Instant;
+        let (me, cb) = near_critical_pairs();
+        let kij_cb = vec![vec![0.0, 0.13], vec![0.13, 0.0]];
+        let bh = [
+            comp("n-butane", 425.12, 3796.0, 0.200),
+            comp("n-heptane", 540.2, 2740.0, 0.350),
+        ];
+        let mp = [
+            comp("methane", 190.564, 4599.0, 0.0115),
+            comp("n-pentane", 469.7, 3370.0, 0.252),
+        ];
+        let cases: Vec<(&str, SystemSpec, f64, f64)> = vec![
+            ("methane/ethane PR", pr_spec(&me, &[]), 130.0, 300.0),
+            (
+                "CO2/n-butane PR k=0.13",
+                pr_spec(&cb, &kij_cb),
+                230.0,
+                420.0,
+            ),
+            ("n-butane/n-heptane RKS", rks(&bh), 280.0, 540.0),
+            ("methane/n-pentane PR", pr_spec(&mp, &[]), 150.0, 460.0),
+        ];
+        println!(
+            "{:<26} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>9} {:>9}",
+            "system/point", "pts", "agree", "differ", "nw+", "mu+", "none", "new µs", "old µs"
+        );
+        for (label, spec, t_lo, t_hi) in &cases {
+            for point in [Point::Bubble, Point::Dew] {
+                let (mut pts, mut agree, mut differ, mut nw_only, mut mu_only, mut none) =
+                    (0, 0, 0, 0, 0, 0);
+                let (mut t_new, mut t_old) = (0.0, 0.0);
+                for i in 0..60 {
+                    let t = t_lo + (t_hi - t_lo) * i as f64 / 59.0;
+                    for j in 1..10 {
+                        let x1 = j as f64 / 10.0;
+                        let z = [x1, 1.0 - x1];
+                        pts += 1;
+                        let reps = 20;
+                        let start = Instant::now();
+                        let mut new = None;
+                        for _ in 0..reps {
+                            new = solve_pressure(spec, t, &z, point, 1e-10, 200).ok();
+                        }
+                        t_new += start.elapsed().as_secs_f64() * 1e6 / reps as f64;
+                        let start = Instant::now();
+                        let mut old = None;
+                        for _ in 0..reps {
+                            old =
+                                solve_pressure_multiplicative(spec, t, &z, point, 1e-10, 200).ok();
+                        }
+                        t_old += start.elapsed().as_secs_f64() * 1e6 / reps as f64;
+                        match (&new, &old) {
+                            (Some(a), Some(b)) if (a.var / b.var - 1.0).abs() < 1e-6 => agree += 1,
+                            (Some(a), Some(b)) => {
+                                differ += 1;
+                                println!(
+                                    "    differ {label} {point:?} T={t:.2} x1={x1}: new {} old {}",
+                                    a.var, b.var
+                                );
+                            }
+                            (Some(_), None) => nw_only += 1,
+                            (None, Some(_)) => mu_only += 1,
+                            (None, None) => none += 1,
+                        }
+                    }
+                }
+                println!(
+                    "{:<26} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>9.2} {:>9.2}",
+                    format!("{label} {point:?}"),
+                    pts,
+                    agree,
+                    differ,
+                    nw_only,
+                    mu_only,
+                    none,
+                    t_new / pts as f64,
+                    t_old / pts as f64
+                );
+            }
+        }
     }
 }

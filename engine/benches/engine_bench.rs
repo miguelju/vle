@@ -457,8 +457,8 @@ fn bench_flash_multi(c: &mut Criterion) {
             })
         });
 
-        // --- Saturation pressures at FLASH_T (multiplicative P ← P·S around
-        // an SS inner loop; no derivative needed). ---
+        // --- Saturation pressures at FLASH_T (Newton on ln P with the exact
+        // ∂ln K/∂P; the multiplicative P ← P·S solver is its fallback). ---
         g.bench_function(format!("bubble_pressure_n{n}"), |b| {
             b.iter(|| bubble_pressure(black_box(&spec), FLASH_T, black_box(&z), 1e-9, 200).unwrap())
         });

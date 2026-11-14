@@ -19,11 +19,12 @@
 //! - [`init`] — Wilson K-value initialization (§I)
 //! - [`stability`] — tangent-plane-distance stability analysis (§I)
 //! - [`isothermal`] — GDEM-accelerated successive substitution, Rachford-Rice
-//!   via Halley inside the Leibovici–Neoschil window (§J, §F). The Newton
-//!   finish on ln K is **not** implemented.
-//! - [`bubble`] / [`dew`] — temperature by Newton (on 1/T, then the
-//!   simultaneous (N+1)-variable step near the root) with bisection as the
-//!   fallback; pressure by the multiplicative update (§K). No Newton on ln P.
+//!   via Halley inside the Leibovici–Neoschil window (§J, §F), finished by
+//!   Newton on the vapor mole numbers where SS is slow.
+//! - [`bubble`] / [`dew`] — Newton on 1/T (temperature) or ln P (pressure)
+//!   with one SS step on the incipient composition, then the simultaneous
+//!   (N+1)-variable step near the root; fallbacks are bisection (temperature)
+//!   and the multiplicative update (pressure) (§K).
 //! - [`envelope`] — Michelsen phase-envelope continuation, exact Jacobian (§K)
 //! - [`adiabatic`] — warm-started nested PH flash, bisection outer loop (§M)
 //! - [`critical`] — Heidemann with dual-number Helmholtz derivatives (§G)

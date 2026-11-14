@@ -854,6 +854,7 @@ fn vapor_lnphi_derivs(
     t: f64,
     p: f64,
     y: &[f64],
+    want_t: bool,
     want_p: bool,
 ) -> Result<(Vec<f64>, Vec<f64>), FlashError> {
     let n = spec.n();
@@ -861,10 +862,15 @@ fn vapor_lnphi_derivs(
         VaporModel::IdealGas => Ok((vec![0.0; n], vec![0.0; n])),
         VaporModel::Cubic(eos) => {
             let ms = spec.mixture_spec(eos);
-            let dt = crate::mixture::d_ln_phi_d_t(&ms, t, p, y, PhaseId::Vapor)
-                .map_err(|e| FlashError::Thermo(e.to_string()))?;
-            // The P-derivative is a separate dual evaluation; skip it when
-            // the caller only needs ∂/∂T (`k_values_with_t_derivs`).
+            // Each derivative is a separate dual evaluation; a caller that
+            // needs only one (`k_values_with_t_derivs`, or the saturation-
+            // pressure solver's `k_values_with_p_derivs`) skips the other.
+            let dt = if want_t {
+                crate::mixture::d_ln_phi_d_t(&ms, t, p, y, PhaseId::Vapor)
+                    .map_err(|e| FlashError::Thermo(e.to_string()))?
+            } else {
+                vec![0.0; n]
+            };
             let dp = if want_p {
                 crate::mixture::d_ln_phi_d_p(&ms, t, p, y, PhaseId::Vapor)
                     .map_err(|e| FlashError::Thermo(e.to_string()))?
@@ -932,6 +938,82 @@ fn dln_gamma_dt(spec: &SystemSpec, model: ActivityModel, t: f64, x: &[f64]) -> V
     lng.iter().map(|v| v.eps).collect()
 }
 
+/// ∂ln γᵢ/∂nⱼ of an activity-model liquid at mole fractions `x` and total
+/// moles 1 — the composition Jacobian a Newton solver needs for a γ-φ liquid
+/// (`OPTIMIZATION_PLAN_PART1.md` §16). **Dimensionless**; `t` in **K**.
+///
+/// Exact, by dual numbers: one pass of the generic activity code per
+/// component gives the unconstrained `Dᵢⱼ = ∂ln γᵢ/∂xⱼ`, and because the mole
+/// fractions are `xₖ = nₖ/N`, the mole-number derivative at `N = 1` is
+/// `Gᵢⱼ = Dᵢⱼ − Σₖ xₖ·Dᵢₖ`. Rows are `i`, columns `j`. Each row satisfies
+/// `Σⱼ xⱼ·Gᵢⱼ = 0` (ln γ is intensive), and `Σᵢ xᵢ·Gᵢⱼ = 0` (Gibbs–Duhem).
+fn d_ln_gamma_d_n(spec: &SystemSpec, model: ActivityModel, t: f64, x: &[f64]) -> Vec<Vec<f64>> {
+    use num_dual::Dual64;
+    let n = x.len();
+    let td = Dual64::from(t);
+    let mut xd: Vec<Dual64> = x.iter().map(|&xi| Dual64::from(xi)).collect();
+    let mut lng = vec![Dual64::from(0.0); n];
+    let mut g = vec![vec![0.0; n]; n];
+    for j in 0..n {
+        // Seed component j: its derivative part is 1, every other one 0.
+        xd[j] = Dual64::new(x[j], 1.0);
+        crate::activity::ln_gamma_all_generic(
+            model, &xd, spec.aij, spec.alpha, spec.vl, spec.delta, td, &mut lng,
+        );
+        xd[j] = Dual64::from(x[j]);
+        for (row, v) in g.iter_mut().zip(&lng) {
+            row[j] = v.eps;
+        }
+    }
+    // Project the unconstrained ∂/∂x onto ∂/∂n at fixed total.
+    for row in g.iter_mut() {
+        let shift: f64 = row.iter().zip(x).map(|(d, xk)| d * xk).sum();
+        row.iter_mut().for_each(|v| *v -= shift);
+    }
+    g
+}
+
+/// Composition Jacobian of one phase's fugacity coefficients under the
+/// system's model pair: `Gᵢⱼ = ∂ln φ̂ᵢ/∂nⱼ` at mole fractions `w` and total
+/// moles 1 (**dimensionless**; rows `i`, columns `j`). `t` in **K**, `p` in
+/// **kPa absolute**. For `PhaseId::Vapor` it is the vapor model's, for
+/// `PhaseId::Liquid` the liquid model's.
+///
+/// - Ideal gas / ideal solution ⇒ zero (nothing depends on composition).
+/// - Cubic ⇒ the mixture's exact Jacobian on that phase's root
+///   ([`crate::mixture::d_ln_phi_d_n`]).
+/// - Activity-model liquid ⇒ `∂ln γᵢ/∂nⱼ` ([`d_ln_gamma_d_n`]): Psat, φˢᵃᵗ
+///   and the Poynting factor are composition-free.
+/// - Virial vapor and the Chao–Seader-family liquids ⇒ `None`; a Newton
+///   solver that needs the Jacobian stays on successive substitution there.
+pub(crate) fn phase_ln_phi_jacobian(
+    spec: &SystemSpec,
+    t: f64,
+    p: f64,
+    w: &[f64],
+    phase: PhaseId,
+) -> Option<Vec<Vec<f64>>> {
+    let n = w.len();
+    let zeros = || Some(vec![vec![0.0; n]; n]);
+    match phase {
+        PhaseId::Vapor => match spec.vapor {
+            VaporModel::IdealGas => zeros(),
+            VaporModel::Cubic(eos) => {
+                crate::mixture::d_ln_phi_d_n(&spec.mixture_spec(eos), t, p, w, PhaseId::Vapor).ok()
+            }
+            VaporModel::Virial => None,
+        },
+        PhaseId::Liquid => match spec.liquid {
+            LiquidModel::IdealSolution => zeros(),
+            LiquidModel::Cubic(eos) => {
+                crate::mixture::d_ln_phi_d_n(&spec.mixture_spec(eos), t, p, w, PhaseId::Liquid).ok()
+            }
+            LiquidModel::Activity(model) => Some(d_ln_gamma_d_n(spec, model, t, w)),
+            LiquidModel::ChaoSeader | LiquidModel::GraysonStreed | LiquidModel::BraunK10 => None,
+        },
+    }
+}
+
 /// [`k_values`] plus exact ∂ln Kᵢ/∂T and ∂ln Kᵢ/∂P (§L, M12.3).
 ///
 /// `t` in **K**, `p` in **kPa absolute**. Supports the φ-φ (cubic liquid) and
@@ -952,7 +1034,7 @@ pub fn k_values_with_derivs(
     x: &[f64],
     y: &[f64],
 ) -> Result<KValueDerivs, FlashError> {
-    k_values_with_derivs_impl(spec, t, p, x, y, true)
+    k_values_with_derivs_impl(spec, t, p, x, y, true, true)
 }
 
 /// [`k_values_with_derivs`] without the pressure derivative: the returned
@@ -971,7 +1053,23 @@ pub fn k_values_with_t_derivs(
     x: &[f64],
     y: &[f64],
 ) -> Result<KValueDerivs, FlashError> {
-    k_values_with_derivs_impl(spec, t, p, x, y, false)
+    k_values_with_derivs_impl(spec, t, p, x, y, true, false)
+}
+
+/// [`k_values_with_derivs`] without the temperature derivative: the returned
+/// `d_ln_k_d_t` is all zeros and must not be read. `k` and `d_ln_k_d_p` are
+/// identical to the full call. For the saturation-pressure Newton solver,
+/// which never uses ∂/∂T.
+///
+/// `t` in **K**, `p` in **kPa absolute**; `d_ln_k_d_p` in **1/kPa**.
+pub(crate) fn k_values_with_p_derivs(
+    spec: &SystemSpec,
+    t: f64,
+    p: f64,
+    x: &[f64],
+    y: &[f64],
+) -> Result<KValueDerivs, FlashError> {
+    k_values_with_derivs_impl(spec, t, p, x, y, false, true)
 }
 
 fn k_values_with_derivs_impl(
@@ -980,18 +1078,23 @@ fn k_values_with_derivs_impl(
     p: f64,
     x: &[f64],
     y: &[f64],
+    want_t: bool,
     want_p: bool,
 ) -> Result<KValueDerivs, FlashError> {
     let n = spec.n();
     let k = k_values(spec, t, p, x, y)?;
-    let (vap_dt, vap_dp) = vapor_lnphi_derivs(spec, t, p, y, want_p)?;
+    let (vap_dt, vap_dp) = vapor_lnphi_derivs(spec, t, p, y, want_t, want_p)?;
 
     match spec.liquid {
         // --- φ-φ: ∂lnKᵢ = ∂lnφ̂ᵢᴸ − ∂lnφ̂ᵢⱽ ---
         LiquidModel::Cubic(eos) => {
             let ms = spec.mixture_spec(eos);
-            let liq_dt = crate::mixture::d_ln_phi_d_t(&ms, t, p, x, PhaseId::Liquid)
-                .map_err(|e| FlashError::Thermo(e.to_string()))?;
+            let liq_dt = if want_t {
+                crate::mixture::d_ln_phi_d_t(&ms, t, p, x, PhaseId::Liquid)
+                    .map_err(|e| FlashError::Thermo(e.to_string()))?
+            } else {
+                vec![0.0; n]
+            };
             let liq_dp = if want_p {
                 crate::mixture::d_ln_phi_d_p(&ms, t, p, x, PhaseId::Liquid)
                     .map_err(|e| FlashError::Thermo(e.to_string()))?
@@ -1011,7 +1114,7 @@ fn k_values_with_derivs_impl(
         LiquidModel::Activity(_) | LiquidModel::IdealSolution => {
             // ∂lnγ/∂T (γ = 1 ⇒ 0 for the ideal solution).
             let dgamma_dt = match spec.liquid {
-                LiquidModel::Activity(model) => dln_gamma_dt(spec, model, t, x),
+                LiquidModel::Activity(model) if want_t => dln_gamma_dt(spec, model, t, x),
                 _ => vec![0.0; n],
             };
             let have_vl = spec.vl.len() == n;
@@ -1020,6 +1123,17 @@ fn k_values_with_derivs_impl(
             let mut d_ln_k_d_p = vec![0.0; n];
             for i in 0..n {
                 let comp = &spec.components[i];
+                if !want_t {
+                    // Pressure only: γ, Psat and φˢᵃᵗ are P-independent, so
+                    // none of the saturation-curve work below is needed.
+                    let dpoy_dp = if have_vl {
+                        comp.liquid_volume * 1e-3 / R / t
+                    } else {
+                        0.0
+                    };
+                    d_ln_k_d_p[i] = dpoy_dp - vap_dp[i] - 1.0 / p;
+                    continue;
+                }
                 let psat_i = psat(spec.sat_model(i), comp, t)
                     .map_err(|e| FlashError::Thermo(e.to_string()))?;
                 let dpsat_dt = crate::saturation::d_psat_dt(spec.sat_model(i), comp, t)
@@ -2306,5 +2420,93 @@ mod tests {
         assert_eq!(t_only.d_ln_k_d_t, full.d_ln_k_d_t);
         assert!(full.d_ln_k_d_p.iter().all(|v| *v != 0.0));
         assert!(t_only.d_ln_k_d_p.iter().all(|v| *v == 0.0));
+    }
+
+    /// `d_ln_gamma_d_n` against central differences in the mole numbers, for
+    /// every activity model with a composition dependence, and the two
+    /// identities an exact Jacobian must satisfy: Σⱼ xⱼ·Gᵢⱼ = 0 (ln γ is
+    /// intensive) and Σᵢ xᵢ·Gᵢⱼ = 0 (Gibbs–Duhem).
+    #[test]
+    fn d_ln_gamma_d_n_matches_finite_differences() {
+        let comps = cp_pair();
+        let a_vl = vec![vec![0.0, 0.7], vec![1.1, 0.0]];
+        let a_wilson = vec![vec![0.0, 1200.0], vec![-300.0, 0.0]];
+        let a_nrtl = vec![vec![0.0, 2400.0], vec![-1100.0, 0.0]];
+        let alpha = vec![vec![0.0, 0.3], vec![0.3, 0.0]];
+        let vl = [100.4, 147.5];
+        let delta = [14.1, 15.3];
+        let base = classical(&comps, &[]);
+        let cases = [
+            (ActivityModel::VanLaar, &a_vl),
+            (ActivityModel::Margules, &a_vl),
+            (ActivityModel::Wilson, &a_wilson),
+            (ActivityModel::Nrtl, &a_nrtl),
+            (ActivityModel::ScatchardHildebrand, &a_vl),
+        ];
+        let t = 350.0;
+        for (model, aij) in cases {
+            let spec = SystemSpec {
+                liquid: LiquidModel::Activity(model),
+                aij,
+                alpha: &alpha,
+                vl: &vl,
+                delta: &delta,
+                ..base
+            };
+            let ln_gamma_at = |n: &[f64]| -> Vec<f64> {
+                let tot: f64 = n.iter().sum();
+                let x: Vec<f64> = n.iter().map(|v| v / tot).collect();
+                let mut out = vec![0.0; n.len()];
+                crate::activity::ln_gamma_all(
+                    model, &x, spec.aij, spec.alpha, spec.vl, spec.delta, t, &mut out,
+                );
+                out
+            };
+            for x in [[0.4, 0.6], [0.05, 0.95], [0.9, 0.1]] {
+                let g = d_ln_gamma_d_n(&spec, model, t, &x);
+                let h = 1e-6;
+                for j in 0..2 {
+                    let (mut hi, mut lo) = (x, x);
+                    hi[j] += h;
+                    lo[j] -= h;
+                    let (fh, fl) = (ln_gamma_at(&hi), ln_gamma_at(&lo));
+                    for i in 0..2 {
+                        let fd = (fh[i] - fl[i]) / (2.0 * h);
+                        assert!(
+                            (g[i][j] - fd).abs() < 1e-6 * (1.0 + fd.abs()),
+                            "{model:?} x={x:?} G[{i}][{j}] = {} vs FD {fd}",
+                            g[i][j]
+                        );
+                    }
+                    let gd: f64 = (0..2).map(|i| x[i] * g[i][j]).sum();
+                    assert!(gd.abs() < 1e-10, "{model:?} Gibbs–Duhem column {j}: {gd}");
+                }
+                for (i, row) in g.iter().enumerate() {
+                    let s: f64 = row.iter().zip(&x).map(|(a, b)| a * b).sum();
+                    assert!(s.abs() < 1e-10, "{model:?} row {i} sum {s}");
+                }
+            }
+        }
+    }
+
+    /// `k_values_with_p_derivs` returns the same K and ∂ln K/∂P as the full
+    /// call, for a φ-φ and a γ-φ pair.
+    #[test]
+    fn p_only_derivatives_match_the_full_call() {
+        let comps = cp_pair();
+        let a_wilson = vec![vec![0.0, 1200.0], vec![-300.0, 0.0]];
+        let vl = [100.4, 147.5];
+        let mut wilson_cubic = classical(&comps, &[]);
+        wilson_cubic.vapor = VaporModel::Cubic(CubicEos::PR1976);
+        wilson_cubic.liquid = LiquidModel::Activity(ActivityModel::Wilson);
+        wilson_cubic.aij = &a_wilson;
+        wilson_cubic.vl = &vl;
+        for spec in [classical(&comps, &[]), wilson_cubic] {
+            let (x, y) = ([0.3, 0.7], [0.7, 0.3]);
+            let full = k_values_with_derivs(&spec, 380.0, 600.0, &x, &y).unwrap();
+            let p_only = k_values_with_p_derivs(&spec, 380.0, 600.0, &x, &y).unwrap();
+            assert_eq!(full.k, p_only.k);
+            assert_eq!(full.d_ln_k_d_p, p_only.d_ln_k_d_p);
+        }
     }
 }

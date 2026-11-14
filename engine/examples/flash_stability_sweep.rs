@@ -1,6 +1,10 @@
 //! Flash-vs-stability grid sweep — the evidence harness behind
 //! `OPTIMIZATION_PLAN_PART1.md` §10 and `OPTIMIZATION_NEXT_STEPS.md` Step 0.
 //!
+//! Three groups of mixtures: hydrocarbons, the water/hydrocarbon set of §12–§13,
+//! and a held-out water/hydrocarbon set that played no part in choosing the
+//! single-phase check's margin (§20).
+//!
 //! For each mixture, run the cold isothermal flash and the TPD stability
 //! analysis at every point of a 60 × 60 T–P grid (150–600 K linear,
 //! 10–80 000 kPa log-spaced) and tabulate where they agree, where they
@@ -225,11 +229,86 @@ fn sweep(case: &Case) -> Tally {
     t
 }
 
+/// Water/hydrocarbon feeds and interaction parameters that played no part in
+/// choosing the single-phase check's margin (`OPTIMIZATION_PLAN_PART1.md`
+/// §20): other water fractions, other kij, and two systems the tuning sweep
+/// did not contain.
+fn held_out_cases() -> Vec<Case> {
+    let mk = |label, names: &[&str], z: Vec<f64>, kij_w: f64| {
+        let c = comps(names);
+        let n = c.len();
+        let kij: Vec<Vec<f64>> = (0..n)
+            .map(|i| {
+                (0..n)
+                    .map(|j| if (i == 0) != (j == 0) { kij_w } else { 0.0 })
+                    .collect()
+            })
+            .collect();
+        Case {
+            label,
+            comps: c,
+            z,
+            kij,
+        }
+    };
+    vec![
+        mk(
+            "water/n-hexane 10/90",
+            &["water", "n-hexane"],
+            vec![0.1, 0.9],
+            0.5,
+        ),
+        mk(
+            "water/n-hexane 90/10",
+            &["water", "n-hexane"],
+            vec![0.9, 0.1],
+            0.5,
+        ),
+        mk(
+            "water/n-decane 70/30",
+            &["water", "n-decane"],
+            vec![0.7, 0.3],
+            0.5,
+        ),
+        mk(
+            "water/n-decane 5/95",
+            &["water", "n-decane"],
+            vec![0.05, 0.95],
+            0.4,
+        ),
+        mk(
+            "water/benzene 20/80",
+            &["water", "benzene"],
+            vec![0.2, 0.8],
+            0.3,
+        ),
+        mk(
+            "water/toluene 50/50",
+            &["water", "toluene"],
+            vec![0.5, 0.5],
+            0.3,
+        ),
+        mk(
+            "water/C3/nC7 60/10/30",
+            &["water", "propane", "n-heptane"],
+            vec![0.6, 0.1, 0.3],
+            0.45,
+        ),
+        mk(
+            "water/C1/nC5/nC8",
+            &["water", "methane", "n-pentane", "n-octane"],
+            vec![0.25, 0.25, 0.25, 0.25],
+            0.5,
+        ),
+    ]
+}
+
 fn main() {
     let verbose = std::env::args().any(|a| a == "--points");
     for (group, cases) in [
         ("hydrocarbons (PR, kij = 0)", hydrocarbon_cases()),
         ("water/hydrocarbon (PR, kij_w)", water_cases()),
+        ("held-out water/hydrocarbon (PR, kij_w)", held_out_cases()),
     ] {
         println!("\n== {group} ==");
         println!(

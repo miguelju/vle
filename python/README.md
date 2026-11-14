@@ -46,7 +46,7 @@ derivatives throughout — exposed via a unit-aware Python facade (`vle.System`)
 and a vectorized numpy **batch API** that releases the GIL (a 200 000-point
 isothermal flash sweep runs in ~60 ms). The bundled component database (25
 compounds with ideal-gas Cp°/R coefficients), IAPWS-IF97 steam tables, CLI and
-units layer round it out. 528 Python tests and 522 Rust tests back it, and the
+units layer round it out. 531 Python tests and 539 Rust tests back it, and the
 numbers are checked against the published Chapter IV tables of the thesis this
 engine derives from — 21 executable notebooks reproduce them.
 

@@ -27,11 +27,19 @@
 //!    does, the multi-seed stability test and a retry find the split
 //!    (`OPTIMIZATION_PLAN_PART1.md` §13).
 //!
-//! The full Michelsen scheme finishes with a Newton step on `ln K` once the
-//! residual is small. **That Newton finish is not implemented here:**
-//! `flash_isothermal` is SS+GDEM only, which already converges the Chapter IV
-//! cases. The analytic-Jacobian polish is an open follow-on
-//! (`OPTIMIZATION_PLAN_PART1.md` §5).
+//! 5. **Newton finish** — once the ln-K residual is small and successive
+//!    substitution is contracting slowly, the loop switches to Newton on the
+//!    two-phase Gibbs energy in the vapor mole numbers (`newton_step`), with
+//!    the exact composition Jacobian of each phase. Same acceptance test, so
+//!    the same answers; it pays near the critical locus and is not taken on
+//!    a flash SS + GDEM finishes quickly (`OPTIMIZATION_PLAN_PART1.md` §18).
+//! 6. **Model re-seed (non-cubic systems)** — before a γ-φ flash accepts
+//!    Wilson's "single phase" at iteration 0, it asks the model once: the
+//!    loop restarts from the model's K at `x = y = z` (§19 there).
+//!
+//! The single-phase check (4) also runs the full stability test when the
+//! screen's smallest pure-trial distance is positive but below a margin —
+//! the case where the incipient phase is a mixture (§20 there).
 //!
 //! # References
 //! - (7) Michelsen (1982) Part I — stability analysis (the fallback)
@@ -47,10 +55,10 @@ use smallvec::SmallVec;
 
 use super::FlashError;
 use super::init::wilson_ln_k;
-use super::stability::{Seeds, Stability, pure_component_screen, stability_cached};
+use super::stability::{SCREEN_MARGIN, Seeds, Stability, pure_component_screen, stability_cached};
 use super::system::min_gibbs_ln_phi_cached_into;
-use super::system::{SystemSpec, SystemTpCache, ln_k_values_cached_into};
-use crate::eos::LiquidModel;
+use super::system::{SystemSpec, SystemTpCache, ln_k_values_cached_into, phase_ln_phi_jacobian};
+use crate::eos::{LiquidModel, PhaseId};
 
 // ===========================================================================
 // Reusable workspace (Part 1 §1 of the performance audit).
@@ -533,6 +541,21 @@ pub fn flash_isothermal_warm(
     tol: f64,
     max_iter: usize,
 ) -> Result<FlashResult, FlashError> {
+    flash_impl(spec, t, p, z, k_init, tol, max_iter, true)
+}
+
+/// The body of [`flash_isothermal_warm`]; `newton` enables the Newton finish.
+#[allow(clippy::too_many_arguments)]
+fn flash_impl(
+    spec: &SystemSpec,
+    t: f64,
+    p: f64,
+    z: &[f64],
+    k_init: Option<&[f64]>,
+    tol: f64,
+    max_iter: usize,
+    newton: bool,
+) -> Result<FlashResult, FlashError> {
     let n = spec.n();
     if z.len() != n {
         return Err(FlashError::Dimension(format!(
@@ -573,7 +596,12 @@ pub fn flash_isothermal_warm(
         }
     }
 
-    match ss_gdem(spec, &cache, t, p, z, &mut ws, warm_ok, true, tol, max_iter) {
+    let mode = Loop {
+        seeded_warm: warm_ok,
+        check_single_phase: true,
+        newton,
+    };
+    match ss_gdem(spec, &cache, t, p, z, &mut ws, mode, tol, max_iter) {
         // The loop ran out of iterations: ask the stability test before
         // giving up (see `stability_fallback`).
         Err(err @ FlashError::NoConvergence { .. }) => {
@@ -660,12 +688,128 @@ fn stability_fallback(
     }
 }
 
-/// The GDEM-accelerated successive-substitution loop (§J), starting from the
-/// ln K already in `ws.ln_k`. `seeded_warm` says that iterate is a caller's
-/// K rather than Wilson's, which enables the iteration-0 Wilson re-seed.
-/// `check_single_phase` runs [`single_phase_check`] before every single-phase
-/// exit; the retries that check and the fallback make pass `false`, so a
-/// retry can never recurse.
+/// How one run of the outer loop behaves.
+#[derive(Debug, Clone, Copy)]
+struct Loop {
+    /// The starting ln K is a caller's rather than Wilson's, which enables
+    /// the iteration-0 Wilson re-seed.
+    seeded_warm: bool,
+    /// Run [`single_phase_check`] before every single-phase exit. The retries
+    /// that check and the fallback make pass `false`, so a retry can never
+    /// recurse.
+    check_single_phase: bool,
+    /// Allow the Newton finish ([`newton_step`]) near the solution.
+    newton: bool,
+}
+
+/// ln-K residual below which the loop may switch from successive
+/// substitution to the Newton finish. Chosen by measurement —
+/// `OPTIMIZATION_PLAN_PART1.md` §18.
+const NEWTON_SWITCH: f64 = 1e-2;
+
+/// SS contraction ratio (this residual ÷ the previous one) above which the
+/// Newton step is worth its cost; a faster-contracting solve finishes sooner
+/// on SS + GDEM. Chosen by measurement — `OPTIMIZATION_PLAN_PART1.md` §18.
+const NEWTON_MIN_RATIO: f64 = 0.3;
+
+/// A Newton step is cut back to this fraction of the distance that would
+/// empty a component out of one phase.
+const NEWTON_BOUNDARY_FRACTION: f64 = 0.9;
+
+/// One Newton step of the two-phase Gibbs-energy minimization in the vapor
+/// mole numbers `vᵢ` (per mole of feed; `lᵢ = zᵢ − vᵢ`) — the second-order
+/// finish of Michelsen's flash (Ref (19); Michelsen & Mollerup (26) ch. 10).
+///
+/// The gradient is the fugacity mismatch
+/// `gᵢ = ln f̂ᵢⱽ − ln f̂ᵢᴸ = ln Kᵢ − ln Kᵢᵐᵒᵈᵉˡ = −rᵢ` and the Hessian
+/// ```text
+///   Hᵢⱼ = (1/β)·(δᵢⱼ/yᵢ − 1 + Gⱽᵢⱼ) + (1/(1−β))·(δᵢⱼ/xᵢ − 1 + Gᴸᵢⱼ)
+/// ```
+/// with `G = ∂ln φ̂ᵢ/∂nⱼ` of each phase at total moles 1
+/// ([`phase_ln_phi_jacobian`]). `H·Δv = r` gives the step. Working in `v`
+/// rather than in `{ln K, β}` is what keeps the system well conditioned near
+/// the critical point: H is the Hessian of G, positive definite at a stable
+/// two-phase solution, where the `ln K` Jacobian becomes rank-deficient as
+/// `K → 1` (`OPTIMIZATION_PLAN_PART1.md` §5).
+///
+/// Writes the new iterate `ln Kᵢ = ln(yᵢ/xᵢ)` into `ln_k_out` and returns
+/// `true`. Returns `false` — the caller stays on SS — when the model pair has
+/// no composition Jacobian, a component is absent from the feed or a phase,
+/// the system is singular, or the step would have to be cut to less than half
+/// its length to keep every `0 < vᵢ < zᵢ` (too far out for Newton to be
+/// trusted). `t` in **K**, `p` in **kPa absolute**.
+#[allow(clippy::too_many_arguments)]
+fn newton_step(
+    spec: &SystemSpec,
+    t: f64,
+    p: f64,
+    z: &[f64],
+    beta: f64,
+    x: &[f64],
+    y: &[f64],
+    r: &[f64],
+    ln_k_out: &mut [f64],
+) -> bool {
+    let n = z.len();
+    let positive = |v: &[f64]| v.iter().all(|&a| a > 0.0 && a.is_finite());
+    if !(beta > 0.0 && beta < 1.0) || !positive(z) || !positive(x) || !positive(y) {
+        return false;
+    }
+    let (Some(gv), Some(gl)) = (
+        phase_ln_phi_jacobian(spec, t, p, y, PhaseId::Vapor),
+        phase_ln_phi_jacobian(spec, t, p, x, PhaseId::Liquid),
+    ) else {
+        return false;
+    };
+    let (inv_v, inv_l) = (1.0 / beta, 1.0 / (1.0 - beta));
+    // `from_fn` fills the dense n×n Hessian entry by entry.
+    let h = nalgebra::DMatrix::from_fn(n, n, |i, j| {
+        let d = f64::from(u8::from(i == j));
+        inv_v * (d / y[i] - 1.0 + gv[i][j]) + inv_l * (d / x[i] - 1.0 + gl[i][j])
+    });
+    let rhs = nalgebra::DVector::from_column_slice(r);
+    let Some(dv) = h.lu().solve(&rhs) else {
+        return false;
+    };
+    if dv.iter().any(|v| !v.is_finite()) {
+        return false;
+    }
+    // Fraction-to-the-boundary rule: keep every 0 < vᵢ < zᵢ.
+    let mut scale: f64 = 1.0;
+    for i in 0..n {
+        let v = beta * y[i];
+        let room = if dv[i] > 0.0 { z[i] - v } else { v };
+        if dv[i].abs() > NEWTON_BOUNDARY_FRACTION * room {
+            scale = scale.min(NEWTON_BOUNDARY_FRACTION * room / dv[i].abs());
+        }
+    }
+    if scale < 0.5 || scale.is_nan() {
+        return false;
+    }
+    let (mut v_tot, mut l_tot) = (0.0, 0.0);
+    for i in 0..n {
+        let v = beta * y[i] + scale * dv[i];
+        v_tot += v;
+        l_tot += z[i] - v;
+        // Hold vᵢ and lᵢ in the output slot until the totals are known.
+        ln_k_out[i] = (v / (z[i] - v)).ln();
+    }
+    // ln Kᵢ = ln(vᵢ/V) − ln(lᵢ/L) = ln(vᵢ/lᵢ) + ln(L/V).
+    let shift = (l_tot / v_tot).ln();
+    if !shift.is_finite() {
+        return false;
+    }
+    for lk in ln_k_out.iter_mut() {
+        *lk += shift;
+    }
+    ln_k_out
+        .iter()
+        .all(|lk| lk.is_finite() && lk.abs() <= LN_K_BOUND)
+}
+
+/// The outer loop (§J), starting from the ln K already in `ws.ln_k`:
+/// GDEM-accelerated successive substitution, finished by Newton
+/// ([`newton_step`]) where `mode.newton` allows and SS has become slow.
 #[allow(clippy::too_many_arguments)]
 fn ss_gdem(
     spec: &SystemSpec,
@@ -674,14 +818,25 @@ fn ss_gdem(
     p: f64,
     z: &[f64],
     ws: &mut FlashWorkspace,
-    seeded_warm: bool,
-    check_single_phase: bool,
+    mode: Loop,
     tol: f64,
     max_iter: usize,
 ) -> Result<FlashResult, FlashError> {
     let n = z.len();
+    let check_single_phase = mode.check_single_phase;
     // True while the iterate is still the caller's K (see the re-seed below).
-    let mut seeded_warm = seeded_warm;
+    let mut seeded_warm = mode.seeded_warm;
+    // Newton finish: allowed until a step fails or does not reduce the
+    // residual; `in_newton` once a step has been taken; `newton_pending` is
+    // the residual before the last step, checked on the next pass.
+    let mut newton_ok = mode.newton;
+    let mut in_newton = false;
+    let mut newton_pending: Option<f64> = None;
+    // Residual of the previous plain-SS pass, for the contraction ratio.
+    let mut prev_resid: Option<f64> = None;
+    // Has the model produced a K yet, or is the iterate still a seed
+    // (Wilson's, or a caller's)? See the model re-seed below.
+    let mut model_seen = false;
     let mut have_r_prev = false;
     // Residual recorded just before an accelerated step, so the *next*
     // iteration can tell whether the extrapolation actually helped.
@@ -714,6 +869,25 @@ fn ss_gdem(
                 seeded_warm = false;
                 continue;
             }
+            Err(FlashError::NoRachfordRiceRoot { .. })
+                if !model_seen && !matches!(spec.liquid, LiquidModel::Cubic(_)) =>
+            {
+                // Wilson's K says "single phase" and the model has not been
+                // asked. Wilson knows only Tc, Pc and ω; a γ-φ model's K comes
+                // from its own Psat correlations and activity coefficients,
+                // and the two can disagree about which side of a bubble or
+                // dew point this state is on. Re-seed once from the model's K
+                // at x = y = z and let that decide (OPTIMIZATION_PLAN_PART1
+                // §19). For a cubic pair that K is identically 1, which is
+                // why the cubic path has `single_phase_check` instead.
+                ws.x.copy_from_slice(z);
+                ws.y.copy_from_slice(z);
+                ln_k_values_cached_into(spec, cache, &ws.x, &ws.y, &mut ws.ln_k_new)?;
+                ws.ln_k.copy_from_slice(&ws.ln_k_new);
+                model_seen = true;
+                seeded_warm = false;
+                continue;
+            }
             Err(FlashError::NoRachfordRiceRoot { .. }) => {
                 if check_single_phase {
                     if let Some(r) = single_phase_check(spec, cache, t, p, z, tol, max_iter) {
@@ -729,6 +903,7 @@ fn ss_gdem(
         // Recompute K from the fugacity models — in log form, so the residual
         // below is a plain subtraction instead of a division and a logarithm.
         ln_k_values_cached_into(spec, cache, &ws.x, &ws.y, &mut ws.ln_k_new)?;
+        model_seen = true;
 
         // ln-K residual r = ln K_new − ln K.
         let mut resid = 0.0_f64;
@@ -760,6 +935,19 @@ fn ss_gdem(
             });
         }
 
+        // A Newton step that did not reduce the residual is undone in favor
+        // of the SS step saved beside it, and Newton is off for this solve.
+        if let Some(resid_before) = newton_pending.take() {
+            if resid >= resid_before || resid.is_nan() {
+                ws.ln_k.copy_from_slice(&ws.ln_k_ss);
+                newton_ok = false;
+                in_newton = false;
+                have_r_prev = false;
+                prev_resid = None;
+                continue;
+            }
+        }
+
         // Retrospective trust-region check: if the previous step was an
         // extrapolation and the residual grew, undo it and take the plain
         // successive-substitution step that was saved instead. This costs one
@@ -775,9 +963,29 @@ fn ss_gdem(
             }
         }
 
+        // Newton finish: close to the solution and SS contracting slowly (or
+        // already on Newton). A declined step turns it off for good.
+        let slow = prev_resid.is_some_and(|prev| resid > NEWTON_MIN_RATIO * prev);
+        let mut newton_taken = false;
+        if newton_ok && (in_newton || slow) && resid < NEWTON_SWITCH && beta > 0.0 && beta < 1.0 {
+            if newton_step(spec, t, p, z, beta, &ws.x, &ws.y, &ws.r, &mut ws.trial) {
+                ws.ln_k_ss.copy_from_slice(&ws.ln_k_new);
+                std::mem::swap(&mut ws.ln_k, &mut ws.trial);
+                newton_pending = Some(resid);
+                in_newton = true;
+                newton_taken = true;
+                // The residual history no longer describes an SS sequence.
+                have_r_prev = false;
+                prev_resid = None;
+            } else {
+                newton_ok = false;
+                in_newton = false;
+            }
+        }
+
         // GDEM acceleration on ln K every few iterations.
-        let mut accelerated = false;
-        if have_r_prev && iter % 5 == 4 {
+        let mut accelerated = newton_taken;
+        if !newton_taken && have_r_prev && iter % 5 == 4 {
             if let Some(gain) = gdem_gain(&ws.r, &ws.r_prev) {
                 if gdem_trial(&ws.ln_k, &ws.r, gain, &mut ws.trial) {
                     // Keep the plain-SS alternative before committing.
@@ -791,9 +999,15 @@ fn ss_gdem(
         if !accelerated {
             // Plain SS step: ln K ← ln K + r  (i.e. K ← K_new).
             ws.ln_k.copy_from_slice(&ws.ln_k_new);
+            prev_resid = Some(resid);
+        } else if !newton_taken {
+            // The ratio across an extrapolated step says nothing about SS.
+            prev_resid = None;
         }
-        ws.r_prev.copy_from_slice(&ws.r);
-        have_r_prev = true;
+        if !newton_taken {
+            ws.r_prev.copy_from_slice(&ws.r);
+            have_r_prev = true;
+        }
 
         if iter + 1 == max_iter {
             return Err(FlashError::NoConvergence {
@@ -841,8 +1055,16 @@ fn single_phase_check(
     }
     let mut ln_phi_feed: WorkVec = smallvec::smallvec![0.0; z.len()];
     min_gibbs_ln_phi_cached_into(spec, cache, z, &mut ln_phi_feed).ok()?;
-    pure_component_screen(spec, cache, t, p, z, &ln_phi_feed)?;
+    let min_tm = pure_component_screen(spec, cache, t, p, z, &ln_phi_feed)?;
+    // Far from every pure corner: accept the single-phase answer. Inside the
+    // margin the full test decides — it costs n + 2 trials on a stable feed,
+    // which is why it is not run on every exit (§20).
+    if min_tm >= SCREEN_MARGIN {
+        return None;
+    }
     let budget = max_iter.saturating_mul(FALLBACK_ITER_FACTOR);
+    // All n + 2 seeds, also inside the margin: the Wilson pair alone left 10
+    // of the 32 tuning-sweep misses and 24 of the 87 held-out ones (§20).
     let v = stability_cached(spec, cache, t, p, z, budget, Seeds::WilsonThenPure).ok()?;
     retry_from_trial(spec, cache, t, p, z, &v.verdict, tol, budget).map(Ok)
 }
@@ -877,7 +1099,14 @@ fn retry_from_trial(
         for (dst, &k) in retry.ln_k.iter_mut().zip(trial_k) {
             *dst = if invert { -k.ln() } else { k.ln() };
         }
-        if let Ok(r) = ss_gdem(spec, cache, t, p, z, &mut retry, false, false, tol, budget) {
+        // SS + GDEM only: the retries start far from the answer, on the
+        // unstable side, and are the path §12–§13 validated.
+        let mode = Loop {
+            seeded_warm: false,
+            check_single_phase: false,
+            newton: false,
+        };
+        if let Ok(r) = ss_gdem(spec, cache, t, p, z, &mut retry, mode, tol, budget) {
             if r.two_phase {
                 return Some(r);
             }
@@ -1261,13 +1490,16 @@ mod tests {
         for &(t, p) in &METHANE_PENTANE_FAILURES {
             let r = flash_isothermal(&spec, t, p, &z, 1e-10, 200)
                 .unwrap_or_else(|e| panic!("({t} K, {p} kPa) still fails: {e:?}"));
-            // Every answer came from the fallback, never from the main loop.
+            let split = NEAR_CRITICAL_SPLITS.contains(&(t, p));
+            // Every single-phase answer came from the fallback, never from
+            // the main loop. A genuine split may now come from the main loop:
+            // the Newton finish (§18) converges (424.58 K, 9482.7 kPa) in 20
+            // iterations where SS + GDEM ran out of 200.
             assert!(
-                r.iterations >= 200,
+                r.iterations >= 200 || split,
                 "({t}, {p}) iterations {}",
                 r.iterations
             );
-            let split = NEAR_CRITICAL_SPLITS.contains(&(t, p));
             assert_eq!(r.two_phase, split, "phase count at ({t} K, {p} kPa)");
             if split {
                 // A genuine split: mass balance and isofugacity hold.
@@ -1448,5 +1680,376 @@ mod tests {
         assert!(!r.two_phase && r.iterations == 0 && r.beta == 0.0);
         let r = flash_isothermal(&spec, 600.0, 100.0, &[0.5, 0.5], 1e-10, 200).unwrap();
         assert!(!r.two_phase && r.iterations == 0 && r.beta == 1.0);
+    }
+
+    // -----------------------------------------------------------------
+    // The Newton finish (OPTIMIZATION_PLAN_PART1 §18).
+    // -----------------------------------------------------------------
+
+    /// Flash with (`true`) and without (`false`) the Newton finish.
+    fn flash_ab(
+        spec: &SystemSpec,
+        t: f64,
+        p: f64,
+        z: &[f64],
+        newton: bool,
+    ) -> Result<FlashResult, FlashError> {
+        flash_impl(spec, t, p, z, None, 1e-10, 400, newton)
+    }
+
+    /// Same phase count, and for a split the same β, x and y.
+    fn assert_same_answer(a: &FlashResult, b: &FlashResult, what: &str) {
+        assert_eq!(a.two_phase, b.two_phase, "{what}: phase count");
+        if a.two_phase {
+            assert!(
+                (a.beta - b.beta).abs() < 1e-7,
+                "{what}: β {} vs {}",
+                a.beta,
+                b.beta
+            );
+            for i in 0..a.x.len() {
+                assert!((a.x[i] - b.x[i]).abs() < 1e-7, "{what}: x[{i}]");
+                assert!((a.y[i] - b.y[i]).abs() < 1e-7, "{what}: y[{i}]");
+            }
+        }
+    }
+
+    fn alkanes(n: usize) -> Vec<Component> {
+        let c = |name: &str, tc, pc, omega| Component {
+            name: name.into(),
+            tc,
+            pc,
+            omega,
+            ..Component::default()
+        };
+        vec![
+            c("methane", 190.564, 4599.2, 0.01142),
+            c("propane", 369.83, 4248.0, 0.152),
+            c("n-pentane", 469.7, 3367.5, 0.251),
+            c("n-heptane", 540.2, 2740.0, 0.350),
+            c("ethane", 305.32, 4872.0, 0.0995),
+            c("n-butane", 425.12, 3796.0, 0.200),
+            c("n-hexane", 507.6, 3025.0, 0.301),
+            c("n-octane", 568.7, 2490.0, 0.399),
+            c("n-nonane", 594.6, 2290.0, 0.445),
+            c("n-decane", 617.7, 2110.0, 0.490),
+        ]
+        .into_iter()
+        .take(n)
+        .collect()
+    }
+
+    #[test]
+    fn newton_finish_gives_the_ss_answer() {
+        for n in [2usize, 4, 10] {
+            let comps = alkanes(n);
+            let z = vec![1.0 / n as f64; n];
+            for spec in [pr_system(&comps), rks_system(&comps)] {
+                for i in 0..12 {
+                    let t = 180.0 + 30.0 * i as f64;
+                    for p in [100.0, 1000.0, 4000.0, 9000.0] {
+                        let (Ok(a), Ok(b)) = (
+                            flash_ab(&spec, t, p, &z, true),
+                            flash_ab(&spec, t, p, &z, false),
+                        ) else {
+                            panic!("flash failed at n={n} T={t} P={p}");
+                        };
+                        assert_same_answer(&a, &b, &format!("n={n} T={t} P={p}"));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Close to the critical locus SS contracts slowly; the Newton finish
+    /// must reach the same split in fewer outer iterations.
+    #[test]
+    fn newton_finish_cuts_iterations_near_the_critical_locus() {
+        let comps = methane_n_pentane_pr();
+        let spec = pr_system(&comps);
+        let z = [0.5, 0.5];
+        let (mut with, mut without, mut splits) = (0, 0, 0);
+        for i in 0..20 {
+            let t = 300.0 + 4.0 * i as f64;
+            for p in [12000.0, 14000.0, 15500.0] {
+                let (Ok(a), Ok(b)) = (
+                    flash_ab(&spec, t, p, &z, true),
+                    flash_ab(&spec, t, p, &z, false),
+                ) else {
+                    continue;
+                };
+                assert_same_answer(&a, &b, &format!("T={t} P={p}"));
+                if a.two_phase && b.iterations < 400 {
+                    splits += 1;
+                    with += a.iterations;
+                    without += b.iterations;
+                }
+            }
+        }
+        assert!(
+            splits >= 10,
+            "only {splits} near-critical splits on the grid"
+        );
+        assert!(
+            2 * with < without,
+            "Newton finish {with} iterations vs SS + GDEM {without} over {splits} splits"
+        );
+    }
+
+    /// One Newton step from a slightly perturbed solution squares the error.
+    #[test]
+    fn newton_step_converges_quadratically() {
+        let comps = alkanes(4);
+        let spec = pr_system(&comps);
+        let z = [0.25; 4];
+        let (t, p) = (300.0, 2000.0);
+        let sol = flash_ab(&spec, t, p, &z, false).unwrap();
+        assert!(sol.two_phase);
+        // Perturb ln K, split at the perturbed K, take one step.
+        let k: Vec<f64> = sol
+            .k
+            .iter()
+            .enumerate()
+            .map(|(i, k)| k * (1.0 + 1e-3 * (i as f64 - 1.5)))
+            .collect();
+        let beta = rachford_rice(&z, &k, 1e-13, 200).unwrap();
+        let (mut x, mut y) = (vec![0.0; 4], vec![0.0; 4]);
+        split_into(&z, &k, beta, &mut x, &mut y);
+        let model = k_values(&spec, t, p, &x, &y).unwrap();
+        let r: Vec<f64> = model.iter().zip(&k).map(|(m, k)| (m / k).ln()).collect();
+        let before = r.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+        let mut ln_k = vec![0.0; 4];
+        assert!(newton_step(&spec, t, p, &z, beta, &x, &y, &r, &mut ln_k));
+        let after = ln_k
+            .iter()
+            .zip(&sol.k)
+            .fold(0.0_f64, |m, (a, b)| m.max((a - b.ln()).abs()));
+        assert!(before > 1e-4, "perturbation too small: {before}");
+        assert!(
+            after < 10.0 * before * before,
+            "before {before}, after {after}"
+        );
+    }
+
+    /// γ-φ flash (activity liquid, ideal-gas vapor): the Newton finish uses
+    /// ∂ln γ/∂n and must give the SS answer.
+    #[test]
+    fn newton_finish_gives_the_ss_answer_gamma_phi() {
+        let mk = |name: &str, tc, pc, omega, vl, ps: [f64; 3]| Component {
+            name: name.into(),
+            tc,
+            pc,
+            omega,
+            liquid_volume: vl,
+            psat_coeffs: ps.to_vec(),
+            ..Component::default()
+        };
+        let comps = [
+            mk("a", 508.3, 4762.0, 0.665, 76.8, [5.31, 3100.0, -60.0]),
+            mk("water", 647.1, 22064.0, 0.344, 18.07, [5.11, 3800.0, -46.0]),
+        ];
+        let aij = vec![vec![0.0, 1100.0], vec![-250.0, 0.0]];
+        let vl = [76.8, 18.07];
+        let spec = SystemSpec {
+            vapor: VaporModel::IdealGas,
+            liquid: LiquidModel::Activity(ActivityModel::Wilson),
+            aij: &aij,
+            vl: &vl,
+            ..rks_system(&comps)
+        };
+        let mut splits = 0;
+        for z1 in [0.2, 0.5, 0.8] {
+            let z = [z1, 1.0 - z1];
+            // Bracket the two-phase region with the saturation pressures.
+            let pb = crate::flash::bubble::bubble_pressure(&spec, 350.0, &z, 1e-10, 200)
+                .unwrap()
+                .value;
+            let pd = crate::flash::dew::dew_pressure(&spec, 350.0, &z, 1e-10, 200)
+                .unwrap()
+                .value;
+            for i in 1..10 {
+                let p = pd + (pb - pd) * i as f64 / 10.0;
+                let a = flash_ab(&spec, 350.0, p, &z, true).unwrap();
+                let b = flash_ab(&spec, 350.0, p, &z, false).unwrap();
+                assert_same_answer(&a, &b, &format!("P={p} z1={z1}"));
+                // Between the dew and bubble pressures the feed must split.
+                // Wilson's K calls every one of these points vapor; before
+                // the model re-seed (§19) the flash returned that.
+                assert!(a.two_phase, "single phase at P={p}, z1={z1}");
+                splits += usize::from(a.two_phase);
+            }
+        }
+        assert!(splits > 0, "no two-phase point on the grid");
+    }
+
+    /// One of the 31 water/hydrocarbon points the pure-component screen left
+    /// (`OPTIMIZATION_PLAN_PART1.md` §13, §20): water/n-decane 30/70 on PR,
+    /// kij = 0.5. The incipient phase is ≈ 80 % water, the smallest pure tm
+    /// is +0.11 — the screen is quiet — and the margin sends it to the full
+    /// stability test, which finds the split.
+    #[test]
+    fn a_mixed_incipient_phase_behind_a_quiet_screen_is_found() {
+        let c = |name: &str, tc, pc, omega| Component {
+            name: name.into(),
+            tc,
+            pc,
+            omega,
+            ..Component::default()
+        };
+        let comps = [
+            c("water", 647.096, 22064.0, 0.3443),
+            c("n-decane", 617.7, 2103.0, 0.4884),
+        ];
+        let kij = vec![vec![0.0, 0.5], vec![0.5, 0.0]];
+        let spec = SystemSpec {
+            kij: &kij,
+            ..pr_system(&comps)
+        };
+        let z = [0.3, 0.7];
+        let (t, p) = (546.61, 5156.0);
+        // The screen alone does not prove instability here.
+        let cache = SystemTpCache::new(&spec, t, p).unwrap();
+        let mut ln_phi = [0.0; 2];
+        min_gibbs_ln_phi_cached_into(&spec, &cache, &z, &mut ln_phi).unwrap();
+        let min_tm = pure_component_screen(&spec, &cache, t, p, &z, &ln_phi).unwrap();
+        assert!(min_tm > 0.0 && min_tm < SCREEN_MARGIN, "min tm {min_tm}");
+        let r = flash_isothermal(&spec, t, p, &z, 1e-10, 200).unwrap();
+        assert_split(&spec, t, p, &z, &r);
+    }
+
+    /// A γ-φ feed between its dew and bubble pressures whose Wilson K-values
+    /// are all above 1: the cold flash used to return "vapor" without asking
+    /// the model. With the SS-only loop too — this is the model re-seed
+    /// (§19), not the Newton finish.
+    #[test]
+    fn gamma_phi_wilson_single_phase_verdict_is_checked_against_the_model() {
+        let mk = |name: &str, tc, pc, omega, vl, ps: [f64; 3]| Component {
+            name: name.into(),
+            tc,
+            pc,
+            omega,
+            liquid_volume: vl,
+            psat_coeffs: ps.to_vec(),
+            ..Component::default()
+        };
+        let comps = [
+            mk("a", 508.3, 4762.0, 0.665, 76.8, [5.31, 3100.0, -60.0]),
+            mk("water", 647.1, 22064.0, 0.344, 18.07, [5.11, 3800.0, -46.0]),
+        ];
+        let aij = vec![vec![0.0, 1100.0], vec![-250.0, 0.0]];
+        let vl = [76.8, 18.07];
+        let spec = SystemSpec {
+            vapor: VaporModel::IdealGas,
+            liquid: LiquidModel::Activity(ActivityModel::Wilson),
+            aij: &aij,
+            vl: &vl,
+            ..rks_system(&comps)
+        };
+        let z = [0.5, 0.5];
+        let pb = crate::flash::bubble::bubble_pressure(&spec, 350.0, &z, 1e-10, 200)
+            .unwrap()
+            .value;
+        let pd = crate::flash::dew::dew_pressure(&spec, 350.0, &z, 1e-10, 200)
+            .unwrap()
+            .value;
+        let p = 0.5 * (pb + pd);
+        // Wilson calls it vapor: every K above 1.
+        let kw = crate::flash::init::wilson_k_values(&comps, 350.0, p);
+        assert!(kw.iter().all(|&k| k > 1.0), "Wilson K {kw:?}");
+        for newton in [false, true] {
+            let r = flash_ab(&spec, 350.0, p, &z, newton).unwrap();
+            assert!(r.two_phase, "newton={newton}: single phase at P={p}");
+            assert!(r.beta > 0.0 && r.beta < 1.0);
+            let k = k_values(&spec, 350.0, p, &r.x, &r.y).unwrap();
+            for i in 0..2 {
+                assert!((k[i] / r.k[i] - 1.0).abs() < 1e-7);
+            }
+        }
+    }
+
+    /// Evidence harness for `OPTIMIZATION_PLAN_PART1.md` §18 — not a pass/fail
+    /// test. Run with
+    /// `cargo test --release -p vle-thermo --lib harness_newton_finish -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement harness; prints a table"]
+    fn harness_newton_finish() {
+        use std::time::Instant;
+        let c2 = methane_n_pentane_pr();
+        let c4 = alkanes(4);
+        let c10 = alkanes(10);
+        let me = alkanes(5)
+            .into_iter()
+            .filter(|c| c.name == "methane" || c.name == "ethane")
+            .collect::<Vec<_>>();
+        let cases: Vec<(&str, SystemSpec, usize)> = vec![
+            ("methane/ethane", pr_system(&me), 2),
+            ("methane/n-pentane", pr_system(&c2), 2),
+            ("C1/C3/nC5/nC7", pr_system(&c4), 4),
+            ("10 alkanes", pr_system(&c10), 10),
+        ];
+        println!(
+            "{:<20} {:>6} {:>6} {:>7} {:>9} {:>9} {:>9} {:>9} {:>6} {:>6}",
+            "mixture",
+            "two",
+            "differ",
+            "slow",
+            "it new",
+            "it old",
+            "µs new",
+            "µs old",
+            "f new",
+            "f old"
+        );
+        for (label, spec, n) in &cases {
+            let z = vec![1.0 / *n as f64; *n];
+            let (mut two, mut differ, mut slow) = (0, 0, 0);
+            let (mut it_new, mut it_old, mut f_new, mut f_old) = (0usize, 0usize, 0, 0);
+            let (mut us_new, mut us_old) = (0.0, 0.0);
+            for i in 0..60 {
+                let t = 150.0 + 450.0 * i as f64 / 59.0;
+                for j in 0..60 {
+                    let p = 10.0 * (8000.0_f64).powf(j as f64 / 59.0);
+                    let reps = 10;
+                    let start = Instant::now();
+                    let mut a = flash_impl(spec, t, p, &z, None, 1e-10, 200, true);
+                    for _ in 1..reps {
+                        a = flash_impl(spec, t, p, &z, None, 1e-10, 200, true);
+                    }
+                    let ta = start.elapsed().as_secs_f64() * 1e6 / reps as f64;
+                    let start = Instant::now();
+                    let mut b = flash_impl(spec, t, p, &z, None, 1e-10, 200, false);
+                    for _ in 1..reps {
+                        b = flash_impl(spec, t, p, &z, None, 1e-10, 200, false);
+                    }
+                    let tb = start.elapsed().as_secs_f64() * 1e6 / reps as f64;
+                    f_new += usize::from(a.is_err());
+                    f_old += usize::from(b.is_err());
+                    let (Ok(a), Ok(b)) = (a, b) else { continue };
+                    let same = a.two_phase == b.two_phase
+                        && (!a.two_phase
+                            || ((a.beta - b.beta).abs() < 1e-6
+                                && a.x.iter().zip(&b.x).all(|(u, v)| (u - v).abs() < 1e-6)));
+                    if !same {
+                        differ += 1;
+                        println!(
+                            "    differ {label} T={t:.2} P={p:.1}: new two={} β={} / old two={} β={}",
+                            a.two_phase, a.beta, b.two_phase, b.beta
+                        );
+                    }
+                    if a.two_phase && b.two_phase {
+                        two += 1;
+                        it_new += a.iterations;
+                        it_old += b.iterations;
+                        us_new += ta;
+                        us_old += tb;
+                        slow += usize::from(b.iterations > 30);
+                    }
+                }
+            }
+            println!(
+                "{:<20} {:>6} {:>6} {:>7} {:>9} {:>9} {:>9.0} {:>9.0} {:>6} {:>6}",
+                label, two, differ, slow, it_new, it_old, us_new, us_old, f_new, f_old
+            );
+        }
     }
 }

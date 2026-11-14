@@ -337,7 +337,11 @@ const PURE_SEED_TRACE: f64 = 1e-3;
 /// stability when it stays quiet. Cost: one mixture ln φ at the feed plus one
 /// pure-component cubic per component, O(n) on top of the feed evaluation.
 ///
-/// Returns the index with the most negative tmᵢ, or `None`.
+/// Returns the smallest tmᵢ, or `None` for a non-cubic liquid or when no
+/// pure trial could be evaluated. A value below zero proves instability; a
+/// small positive one proves nothing, but says the tangent plane passes close
+/// to the Gibbs surface at a pure corner — the caller's cue to run the full
+/// test ([`SCREEN_MARGIN`]).
 ///
 /// `ln_phi_feed` is ln φᵢ(z) on the min-Gibbs root, already evaluated by the
 /// caller.
@@ -348,11 +352,11 @@ pub(crate) fn pure_component_screen(
     p: f64,
     z: &[f64],
     ln_phi_feed: &[f64],
-) -> Option<usize> {
+) -> Option<f64> {
     let LiquidModel::Cubic(eos) = spec.liquid else {
         return None;
     };
-    let mut worst: Option<(usize, f64)> = None;
+    let mut worst: Option<f64> = None;
     for (i, comp) in spec.components.iter().enumerate() {
         if z[i] <= 0.0 {
             continue;
@@ -372,12 +376,31 @@ pub(crate) fn pure_component_screen(
             continue;
         }
         let tm = ln_phi_pure - z[i].ln() - ln_phi_feed[i];
-        if tm < -NEG_TPD_TOL && worst.is_none_or(|(_, w)| tm < w) {
-            worst = Some((i, tm));
+        if worst.is_none_or(|w| tm < w) {
+            worst = Some(tm);
         }
     }
-    worst.map(|(i, _)| i)
+    worst
 }
+
+/// Is a [`pure_component_screen`] result a proof of instability?
+#[cfg(test)]
+pub(crate) fn screen_proves_instability(min_tm: f64) -> bool {
+    min_tm < -NEG_TPD_TOL
+}
+
+/// Smallest pure-trial tangent-plane distance above which a single-phase
+/// exit is accepted without the full stability test.
+///
+/// The screen proves instability only for a near-pure incipient phase. On the
+/// PR water/hydrocarbon sweep it left 31 splits whose incipient phase is a
+/// mixture (17–83 % water); at every one the smallest pure tm lies between
+/// 0.006 and 0.24. So a feed whose smallest pure tm is below this margin gets
+/// the full multi-seed test, which is rigorous in what it reports — a split
+/// is returned only if a trial reaches tm < 0. The margin itself is
+/// empirical: it decides where to look, and a split behind a larger pure tm
+/// would still be missed (`OPTIMIZATION_PLAN_PART1.md` §20).
+pub(crate) const SCREEN_MARGIN: f64 = 0.3;
 
 #[cfg(test)]
 mod tests {
@@ -619,7 +642,8 @@ mod tests {
         let cache = SystemTpCache::new(&spec, 300.0, 100.0).unwrap();
         let mut d = [0.0; 2];
         min_gibbs_ln_phi_cached_into(&spec, &cache, &z, &mut d).unwrap();
-        assert!(pure_component_screen(&spec, &cache, 300.0, 100.0, &z, &d).is_some());
+        let min_tm = pure_component_screen(&spec, &cache, 300.0, 100.0, &z, &d).unwrap();
+        assert!(screen_proves_instability(min_tm), "min tm {min_tm}");
         // Never fires where a converged stability test says stable: a
         // negative pure-component TPD would contradict it.
         let comps = [n_butane(), n_decane()];
@@ -635,7 +659,8 @@ mod tests {
                 let cache = SystemTpCache::new(&spec, t, p).unwrap();
                 let mut d = [0.0; 2];
                 min_gibbs_ln_phi_cached_into(&spec, &cache, &z, &mut d).unwrap();
-                assert_eq!(pure_component_screen(&spec, &cache, t, p, &z, &d), None);
+                let min_tm = pure_component_screen(&spec, &cache, t, p, &z, &d).unwrap();
+                assert!(!screen_proves_instability(min_tm), "min tm {min_tm}");
             }
         }
         assert!(stable_points >= 10, "only {stable_points} stable points");

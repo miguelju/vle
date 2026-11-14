@@ -239,6 +239,21 @@ struct PureParams<D> {
     big_w: Buf<D>,
 }
 
+impl<D> PureParams<D> {
+    /// An empty set, to be filled by [`pure_params_into`].
+    fn new() -> Self {
+        Self {
+            big_a: Buf::new(),
+            big_b: Buf::new(),
+            big_c: Buf::new(),
+            sqrt_a: Buf::new(),
+            sqrt_b: Buf::new(),
+            big_u: Buf::new(),
+            big_w: Buf::new(),
+        }
+    }
+}
+
 fn pure_params<D: DualNum<f64> + Copy>(
     eos: CubicEos,
     rule: MixingRule,
@@ -246,14 +261,42 @@ fn pure_params<D: DualNum<f64> + Copy>(
     p: D,
     comps: &[Component],
 ) -> PureParams<D> {
-    let n = comps.len();
-    let mut big_a = Buf::with_capacity(n);
-    let mut big_b = Buf::with_capacity(n);
-    let mut big_c = Buf::new();
-    let mut sqrt_a = Buf::new();
-    let mut sqrt_b = Buf::new();
-    let mut big_u = Buf::with_capacity(n);
-    let mut big_w = Buf::with_capacity(n);
+    let mut out = PureParams::new();
+    pure_params_into(eos, rule, t, p, comps, &mut out);
+    out
+}
+
+/// [`pure_params`] written into a caller-owned set. Each buffer is cleared
+/// and refilled, which keeps whatever heap capacity it already has — so a
+/// reused set stops allocating after its first call above 8 components.
+fn pure_params_into<D: DualNum<f64> + Copy>(
+    eos: CubicEos,
+    rule: MixingRule,
+    t: D,
+    p: D,
+    comps: &[Component],
+    out: &mut PureParams<D>,
+) {
+    let PureParams {
+        big_a,
+        big_b,
+        big_c,
+        sqrt_a,
+        sqrt_b,
+        big_u,
+        big_w,
+    } = out;
+    for buf in [
+        &mut *big_a,
+        &mut *big_b,
+        &mut *big_c,
+        &mut *sqrt_a,
+        &mut *sqrt_b,
+        &mut *big_u,
+        &mut *big_w,
+    ] {
+        buf.clear();
+    }
     let pt_family = matches!(eos, CubicEos::PatelTeja | CubicEos::PatelTejaUSB);
     // Only the rules that actually form √(AᵢAⱼ) cross terms pay for √Aᵢ; the
     // GE-based rules (Wong-Sandler, Huron-Vidal, MHV) never touch it. Likewise
@@ -281,15 +324,6 @@ fn pure_params<D: DualNum<f64> + Copy>(
             // PT denominator: U = B + C, W = −B·C ⇒ Cᵢ = Uᵢ − Bᵢ.
             big_c.push(u - b);
         }
-    }
-    PureParams {
-        big_a,
-        big_b,
-        big_c,
-        sqrt_a,
-        sqrt_b,
-        big_u,
-        big_w,
     }
 }
 
@@ -1173,6 +1207,78 @@ fn ln_phi_all_generic<D: DualNum<f64> + Copy>(
     Ok(out)
 }
 
+/// Every buffer one generic (dual-number) fugacity evaluation needs, owned by
+/// the caller so a repeated evaluation reuses them (audit Part 2 §7, the
+/// `MixtureScratch` idea; `OPTIMIZATION_PLAN_PART2.md` §12).
+///
+/// The mixture core's buffers are `SmallVec<[D; 8]>`: inline up to 8
+/// components, on the heap above that. [`ln_phi_all_generic`] builds 13 of
+/// them per call, so a 10-component call made 13 allocations. Buffers kept
+/// here keep their heap capacity between calls.
+struct GenericWorkspace<D> {
+    pure: PureParams<D>,
+    pars: MixtureParams<D>,
+    scratch: Buf<D>,
+    /// The composition as constants of type `D`.
+    x: Buf<D>,
+    /// ln φ̂ᵢ of the last evaluation (length = that call's component count).
+    out: Buf<D>,
+}
+
+impl<D: DualNum<f64> + Copy> GenericWorkspace<D> {
+    fn new() -> Self {
+        Self {
+            pure: PureParams::new(),
+            pars: MixtureParams::new(),
+            scratch: Buf::new(),
+            x: Buf::new(),
+            out: Buf::new(),
+        }
+    }
+
+    /// [`ln_phi_all_generic`] at a real (derivative-free) composition `x`,
+    /// leaving ln φ̂ᵢ in `self.out`. Same value, same errors.
+    fn ln_phi_at(
+        &mut self,
+        spec: &MixtureSpec,
+        t: D,
+        p: D,
+        x: &[f64],
+        phase: PhaseId,
+    ) -> Result<(), MixError> {
+        validate(spec, x.len())?;
+        self.x.clear();
+        self.x.extend(x.iter().map(|&xi| D::from(xi)));
+        pure_params_into(spec.eos, spec.rule, t, p, spec.components, &mut self.pure);
+        mixture_params_with(
+            spec,
+            t,
+            &self.x,
+            &self.pure,
+            None,
+            &mut self.pars,
+            &mut self.scratch,
+        )?;
+        let z = z_mix_generic(&self.pars, phase)?;
+        self.out.clear();
+        self.out.resize(x.len(), D::from(0.0));
+        ln_phi_from_params_generic(&self.pars, z, &mut self.out);
+        Ok(())
+    }
+}
+
+// One workspace per thread for each dual type on a hot path: `Dual64` (the
+// ∂/∂T and ∂/∂P passes of the saturation solvers) and `Dual2_64` (the
+// stage-thermodynamics pass). Thread-local rather than threaded through the
+// public functions, so no signature changes and the rayon batch workers each
+// get their own. `RefCell` gives the mutable borrow; nothing here re-enters.
+thread_local! {
+    static WS_DUAL: std::cell::RefCell<GenericWorkspace<num_dual::Dual64>> =
+        std::cell::RefCell::new(GenericWorkspace::new());
+    static WS_DUAL2: std::cell::RefCell<GenericWorkspace<num_dual::Dual2_64>> =
+        std::cell::RefCell::new(GenericWorkspace::new());
+}
+
 /// Mixture Z-factor for the requested phase.
 ///
 /// `t` in **K**, `p` in **kPa absolute**, `x` mole fractions (must sum
@@ -2015,9 +2121,11 @@ pub fn d_ln_phi_d_t(
     // Seed T with a unit dual part; P and composition are real constants.
     let td = Dual64::new(t, 1.0);
     let pd = Dual64::from(p);
-    let xd: Buf<Dual64> = x.iter().map(|&xi| Dual64::from(xi)).collect();
-    let lnphi = ln_phi_all_generic(spec, td, pd, &xd, phase)?;
-    Ok(lnphi.iter().map(|v| v.eps).collect())
+    WS_DUAL.with(|ws| {
+        let mut ws = ws.borrow_mut();
+        ws.ln_phi_at(spec, td, pd, x, phase)?;
+        Ok(ws.out.iter().map(|v| v.eps).collect())
+    })
 }
 
 /// ln φ̂ᵢ, ∂ln φ̂ᵢ/∂T, and the first two temperature derivatives of
@@ -2074,17 +2182,20 @@ pub fn ln_phi_t2_into(
     // composition are plain constants (`from` gives zero derivative parts).
     let td = Dual2_64::from(t).derivative();
     let pd = Dual2_64::from(p);
-    let xd: Buf<Dual2_64> = x.iter().map(|&xi| Dual2_64::from(xi)).collect();
-    let lnphi = ln_phi_all_generic(spec, td, pd, &xd, phase)?;
-    let (mut g1, mut g2) = (0.0, 0.0);
-    for i in 0..n {
-        // `.re` is the value, `.v1` the first and `.v2` the second derivative.
-        ln_phi[i] = lnphi[i].re;
-        d_ln_phi_d_t[i] = lnphi[i].v1;
-        g1 += x[i] * lnphi[i].v1;
-        g2 += x[i] * lnphi[i].v2;
-    }
-    Ok((g1, g2))
+    WS_DUAL2.with(|ws| {
+        let mut ws = ws.borrow_mut();
+        ws.ln_phi_at(spec, td, pd, x, phase)?;
+        let lnphi = &ws.out;
+        let (mut g1, mut g2) = (0.0, 0.0);
+        for i in 0..n {
+            // `.re` is the value, `.v1` the first and `.v2` the second derivative.
+            ln_phi[i] = lnphi[i].re;
+            d_ln_phi_d_t[i] = lnphi[i].v1;
+            g1 += x[i] * lnphi[i].v1;
+            g2 += x[i] * lnphi[i].v2;
+        }
+        Ok((g1, g2))
+    })
 }
 
 /// ∂ln φ̂ᵢ/∂P at constant T and composition, for every component.
@@ -2110,9 +2221,11 @@ pub fn d_ln_phi_d_p(
     // Seed P with a unit dual part; T and composition are real constants.
     let td = Dual64::from(t);
     let pd = Dual64::new(p, 1.0);
-    let xd: Buf<Dual64> = x.iter().map(|&xi| Dual64::from(xi)).collect();
-    let lnphi = ln_phi_all_generic(spec, td, pd, &xd, phase)?;
-    Ok(lnphi.iter().map(|v| v.eps).collect())
+    WS_DUAL.with(|ws| {
+        let mut ws = ws.borrow_mut();
+        ws.ln_phi_at(spec, td, pd, x, phase)?;
+        Ok(ws.out.iter().map(|v| v.eps).collect())
+    })
 }
 
 /// ∂ln φ̂ᵢ/∂T and ∂ln φ̂ᵢ/∂P together, in **one** generic evaluation.
@@ -3731,6 +3844,59 @@ mod tests {
                 "WS {phase:?} Gibbs–Helmholtz inconsistency returned: \
                  reldiff={reldiff:.2e} (dual={sum_dt}, gh={gh})"
             );
+        }
+    }
+
+    /// The per-thread workspace behind `d_ln_phi_d_t`, `d_ln_phi_d_p` and
+    /// `ln_phi_t2_into` is reused across calls of different sizes; a call
+    /// must not see anything a larger or smaller earlier call left behind.
+    #[test]
+    fn dual_workspace_reuse_across_sizes_matches_a_fresh_evaluation() {
+        use num_dual::Dual64;
+        let mk = |n: usize| -> Vec<Component> {
+            (0..n)
+                .map(|i| Component {
+                    name: format!("c{i}"),
+                    tc: 370.0 + 22.0 * i as f64,
+                    pc: 4200.0 - 180.0 * i as f64,
+                    omega: 0.15 + 0.03 * i as f64,
+                    ..Component::default()
+                })
+                .collect()
+        };
+        let (t, p) = (420.0, 1500.0);
+        // Large, small, large again, on both roots.
+        for n in [12usize, 3, 9, 2, 12] {
+            let comps = mk(n);
+            let spec = MixtureSpec {
+                eos: CubicEos::PR1976,
+                rule: MixingRule::Classical,
+                components: &comps,
+                kij: &[],
+                ge: None,
+            };
+            let x = vec![1.0 / n as f64; n];
+            for phase in [PhaseId::Liquid, PhaseId::Vapor] {
+                // Fresh buffers: the allocating generic path.
+                let xd: Vec<Dual64> = x.iter().map(|&v| Dual64::from(v)).collect();
+                let fresh_t =
+                    ln_phi_all_generic(&spec, Dual64::new(t, 1.0), Dual64::from(p), &xd, phase)
+                        .unwrap();
+                let fresh_p =
+                    ln_phi_all_generic(&spec, Dual64::from(t), Dual64::new(p, 1.0), &xd, phase)
+                        .unwrap();
+                let dt = d_ln_phi_d_t(&spec, t, p, &x, phase).unwrap();
+                let dp = d_ln_phi_d_p(&spec, t, p, &x, phase).unwrap();
+                let (mut lnphi, mut dt2) = (vec![0.0; n], vec![0.0; n]);
+                ln_phi_t2_into(&spec, t, p, &x, phase, &mut lnphi, &mut dt2).unwrap();
+                assert_eq!(dt.len(), n);
+                for i in 0..n {
+                    assert_eq!(dt[i], fresh_t[i].eps, "n={n} {phase:?} dT[{i}]");
+                    assert_eq!(dp[i], fresh_p[i].eps, "n={n} {phase:?} dP[{i}]");
+                    assert_eq!(lnphi[i], fresh_t[i].re, "n={n} {phase:?} ln φ[{i}]");
+                    assert!((dt2[i] - dt[i]).abs() < 1e-13, "n={n} {phase:?} t2 dT[{i}]");
+                }
+            }
         }
     }
 }
