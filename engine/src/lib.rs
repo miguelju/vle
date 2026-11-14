@@ -13,7 +13,8 @@
 //!
 //! The library supports:
 //! - **22+ cubic equations of state** (EOS) for modeling PVT behavior of gases and liquids
-//! - **5 activity coefficient models** for liquid-phase non-ideality (van Laar, Wilson, etc.)
+//! - **6 activity coefficient models** for liquid-phase non-ideality (NRTL, Wilson, van Laar,
+//!   Margules, Scatchard-Hildebrand, ideal solution)
 //! - **11 mixing rules** for combining pure-component parameters into mixture parameters
 //! - **6 saturation pressure correlations** for estimating boiling points
 //! - **6 flash calculation types**: bubble point (T/P), dew point (T/P), isothermal flash,
@@ -54,6 +55,22 @@
 //!    process stream with phase-specific data, `Tolerances` controls convergence
 //!    criteria, and `ReferenceState` defines the thermodynamic reference for
 //!    enthalpy/entropy calculations.
+//!
+//! The layers built on top of those five, each documented in its own module:
+//!
+//! - **`mixture`** — the generalized (A, B, U, W) mixture core: fugacity
+//!   coefficients and their exact composition / temperature / pressure
+//!   derivatives (analytic, or dual-number AD for the GE-based mixing rules).
+//! - **`energy`** — departure enthalpy and entropy, heat capacity.
+//! - **`flash`** — the phase-equilibrium solvers: isothermal and adiabatic
+//!   flash, bubble/dew points, stability analysis, the phase envelope, the
+//!   mixture critical point, kij/Aij regression.
+//! - **`virial`**, **`liquid_volume`**, **`numerics`** — the virial equation,
+//!   saturated-liquid density, and the root finders the solvers share.
+//! - **`petroleum`** and **`refinery`** — crude assay → pseudocomponents, and
+//!   the refinery methods (Lee-Kesler departure, Peneloux translation).
+//! - **`db`** (feature `component-db`) and **`steam`** (feature `steam`) — the
+//!   bundled component database and the IAPWS-IF97 steam tables.
 //!
 //! ## Origin and academic references
 //!

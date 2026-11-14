@@ -5,6 +5,12 @@
 verbatim, unedited, in
 [`second-opinion/dualn-response-sol.md`](second-opinion/dualn-response-sol.md).*
 
+*Correction, 2026-11-13: the next paragraph was true when the trial was
+written and is not any more. The trial's `DualSVec64<W>` design was ported onto
+`main` on 2026-10-31 as `mixture::d_ln_phi_d_n_dual` and released in v0.19.0;
+its width table was rejected by measurement (see "Adopted, 2026-10-31" below
+and `OPTIMIZATION_PLAN_PART2.md` §8).*
+
 **Nothing in this document has been merged.** The engine on `main` is
 unchanged. This is a record of an experiment: a deferred optimization was
 handed to a second model, and its answer was compiled, tested and benchmarked

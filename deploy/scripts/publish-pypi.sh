@@ -6,7 +6,7 @@
 # with `maturin publish`.
 #
 # Prereqs:
-#   - Python 3.10+ and maturin installed: `pip install "maturin>=1.5,<2"`
+#   - Python 3.11+ and maturin installed: `pip install "maturin>=1.5,<2"`
 #   - Rust toolchain (stable) installed: https://rustup.rs
 #   - API token: export MATURIN_PYPI_TOKEN=pypi-...  (get from
 #     https://pypi.org/manage/account/token/)

@@ -72,8 +72,8 @@ cargo build -p vle-ffi --release
 case "$(uname -s)" in
   Darwin) HOST_LIB="$REPO_ROOT/target/release/libvle_ffi.dylib" ;;
   Linux)  HOST_LIB="$REPO_ROOT/target/release/libvle_ffi.so" ;;
-  *)      echo "ERROR: unsupported host $(uname -s) — on Windows run the"
-          echo "commands from docs/en/android/README.md §Windows instead."
+  *)      echo "ERROR: unsupported host $(uname -s) — on Windows follow"
+          echo "docs/en/android/README.md, \"The Windows desktop app\", instead."
           exit 1 ;;
 esac
 

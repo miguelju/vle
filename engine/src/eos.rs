@@ -1381,7 +1381,7 @@ fn nu0_coefficients(set: RegularSolutionSet, species: ChaoSeaderSpecies) -> [f64
 /// The Chao–Seader framework writes `Kᵢ = νᵢ·γᵢ/φ̂ᵢⱽ`, with γᵢ from
 /// Scatchard–Hildebrand regular-solution theory and φ̂ᵢⱽ from an EOS
 /// (classically Redlich–Kwong). This function is the νᵢ factor only; the
-/// [`crate::flash::system`] K-value path assembles the three.
+/// `flash::system` K-value path assembles the three.
 ///
 /// ```text
 ///   log₁₀ ν = ν⁰ + ω·ν¹

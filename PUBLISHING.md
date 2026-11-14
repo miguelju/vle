@@ -32,7 +32,7 @@ git tag v0.X.Y && git push origin v0.X.Y
 ```
 
 End-to-end clock from `git push origin vX.Y.Z` to "available on PyPI" is
-typically 5–15 minutes (the Mac mini wheel build is the long pole).
+typically 5–15 minutes (the wheel matrix is the long pole).
 
 ---
 
@@ -86,7 +86,7 @@ emergency path if the automated release flow is broken:
 
 ```sh
 deploy/scripts/publish-crate.sh  --go   # crates.io
-deploy/scripts/publish-pypi.sh   --go   # PyPI (needs $MATURIN_PYPI_TOKEN or ~/.pypirc)
+deploy/scripts/publish-pypi.sh   --go   # PyPI (needs $MATURIN_PYPI_TOKEN)
 ```
 
 These remain dry-run by default; pass `--go` to actually upload. They're
@@ -125,8 +125,8 @@ version from new resolvers but existing lockfiles can still download).
 You **cannot** delete a published version. Fix by yanking + publishing
 a patch release.
 
-**PyPI**: `twine yank vle-thermo==X.Y.Z --reason "..."` (or file a PyPI
-removal request). Same "cannot delete" rule — yank + patch.
+**PyPI**: yank the release from the project's *Manage → Releases* page on
+pypi.org (there is no command-line yank). Same "cannot delete" rule — yank + patch.
 
 ---
 
@@ -150,7 +150,7 @@ No API token needed thereafter.
    token covers all crates the account owns; a stale per-crate allowlist is
    exactly what broke the v0.10.0 CI publish.
 2. Store it in 1Password under `vle-thermo-ci/crates-io/token`.
-3. The release workflow loads it via `1password/load-secrets-action@v2`
+3. The release workflow loads it via `1password/load-secrets-action` (SHA-pinned, v4.0.0)
    using `OP_SERVICE_ACCOUNT_TOKEN` (the single GitHub secret, scoped to the
    `crates-io` environment).
 
@@ -197,4 +197,5 @@ This is the **only** secret in GitHub. The crates.io token is in the
 1Password vault and resolved at workflow runtime via `op://vault/item/field`
 paths.
 
-See `docs/ci.md` and `docs/runners/` for the full CI architecture.
+See `docs/ci.md` for the full CI architecture (`docs/runners/` is historical:
+the repo has had no self-hosted runner since 2026-10-25).

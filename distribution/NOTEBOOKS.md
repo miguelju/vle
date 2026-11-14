@@ -13,7 +13,6 @@ service (Binder, Colab, SageMaker, etc.).
 | Rust toolchain (build-time)| stable         | Only needed if installing from source via `maturin`  |
 | JupyterLab or notebook     | ≥ 4 / ≥ 7      | Either works                                         |
 | NumPy                      | ≥ 1.24         | Transitive dep of `vle`                              |
-| SciPy                      | ≥ 1.11         | Used by some notebooks for comparison plots          |
 | matplotlib                 | ≥ 3.7          | All notebooks that plot                              |
 
 A 64-bit architecture (x86_64 or arm64) is required; 32-bit builds are not
@@ -26,16 +25,16 @@ supported.
 ```sh
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install vle-thermo jupyterlab numpy scipy matplotlib
+pip install vle-thermo jupyterlab numpy matplotlib
 ```
 
 ### Option B — from source (for development)
 
 ```sh
-git clone https://github.com/YOUR/vle.git
+git clone https://github.com/miguelju/vle.git
 cd vle
 python -m venv .venv && source .venv/bin/activate
-pip install maturin jupyterlab numpy scipy matplotlib
+pip install maturin jupyterlab numpy matplotlib
 cd python
 maturin develop --release
 ```
@@ -56,8 +55,10 @@ filing an issue.
 ## Notebook catalogue
 
 The notebooks grow with the project. Each milestone adds one notebook
-covering the feature it built; Milestone 11 finishes with a full walkthrough
-of the research paper's Chapter IV validation cases.
+covering the feature it built. Milestone 11 is a full walkthrough of the
+research paper's Chapter IV validation cases; the notebooks after it (11–16)
+cover what was added since: derivatives, steam tables, NRTL, the P-v-T
+surface, petroleum characterization and refinery thermodynamics.
 
 | File                                                | Milestone | Topic                                           |
 |-----------------------------------------------------|-----------|-------------------------------------------------|
@@ -95,7 +96,7 @@ database is *not* checked into the repository — create it on first run:
 
 ```sh
 vle-db init                    # create schema
-vle-db seed --source chapter4  # seed 15 Chapter IV compounds + kij + van Laar + VLE
+vle-db seed --source chapter4  # seed the 25 bundled compounds + kij + van Laar + VLE
 vle-db validate chapter4       # sanity-check that everything landed
 ```
 
@@ -109,7 +110,7 @@ optional `thermo` dependency and seed from it:
 
 ```sh
 pip install 'vle-thermo[db]'   # installs the thermo library
-vle-db seed --source thermo    # seeds ~40 common industrial compounds by default
+vle-db seed --source thermo    # seeds 45 common industrial compounds by default
 ```
 
 See [`docs/en/parameters/parameter_reference.md`](../docs/en/parameters/parameter_reference.md)

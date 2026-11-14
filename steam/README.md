@@ -5,7 +5,7 @@ dependency-free Rust crate.
 
 [![Crates.io](https://img.shields.io/crates/v/vle-steam.svg)](https://crates.io/crates/vle-steam)
 [![Docs.rs](https://docs.rs/vle-steam/badge.svg)](https://docs.rs/vle-steam)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/miguelju/vle/blob/main/LICENSE)
 
 A from-scratch implementation of the **IAPWS Industrial Formulation 1997**
 (*Revised Release* R7-97, 2012) for the thermodynamic properties of water and

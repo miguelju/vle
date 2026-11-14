@@ -19,7 +19,7 @@
 # Wheels built here were previously produced on self-hosted runners for
 # linux-x86_64 and macos-arm64. That was dropped because it bought nothing
 # and cost two real things:
-#   1. Serialization. The self-hosted Linux runner is EPHEMERAL (one job per
+#   1. Serialization. The self-hosted Linux runner was EPHEMERAL (one job per
 #      container), so a tag push racing a main push put the release third in
 #      line behind CI's bench job — measured at ~8 min of dead wait on the
 #      v0.12.0 release.
@@ -30,8 +30,9 @@
 # target are both pinned in python/pyproject.toml, so the wheels are
 # byte-for-byte equivalent in compatibility to the self-hosted ones.
 #
-# The one job that stays on lab hardware is ci.yml's criterion bench, where a
-# quiet dedicated machine is the whole point — see the note there.
+# The criterion bench stayed on lab hardware a while longer; since 2026-10-25
+# it runs on a GitHub-hosted VM too (bench.yml), and this repo has no
+# self-hosted runner at all.
 
 name: _build
 

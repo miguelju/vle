@@ -201,10 +201,10 @@ pub struct Mixture {
 
     // --- Binary interaction parameters ---
     /// kij matrix (symmetric, N×N). Used by EOS mixing rules.
-    /// kij[i][j] = kij[j][i], kij[i][i] = 0. Dimensionless.
+    /// `kij[i][j] = kij[j][i]`, `kij[i][i] = 0`. Dimensionless.
     pub kij: Vec<Vec<f64>>,
     /// Aij matrix (asymmetric, N×N). Used by activity coefficient models.
-    /// Aij[i][j] ≠ Aij[j][i] in general. Units depend on the activity model.
+    /// `Aij[i][j] ≠ Aij[j][i]` in general. Units depend on the activity model.
     pub aij: Vec<Vec<f64>>,
 }
 

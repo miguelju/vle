@@ -20,10 +20,14 @@
 //!
 //! minimized by the fixed point `Wᵢ = exp(dᵢ − ln φᵢ(w))`, reached by
 //! successive substitution. The feed is **unstable** (splits) if any trial
-//! converges to `tm < 0` at a non-trivial composition. Two trials are run —
-//! a vapor-like seed (`Wᵢ = zᵢ·Kw`) and a liquid-like seed (`Wᵢ = zᵢ/Kw`),
-//! with `Kw` the Wilson estimate — which between them find essentially every
-//! split.
+//! reaches `tm < 0` at a non-trivial composition. The trials start from a
+//! vapor-like seed (`Wᵢ = zᵢ·Kw`) and a liquid-like seed (`Wᵢ = zᵢ/Kw`),
+//! with `Kw` the Wilson estimate, and then from one near-pure seed per
+//! component. The Wilson pair alone finds vapor–liquid splits but misses
+//! liquid–liquid ones (water out of a hydrocarbon), which is what the
+//! near-pure seeds are for (`OPTIMIZATION_PLAN_PART1.md` §13). A run whose
+//! trials are cut off by the iteration cap with no negative `tm` is
+//! reported as `NoConvergence`, never as stable.
 //!
 //! Only the cubic (φ-φ) path is handled; activity-model liquids don't show
 //! the trivial-solution instability this targets, and the isothermal flash's
@@ -154,6 +158,9 @@ fn normalize_into(w: &[f64], out: &mut [f64]) {
 ///
 /// # Errors
 /// [`FlashError::Unsupported`] for a non-cubic liquid model;
+/// [`FlashError::InvalidInput`] if any `zᵢ` is not strictly positive;
+/// [`FlashError::NoConvergence`] if the trials hit `max_iter` without a
+/// verdict (no negative `tm` found, but not converged either);
 /// [`FlashError::Thermo`] on a fugacity failure.
 pub fn stability_analysis(
     spec: &SystemSpec,

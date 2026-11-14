@@ -28,10 +28,10 @@
 //!    (`OPTIMIZATION_PLAN_PART1.md` §13).
 //!
 //! The full Michelsen scheme finishes with a Newton step on `ln K` once the
-//! residual is small; GDEM-accelerated SS already converges the Chapter IV
-//! cases, and the Newton finish is layered on top (`flash_isothermal` uses
-//! SS+GDEM; the analytic-Jacobian Newton polish is a follow-on refinement
-//! tracked in the milestone).
+//! residual is small. **That Newton finish is not implemented here:**
+//! `flash_isothermal` is SS+GDEM only, which already converges the Chapter IV
+//! cases. The analytic-Jacobian polish is an open follow-on
+//! (`OPTIMIZATION_PLAN_PART1.md` §5).
 //!
 //! # References
 //! - (7) Michelsen (1982) Part I — stability analysis (the fallback)

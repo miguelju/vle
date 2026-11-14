@@ -46,7 +46,7 @@ derivatives throughout — exposed via a unit-aware Python facade (`vle.System`)
 and a vectorized numpy **batch API** that releases the GIL (a 200 000-point
 isothermal flash sweep runs in ~60 ms). The bundled component database (25
 compounds with ideal-gas Cp°/R coefficients), IAPWS-IF97 steam tables, CLI and
-units layer round it out. 508 Python tests and 482 Rust tests back it, and the
+units layer round it out. 528 Python tests and 522 Rust tests back it, and the
 numbers are checked against the published Chapter IV tables of the thesis this
 engine derives from — 21 executable notebooks reproduce them.
 
@@ -54,13 +54,13 @@ engine derives from — 21 executable notebooks reproduce them.
 Python surface has been stable across the last several releases, and the
 underlying Rust crate still reserves the right to change shape before 1.0. The
 numerical core is settled.
-`0.19.0` is the **optimization release**. New: `System.stage_thermo(t, p, x, y)` returns K-values, ∂ln K/∂T, and the enthalpy (**kJ/kmol**) and heat capacity (**kJ/(kmol·K)**) of both phases in one call — for a cubic liquid and vapor it is 4.5–4.8× faster than the five separate calls and returns the same numbers (other model pairs are assembled from those calls, same answers, no speed-up) — and `System.k_values_with_t_derivs` skips the pressure derivative (−32 %). Faster, same answers: `System.enthalpy_entropy` on a cubic phase (−50 %), the adiabatic flash (−19 % on the benchmarked binary), bubble/dew temperatures (27–28 % cold, 43 % from a realistic warm start on 10 components), `System.phase_envelope` (1.8× for a binary, 3.7× for 10 components), parallel `_batch` calls (24–32 %), and `mixture_d_ln_phi_d_n` for Wong-Sandler / Huron-Vidal / MHV (2.5× at 4 components, 4.2× at 50). **Fix:** `System.flash` no longer misses liquid–liquid splits — on PR water/hydrocarbon it used to return a wrong single-phase answer at 42 % of a T–P grid, now 0.2 %; hydrocarbon answers are unchanged. The check costs a vapor single-phase flash exit +0.22–0.45 µs. **Behaviour change:** `System.stability` raises `NoConvergence` when its trials are cut off before a verdict instead of answering stable, and its `max_iter` default is now 1 000 (was 100).
+`0.19.0` is the **optimization release**. New: `System.stage_thermo(t, p, x, y)` returns K-values, ∂ln K/∂T, and the enthalpy (**kJ/kmol**) and heat capacity (**kJ/(kmol·K)**) of both phases in one call — for a cubic liquid and vapor it is 4.5–4.8× faster than the five separate calls and returns the same numbers (other model pairs are assembled from those calls, same answers, no speed-up) — and `System.k_values_with_t_derivs` skips the pressure derivative (−32 %). Faster, same answers: `System.enthalpy_entropy` on a cubic phase (−50 %), the adiabatic flash (−19 % on the benchmarked binary), bubble/dew temperatures (27–28 % cold, 43 % from a realistic warm start on 10 components), `System.phase_envelope` (1.8× for a binary, 3.7× for 10 components), parallel `_batch` calls (24–32 %), and `mixture_d_ln_phi_d_n` for Wong-Sandler / Huron-Vidal / MHV (2.5× at 4 components, 4.2× at 50). **Fix:** `System.flash_pt` no longer misses liquid–liquid splits — on PR water/hydrocarbon it used to return a wrong single-phase answer at 42 % of a T–P grid, now 0.2 %; hydrocarbon answers are unchanged. The check costs a vapor single-phase flash exit +0.22–0.45 µs. **Behaviour change:** `System.stability` raises `NoConvergence` when its trials are cut off before a verdict instead of answering stable, and its `max_iter` default is now 1 000 (was 100).
 
 `0.18.0` adds warm starts to `System.bubble_temperature` / `dew_temperature` (`t_guess=`, `k_guess=`) and `bubble_pressure` / `dew_pressure` (`p_guess=`, `k_guess=`): pass a nearby answer — the previous stage of a column, the neighboring point of a sweep — and get the same result as without it, sooner when the guess is very close (6.7× from an exact neighbor on 10 components, ≈ 25 % from a typical guess). Unit strings work for the guess; an unusable guess quietly falls back to the cold solve.
 
 `0.17.0` is the **saturation-temperature release**, and it **requires Python 3.11+** (3.10 reached end of life on 2026-10-01; wheels are now tagged `cp311-abi3`, and the `tomli` dependency is gone). `System.bubble_temperature` / `System.dew_temperature` (and their `_batch` forms) return the same answers 100–1900× faster at the engine level: the engine now solves for the temperature by Newton on 1/T with the exact `∂ln K/∂T`, keeping the old bisection solver only as an automatic fallback. Nothing changed shape. **Fix:** `System.flash_ph` could return a wrong temperature without raising (385.67 K for a 432.11 K state on a 10-component mixture); it now recovers the right one, and raises instead of returning when the enthalpy cannot be matched. `0.17.1` fixes `System.bubble_pressure` returning a meaningless pressure for some mixtures with a light component (methane/n-pentane at 350 K gave 27 479 kPa; the bubble point is 12 386 kPa) and `System.phase_envelope`, which failed from its default `p_start` for pairs like n-butane/n-heptane and never traced the dew branch; it now returns the closed envelope.
 `0.16.0` is the **γ-φ heat-capacity release** (Milestone 12.6): `System.phase_cp` now works for **every** model pair — a γ-φ (activity-model) liquid returns the exact temperature derivative of `System.enthalpy_entropy`'s H (ideal-gas Cp° minus the derivative of the Clausius–Clapeyron condensation enthalpy plus the excess Cpᴱ of the activity model's own Hᴱ convention) and an ideal-gas vapor returns Σy·Cp°, where before it raised "needs a cubic model on that phase". Under the hood every saturation correlation became dual-number generic, so `dPsat/dT` is analytic for all of them. Nothing else changed shape.
-`0.15.0` is the **petroleum and refinery release** (Milestones 19 + 20): `vle.petroleum` turns a crude assay into pseudocomponents; `vle.refinery` and six new `System` methods add the free-water decant flash, Grayson–Streed / Braun K10 K-values (`liquid_model="grayson_streed"` / `"bk10"`), Lee–Kesler enthalpy and Peneloux volume translation. `Component` gains `solubility_param`, `watson_k`, `zra`. Nothing existing changed shape.
+`0.15.0` is the **petroleum and refinery release** (Milestones 19 + 20): `vle.petroleum` turns a crude assay into pseudocomponents; `vle.refinery` and seven new `System` methods add the free-water decant flash, Grayson–Streed / Braun K10 K-values (`liquid_model="grayson_streed"` / `"bk10"`), Lee–Kesler enthalpy and Peneloux volume translation. `Component` gains `solubility_param`, `watson_k`, `zra`. Nothing existing changed shape.
 `0.14.0` was an **engine performance release** — the Python API is unchanged.
 The mixture core now scales **linearly** with component count instead of
 quadratically: classical mixing with no binary interaction parameters takes an
@@ -192,8 +192,8 @@ print(batch.converged)   # per-point convergence flags
 ## Component database & units
 
 ```sh
-# Initialize the bundled component database (SQLite) and seed with the 24
-# bundled compounds (15 Chapter IV + 9 distillation/absorber additions).
+# Initialize the bundled component database (SQLite) and seed with the 25
+# bundled compounds (15 Chapter IV + 9 distillation/absorber additions + ammonia).
 vle-db init
 vle-db seed --source chapter4
 
@@ -229,7 +229,7 @@ P = Q_(3.5, "bar").to("kPa")      # 350 kPa
   Scatchard-Hildebrand, Ideal
 - **11 mixing rules** — Classical (IVDW, IIVDW), Wong-Sandler, Huron-Vidal,
   MHV1/MHV2
-- **6 saturation pressure correlations** — Antoine, Riedel, Müller, RPM
+- **6 saturation pressure correlations** — Antoine, Riedel, Müller, RPM, polynomial, Maxwell
 - **6 flash calculation types** — bubble/dew point (T/P), isothermal
   (Rachford-Rice), adiabatic
 - **Parameter regression** — kij (binary interaction) and Aij (activity

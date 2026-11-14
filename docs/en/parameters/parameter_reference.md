@@ -118,7 +118,7 @@ Cp⁰ = A + B·T + C·T² + D·T³ (+ E·T⁴ for some sources)
 
 ### Bundled `cp_coeffs` (Milestone 12.1)
 
-As of M12.1 the bundled component database (all **24** compounds, both the JSON
+As of M12.1 the bundled component database (all **25** compounds today — 24 at M12.1, ammonia added in M14 — both the JSON
 copy read by `vle.components` and the `vle-db` SQLite seed) ships a
 **dimensionless** ideal-gas heat-capacity polynomial, matching the engine's
 internal convention (`engine/src/energy.rs` `ideal_cp`):

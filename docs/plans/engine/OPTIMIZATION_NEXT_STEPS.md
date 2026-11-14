@@ -29,7 +29,7 @@ this file's status lines so it never claims more than the code does.
 | ~~Stability on the single-phase exit for LL-prone systems~~ | Part 1 §12, §13 | **done**: pure-component screen on every cubic single-phase exit; 6 109 → 31 wrong answers |
 | ~~Public `stability_analysis` reports an unconverged trial as `Stable`~~ | Part 1 §12, §13 | **done**: now `NoConvergence` (behaviour change, no signature change) |
 | ~~Fixed-width dual (`DualSVec64<W>`) for WS/MHV `∂lnφ̂ᵢ/∂nⱼ`~~ | Part 2 §6, §8; `SECOND_OPINION_TRIAL.md` | **done** (Step 1): 2.5× (n = 4) → 4.2× (n = 50) |
-| `MixtureScratch<'a, D>` instead of `SmallVec` for duals | Part 2 §7 | performance, same path as §6; no profile taken yet |
+| `MixtureScratch<'a, D>` instead of `SmallVec` for duals | Part 2 §7 | performance, same path as §6; profiled 2026-11-12 (Part 2 §11), not built |
 | ~~Simultaneous (n+1)-variable Newton for bubble/dew T~~ | Part 1 §8, §11, §14; ROADMAP M9.1 | **done** (Step 2): warm start −43 %, near-critical 2–5× |
 | Newton on ln P for near-critical bubble/dew pressure | ROADMAP M9.1 | robustness/performance |
 | Full Newton finish on ln K for the isothermal flash | Part 1 §5, §6 | performance, unmeasured need |
@@ -97,9 +97,11 @@ chosen by a width sweep. The patch's W = 16 / 32 buckets were 1.6× / 3.1×
 slower at n = 20. Wong-Sandler `d_ln_phi_d_n` runs 2.5× faster at n = 4, 4.0×
 at n = 8, 3.6× at n = 20 and 4.2× at n = 50, with MHV1 the same. It is still
 O(n³). Costs: the engine's release compile is +33 %; wasm size is unchanged.
-No in-tree flash calls `d_ln_phi_d_n` yet, so flash benches do not move.
-Step 2 is the first in-tree consumer. The §7 `MixtureScratch` follow-on stays
-open because no profile has been taken. Original plan text follows.
+No in-tree flash called `d_ln_phi_d_n` when this step landed, so flash benches
+did not move. Step 2 became the first in-tree consumer and Step 3's envelope
+Jacobian the second (both v0.19.0). The §7 `MixtureScratch` follow-on stays
+open: it was profiled on 2026-11-12 (Part 2 §11) and not built. Original plan
+text follows.
 
 - **Evidence:** Wong-Sandler `d_ln_phi_d_n` is ≈ 5.1× the analytic path
   (Part 2 §2). The trial patch built on `num_dual::DualSVec64<W>` needs no new

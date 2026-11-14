@@ -54,7 +54,7 @@
 //! - The VB6 MHV2 branch reads a stale `lnGamma` (clsQbicsMulticomp.cls:349
 //!   — the variable is never assigned inside the MHV2 branch); this port
 //!   uses the correct ln γᵢ.
-//! - IIVDW's kij matrix is deliberately asymmetric (kij[i][j] ≠ kij[j][i]).
+//! - IIVDW's kij matrix is deliberately asymmetric (`kij[i][j] ≠ kij[j][i]`).
 //!
 //! # References
 //! - (9) Müller et al. — general multicomponent fugacity expressions
@@ -141,7 +141,7 @@ pub struct MixtureSpec<'a> {
     /// Component list.
     pub components: &'a [Component],
     /// kij binary interaction matrix, N×N. Symmetric for every rule except
-    /// IIVDW (which reads kij[i][j] and kij[j][i] separately). Pass an
+    /// IIVDW (which reads `kij[i][j]` and `kij[j][i]` separately). Pass an
     /// empty slice for all-zero kij.
     pub kij: &'a [Vec<f64>],
     /// Activity coupling — required by WS/HOV/HVS/MHV1/MHV2, ignored (may
@@ -1224,7 +1224,7 @@ pub fn ln_phi_mix(
 /// and its transcendentals for one solve. Build a `TpCache` once and hand it to
 /// [`ln_phi_mix_cached_into`] instead.
 ///
-/// The cache is keyed on `(eos, T, P, n)` and [`Self::matches`] checks that key,
+/// The cache is keyed on `(eos, T, P, n)` and [`TpCache::matches`] checks that key,
 /// so a stale cache is a detectable error rather than a silently wrong number.
 ///
 /// ```ignore

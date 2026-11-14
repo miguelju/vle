@@ -4,7 +4,7 @@ Vapor-liquid equilibrium (VLE) thermodynamic calculator in Rust.
 
 [![Crates.io](https://img.shields.io/crates/v/vle-thermo.svg)](https://crates.io/crates/vle-thermo)
 [![Docs.rs](https://docs.rs/vle-thermo/badge.svg)](https://docs.rs/vle-thermo)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/miguelju/vle/blob/main/LICENSE)
 
 A modern Rust port of two legacy thermodynamic codebases (VB6 ~15,000 lines + Pascal ~2,500 lines) supporting:
 
@@ -25,21 +25,50 @@ critical point), tangent-plane stability analysis, the mixture critical point by
 Heidemann's method, and kij/Aij regression — all with **exact derivatives**
 (hand-derived analytic for the classical paths, `num-dual` dual-number AD for
 the GE-based mixing rules; finite differences survive only as test oracles).
-477 Rust tests back it, and the results are checked against the published
+414 Rust tests back it (522 across the workspace), and the results are checked against the published
 Chapter IV tables of the thesis this engine derives from, not merely against
 themselves.
 
 **What `0.x` means here.** It is a statement about the **API**, not the
-numerics. This release itself adds a `FlashError` variant, which is a breaking
-change for a downstream exhaustive `match` — that is the kind of latitude the
-`0.` still buys. The numerical core is settled; the surface is not yet frozen.
+numerics. `0.12.0` added a `FlashError` variant, which is a breaking
+change for a downstream exhaustive `match`, and `0.19.0` changed what
+`stability_analysis` returns for an unconverged trial — that is the kind of
+latitude the `0.` still buys. The numerical core is settled; the surface is not yet frozen.
 
 Known gaps, stated rather than implied: `k_values_with_derivs` returns
-`Unsupported` for a virial vapor and for a Chao-Seader liquid, and the
+`Unsupported` for a virial vapor and for the Chao-Seader-family liquids
+(Chao–Seader, Grayson–Streed, Braun K10), and the
 isothermal flash's terminal Newton polish on ln K (the analytic-Jacobian finish
 described in the modernization plan §J) is **not** implemented — it converges by
 GDEM-accelerated successive substitution, which reaches the Chapter IV cases in
 7–14 iterations.
+
+`0.19.0` — the **optimization release**. New: `flash::stage_thermo_into` returns K-values, ∂ln K/∂T, and the enthalpy (**kJ/kmol**) and heat capacity (**kJ/(kmol·K)**) of both phases at one `(T, P, x, y)`; for a cubic liquid and vapor it takes one second-order dual pass per phase (`mixture::ln_phi_t2_into`) and measures **786 ns against 3.54 µs** for the five separate calls at 8 components (4.5×; 4.8× at 4), with the same numbers to 1e-10. Other model pairs are assembled from those calls. `flash::k_values_with_t_derivs` is now public (−32 % against `k_values_with_derivs` when ∂/∂P is not needed). Faster, same answers: `phase_enthalpy_entropy` on a cubic phase **1 078 → 520 ns** (the departure enthalpy was computed twice), bubble/dew temperatures 27–28 % cold and 43 % warm-started on 10 components (a simultaneous (n+1) Newton step near the root), `trace_envelope` 1.8–3.7× (exact Jacobian in place of finite differences), and `d_ln_phi_d_n` for Wong-Sandler / Huron-Vidal / MHV / 3-parameter EOS 2.5× at 4 components and 4.2× at 50. **Fix:** `flash_isothermal` no longer misses liquid–liquid splits: every cubic single-phase answer is checked by a pure-component tangent-plane screen (PR water/hydrocarbon wrong single-phase answers 42 % → 0.2 % of a grid), which costs a vapor single-phase exit +0.22–0.45 µs. **Behaviour change:** `stability_analysis` returns `NoConvergence` when its trials are cut off before a verdict, instead of `Stable`, and adds near-pure trial phases. Measurements: [`OPTIMIZATION_PLAN_PART1.md`](https://github.com/miguelju/vle/blob/main/docs/plans/engine/OPTIMIZATION_PLAN_PART1.md) §12–§15 and [`OPTIMIZATION_PLAN_PART2.md`](https://github.com/miguelju/vle/blob/main/docs/plans/engine/OPTIMIZATION_PLAN_PART2.md) §8–§10.
+
+`0.18.0` adds **warm-started saturation points**: `flash::bubble::{bubble_temperature_from, bubble_pressure_from}` and `flash::dew::{dew_temperature_from, dew_pressure_from}` take a guess for the unknown (T in **K** or P in **kPa**) and optional K-values — typically the previous column stage's or iteration's result — and return exactly what the cold function returns; an unusable or trivial-solution guess falls back to the cold solve. Measured on a 10-component RKS mixture at 1000 kPa: bubble T **17.2 µs cold → 2.6 µs** from an exact neighbor, but **12.6 µs** from a 0.05–0.5 K / 0.2–5 % guess, and dew T 12.6 → 12.1 µs — the incipient composition still converges linearly, so the simultaneous Newton is what would make realistic warm starts pay (it shipped in `0.19.0`, above). No existing signature changed.
+
+`0.17.0` — the **saturation-temperature release**. `flash::bubble::bubble_temperature` and `flash::dew::dew_temperature` now solve by **Newton on 1/T** with the exact `∂ln Kᵢ/∂T` of `k_values_with_derivs`, updating the incipient composition by successive substitution each step; the previous solver (bisection over full saturation-pressure solves) remains as the automatic fallback for model pairs without `∂ln K/∂T` (virial vapor, Chao–Seader / Grayson–Streed / Braun K10 liquids), for pure components and azeotropes (which look like the trivial `K ≡ 1` solution), and for any Newton failure. Same answers, measured at 2000 kPa on RKS alkanes: bubble T **483 µs → 4.2 µs** (N = 2) and **927 µs → 10.0 µs** (N = 8); dew T **7.15 ms → 7.3 µs** and **21.7 ms → 11.4 µs**. No signature changed. **Fix:** `flash::adiabatic::flash_adiabatic` could return `Ok` with a wrong temperature (385.67 K for a 432.11 K state on a 10-component RKS mixture) by warm-starting from a single-phase result's K-values; `flash_isothermal_warm` now re-seeds from Wilson when a warm K gives no Rachford–Rice root, warm starts are carried only from two-phase results, and a collapsed bracket with a large enthalpy residual is an error. `0.17.1` fixes two silent wrong answers found by checking the solvers against the phase envelope: `bubble_pressure` could return the trivial solution `K ≡ 1` as a result (methane/n-pentane at 350 K: 27 479 kPa for a 12 386 kPa bubble point) and now rejects it, recovers via the Newton bubble temperature, or returns `NoConvergence` near the critical point; and `trace_envelope` now seeds from a converged bubble point and orients its continuation, so it traces the closed envelope (bubble branch → critical point → dew branch) from any low starting pressure. Built against the Python 3.11 stable ABI (`abi3-py311`); the workspace MSRV is unchanged at 1.85.
+
+`0.16.0` — the **γ-φ heat-capacity release** (Milestone 12.6, the last downstream-gap item of the derivative release, opened by a downstream staged-separation (distillation) consumer). **`flash::phase_cp`** is the SystemSpec-level heat capacity next to `phase_enthalpy_entropy`: cubic phases as before, ideal-gas vapor `Σy Cp°`, and the **γ-φ liquid** `Σx Cp° − Σx d(ΔH_vap)/dT + Cpᴱ` — the exact temperature derivative of the shipped γ-φ enthalpy, asserted against it for every model pair. Underneath: **`saturation::psat_generic`** makes every saturation correlation (Antoine, Riedel, Müller, RPM, Polynomial) generic over `num_dual`, so `d_psat_dt` is now analytic for every model (it was a central difference for the corresponding-states fits), with new `d2_psat_dt2` and `condensation_cp`; and **`activity::excess_cp`** differentiates each activity model's *own* Hᴱ convention. `System.phase_cp` on the Python side routes through the new dispatch (a γ-φ system no longer errors). No other API changed.
+
+`0.15.0` — the **petroleum and refinery release** (Milestones 19 + 20). **`vle_thermo::refinery`** (M20): Lee–Kesler departure (pure + mixture, validated by thermodynamic identities), Peneloux volume translation, `LiquidModel::{GraysonStreed, BraunK10}` with their (T, P)-constant parts cached, `flash::free_water::flash_free_water` (the water-decant flash — the industry approximation, not a three-liquid stability search), and a closed-form Maxwell–Bonnell inversion; the legacy `ChaoSeader` path was found to carry the Grayson–Streed 1963 table without γ and is kept as is, documented. `Component` gains `watson_k`. And **`vle_thermo::petroleum`** (M19) — petroleum
+characterization, the layer that lets the engine run on crude oil. A
+distillation curve plus a gravity becomes a `Vec<Component>`: D86 ↔ TBP ↔ D2887
+(SimDist) ↔ EFV interconversion (Riazi–Daubert power laws and the API
+difference procedures 3A1.1 / 3A3.1 / 3A3.2), cutting a TBP curve into N
+pseudocomponents by volume / boiling range / product boundary, four
+critical-property correlation families (Riazi–Daubert 1980, API 1987,
+Kesler–Lee, Twu) plus Lee–Kesler ω and four Zc correlations, Kesler–Lee
+ideal-gas Cp° emitted straight into `Component::cp_coeffs`, and Maxwell–Bonnell
+vapor pressure. The design constraint was that a pseudocomponent must be an
+*ordinary* `Component`, so nothing in `flash`, `mixture` or `energy` needs a
+special case. Interconversions are validated against Riazi (2005) Examples
+3.2–3.5 and two API *Technical Data Book* worked examples; the property
+correlations against measured Tc/Pc/ω/M for ten pure hydrocarbons. One
+documented gap: the Kesler–Lee `CF` naphthene correction is not implemented
+(measured cost up to 15.9 % on ring compounds' Cp°). Learning guide, with every
+correlation written out in its published units:
+[`docs/en/petroleum/`](https://github.com/miguelju/vle/blob/main/docs/en/petroleum/README.md).
 
 `0.14.0` — the mixture core became **N-scalable**. Classical mixing with
 no binary interaction parameters (the normal state of a set of petroleum
@@ -93,34 +122,8 @@ virial path gains flat row-major `b_mix_matrix_flat` +
 −24…−28 %, tangent-plane stability −44…−51 %. Details in
 [`OPTIMIZATION_PLAN_PART2.md`](https://github.com/miguelju/vle/blob/main/docs/plans/engine/OPTIMIZATION_PLAN_PART2.md).
 
-`0.19.0` — the **optimization release**. New: `flash::stage_thermo_into` returns K-values, ∂ln K/∂T, and the enthalpy (**kJ/kmol**) and heat capacity (**kJ/(kmol·K)**) of both phases at one `(T, P, x, y)`; for a cubic liquid and vapor it takes one second-order dual pass per phase (`mixture::ln_phi_t2_into`) and measures **786 ns against 3.54 µs** for the five separate calls at 8 components (4.5×; 4.8× at 4), with the same numbers to 1e-10. Other model pairs are assembled from those calls. `flash::k_values_with_t_derivs` is now public (−32 % against `k_values_with_derivs` when ∂/∂P is not needed). Faster, same answers: `phase_enthalpy_entropy` on a cubic phase **1 078 → 520 ns** (the departure enthalpy was computed twice), bubble/dew temperatures 27–28 % cold and 43 % warm-started on 10 components (a simultaneous (n+1) Newton step near the root), `trace_envelope` 1.8–3.7× (exact Jacobian in place of finite differences), and `d_ln_phi_d_n` for Wong-Sandler / Huron-Vidal / MHV / 3-parameter EOS 2.5× at 4 components and 4.2× at 50. **Fix:** `flash_isothermal` no longer misses liquid–liquid splits: every cubic single-phase answer is checked by a pure-component tangent-plane screen (PR water/hydrocarbon wrong single-phase answers 42 % → 0.2 % of a grid), which costs a vapor single-phase exit +0.22–0.45 µs. **Behaviour change:** `stability_analysis` returns `NoConvergence` when its trials are cut off before a verdict, instead of `Stable`, and adds near-pure trial phases. Measurements: [`OPTIMIZATION_PLAN_PART1.md`](https://github.com/miguelju/vle/blob/main/docs/plans/engine/OPTIMIZATION_PLAN_PART1.md) §12–§15 and [`OPTIMIZATION_PLAN_PART2.md`](https://github.com/miguelju/vle/blob/main/docs/plans/engine/OPTIMIZATION_PLAN_PART2.md) §8–§10.
-
-`0.18.0` adds **warm-started saturation points**: `flash::bubble::{bubble_temperature_from, bubble_pressure_from}` and `flash::dew::{dew_temperature_from, dew_pressure_from}` take a guess for the unknown (T in **K** or P in **kPa**) and optional K-values — typically the previous column stage's or iteration's result — and return exactly what the cold function returns; an unusable or trivial-solution guess falls back to the cold solve. Measured on a 10-component RKS mixture at 1000 kPa: bubble T **17.2 µs cold → 2.6 µs** from an exact neighbor, but **12.6 µs** from a 0.05–0.5 K / 0.2–5 % guess, and dew T 12.6 → 12.1 µs — the incipient composition still converges linearly, so the simultaneous Newton is what would make realistic warm starts pay. No existing signature changed.
-
-`0.17.0` — the **saturation-temperature release**. `flash::bubble::bubble_temperature` and `flash::dew::dew_temperature` now solve by **Newton on 1/T** with the exact `∂ln Kᵢ/∂T` of `k_values_with_derivs`, updating the incipient composition by successive substitution each step; the previous solver (bisection over full saturation-pressure solves) remains as the automatic fallback for model pairs without `∂ln K/∂T` (virial vapor, Chao–Seader / Grayson–Streed / Braun K10 liquids), for pure components and azeotropes (which look like the trivial `K ≡ 1` solution), and for any Newton failure. Same answers, measured at 2000 kPa on RKS alkanes: bubble T **483 µs → 4.2 µs** (N = 2) and **927 µs → 10.0 µs** (N = 8); dew T **7.15 ms → 7.3 µs** and **21.7 ms → 11.4 µs**. No signature changed. **Fix:** `flash::adiabatic::flash_adiabatic` could return `Ok` with a wrong temperature (385.67 K for a 432.11 K state on a 10-component RKS mixture) by warm-starting from a single-phase result's K-values; `flash_isothermal_warm` now re-seeds from Wilson when a warm K gives no Rachford–Rice root, warm starts are carried only from two-phase results, and a collapsed bracket with a large enthalpy residual is an error. `0.17.1` fixes two silent wrong answers found by checking the solvers against the phase envelope: `bubble_pressure` could return the trivial solution `K ≡ 1` as a result (methane/n-pentane at 350 K: 27 479 kPa for a 12 386 kPa bubble point) and now rejects it, recovers via the Newton bubble temperature, or returns `NoConvergence` near the critical point; and `trace_envelope` now seeds from a converged bubble point and orients its continuation, so it traces the closed envelope (bubble branch → critical point → dew branch) from any low starting pressure. Built against the Python 3.11 stable ABI (`abi3-py311`); the workspace MSRV is unchanged at 1.85.
-
-`0.16.0` — the **γ-φ heat-capacity release** (Milestone 12.6, the last downstream-gap item of the derivative release, opened by a downstream staged-separation (distillation) consumer). **`flash::phase_cp`** is the SystemSpec-level heat capacity next to `phase_enthalpy_entropy`: cubic phases as before, ideal-gas vapor `Σy Cp°`, and the **γ-φ liquid** `Σx Cp° − Σx d(ΔH_vap)/dT + Cpᴱ` — the exact temperature derivative of the shipped γ-φ enthalpy, asserted against it for every model pair. Underneath: **`saturation::psat_generic`** makes every saturation correlation (Antoine, Riedel, Müller, RPM, Polynomial) generic over `num_dual`, so `d_psat_dt` is now analytic for every model (it was a central difference for the corresponding-states fits), with new `d2_psat_dt2` and `condensation_cp`; and **`activity::excess_cp`** differentiates each activity model's *own* Hᴱ convention. `System.phase_cp` on the Python side routes through the new dispatch (a γ-φ system no longer errors). No other API changed.
-
-`0.15.0` — the **petroleum and refinery release** (Milestones 19 + 20). **`vle_thermo::refinery`** (M20): Lee–Kesler departure (pure + mixture, validated by thermodynamic identities), Peneloux volume translation, `LiquidModel::{GraysonStreed, BraunK10}` with their (T, P)-constant parts cached, `flash::free_water::flash_free_water` (the water-decant flash — the industry approximation, not a three-liquid stability search), and a closed-form Maxwell–Bonnell inversion; the legacy `ChaoSeader` path was found to carry the Grayson–Streed 1963 table without γ and is kept as is, documented. `Component` gains `watson_k`. And **`vle_thermo::petroleum`** (M19) — petroleum
-characterization, the layer that lets the engine run on crude oil. A
-distillation curve plus a gravity becomes a `Vec<Component>`: D86 ↔ TBP ↔ D2887
-(SimDist) ↔ EFV interconversion (Riazi–Daubert power laws and the API
-difference procedures 3A1.1 / 3A3.1 / 3A3.2), cutting a TBP curve into N
-pseudocomponents by volume / boiling range / product boundary, four
-critical-property correlation families (Riazi–Daubert 1980, API 1987,
-Kesler–Lee, Twu) plus Lee–Kesler ω and four Zc correlations, Kesler–Lee
-ideal-gas Cp° emitted straight into `Component::cp_coeffs`, and Maxwell–Bonnell
-vapor pressure. The design constraint was that a pseudocomponent must be an
-*ordinary* `Component`, so nothing in `flash`, `mixture` or `energy` needs a
-special case. Interconversions are validated against Riazi (2005) Examples
-3.2–3.5 and two API *Technical Data Book* worked examples; the property
-correlations against measured Tc/Pc/ω/M for ten pure hydrocarbons. One
-documented gap: the Kesler–Lee `CF` naphthene correction is not implemented
-(measured cost up to 15.9 % on ring compounds' Cp°). Learning guide, with every
-correlation written out in its published units:
-[`docs/en/petroleum/`](https://github.com/miguelju/vle/blob/main/docs/en/petroleum/README.md).
-
-`0.10.0` adds **IAPWS-IF97 steam
+`0.11.0` added the **NRTL** activity model (analytic ∂lnγ/∂T, excess enthalpy
+via dual-number AD) and the ammonia component (Milestone 14). `0.10.0` added **IAPWS-IF97 steam
 tables** via the new sibling crate [`vle-steam`](https://crates.io/crates/vle-steam),
 re-exported here as `vle_thermo::steam` behind the optional `steam` feature
 (on by default in the Python wheel). `0.9.1` fixed a ~1% Wong-Sandler

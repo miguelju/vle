@@ -41,7 +41,7 @@
 //! | [`cuts`] | slice a TBP curve into N narrow-boiling cuts |
 //! | [`properties`] | Tb + SG → M, Tc, Pc, ω, Vc, Zc (four correlation families) |
 //! | [`cp`] | ideal-gas Cp° for a fraction, as [`Component::cp_coeffs`] |
-//! | [`vapor_pressure`] | Maxwell-Bonnell pressure ↔ boiling-point correction |
+//! | [`mod@vapor_pressure`] | Maxwell-Bonnell pressure ↔ boiling-point correction |
 //! | [`assay`] | the whole pipeline: assay → `Vec<Component>` |
 //!
 //! [`Component::cp_coeffs`]: crate::types::Component::cp_coeffs

@@ -12,6 +12,11 @@ with exact analytic/`num-dual` composition derivatives) shipped with Milestone 8
 (`engine/src/mixture.rs`). **Track A** algorithm choices land with the Milestone 9
 flash work; **Track D** (batch numpy API) with Milestone 10.*
 
+*Update 2026-11-13: both landed in v0.8.0. Track A shipped without the Newton
+finish on ln K for the isothermal flash, which is still not implemented; the
+bubble/dew Newton arrived later (Milestone 9.1, v0.17.0; the simultaneous form
+in v0.19.0). See `MODERNIZATION_PLAN.md` §I–§K status notes.*
+
 ## Goal
 
 Make `vle-thermo` a **very fast, always-convergent** thermodynamics library driven from

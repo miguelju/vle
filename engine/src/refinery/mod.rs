@@ -17,8 +17,8 @@
 //!
 //! | need | method | where |
 //! |---|---|---|
-//! | K-values for hydrogen-rich, heavy service | **Grayson–Streed** `Kᵢ = νᵢγᵢ/φ̂ᵢⱽ` | [`crate::flash::system`] via `LiquidModel::GraysonStreed`; νᵢ in [`crate::eos::regular_solution_ln_nu`] |
-//! | K-values for heavy fractions at low pressure | **Braun K10** from Maxwell–Bonnell | `LiquidModel::BraunK10`; the closed-form inversion in [`crate::petroleum::vapor_pressure`] |
+//! | K-values for hydrogen-rich, heavy service | **Grayson–Streed** `Kᵢ = νᵢγᵢ/φ̂ᵢⱽ` | `flash::system` via `LiquidModel::GraysonStreed`; νᵢ in [`crate::eos::regular_solution_ln_nu`] |
+//! | K-values for heavy fractions at low pressure | **Braun K10** from Maxwell–Bonnell | `LiquidModel::BraunK10`; the closed-form inversion in [`mod@crate::petroleum::vapor_pressure`] |
 //! | enthalpy / entropy departure | **Lee–Kesler** three-parameter corresponding states | [`lee_kesler`] |
 //! | heavy-cut liquid density | **Peneloux** volume translation of the cubic EOS | [`volume_translation`] |
 //! | stripping steam → a second liquid | **free-water decant flash** | [`crate::flash::free_water`] |

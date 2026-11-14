@@ -167,7 +167,7 @@ pub fn ideal_entropy_mix(
 /// from the EOS, for the requested phase.
 ///
 /// Generalized-cubic form (Müller (9), reducing to the pure expression at
-/// x = [1]):
+/// `x = [1]`):
 /// ```text
 ///   H^R/(RT) = (Z − 1) + A_mix·Ĩ·(τ + 1) − δ·[(Z − 1) + A_mix·Ĩ]
 ///   τ = T·d(ln A_mix)/dT,   δ = T·d(ln b_mix)/dT = T·d(ln B_mix)/dT + 1

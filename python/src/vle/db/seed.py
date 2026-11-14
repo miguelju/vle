@@ -49,8 +49,8 @@ def _resolve_seed_file(filename: str) -> Iterator[Path]:
 def seed_chapter4() -> int:
     """Seed the database with Chapter IV validation compounds.
 
-    Runs the bundled ``seed_chapter4.sql`` (24 compounds — the 15 Chapter IV
-    plus the 9 M12.1 distillation/absorber additions — with binary parameters
+    Runs the bundled ``seed_chapter4.sql`` (25 compounds — the 15 Chapter IV,
+    the 9 M12.1 distillation/absorber additions and ammonia (M14) — with binary parameters
     + experimental VLE points) shipped inside the wheel. Override the source
     directory with the ``VLE_SEED_DIR`` environment variable.
 

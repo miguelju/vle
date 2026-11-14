@@ -62,8 +62,8 @@ no cargo and no network:
    and went unrecorded in both files for two weeks.
 5. Every "*N* notebooks" claim matches the real count, across `README.md`,
    `python/README.md`, `distribution/NOTEBOOKS.md`, `ROADMAP.md` and `TODO.md`.
-   The count is **content notebooks only** — `index.ipynb` is excluded, so 19
-   notebooks live beside it in a directory of 20 files. One optional adjective
+   The count is **content notebooks only** — `index.ipynb` is excluded, so 21
+   notebooks live beside it in a directory of 22 files. One optional adjective
    may sit between the number and the noun ("19 executable notebooks",
    "19 Jupyter notebooks"). Two kinds of statement are exempt: past-tense,
    milestone-scoped records ("the then-15-notebook collection"), and **subset
