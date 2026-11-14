@@ -98,6 +98,11 @@ const c = gas.criticalPoint([0.5, 0.5]);     // { tc: 265.7 K, pc: 6830 kPa, vc 
 const env = gas.traceEnvelope([0.5, 0.5], 100, 400);  // { t: [...], p: [...] }
 ```
 
+Flash and saturation calls validate their inputs first: a composition must
+sum to 1 within 1e-6 with no negative entry, and temperature and pressure
+must be positive. A violation throws `Error("invalid input: …")` naming the
+argument, before any solver runs.
+
 `criticalPoint` is a Newton iteration from a starting guess (the
 mole-fraction-average Tc unless you pass `tInit`). It only returns a root
 that can be a critical point of a real fluid — positive pressure, a

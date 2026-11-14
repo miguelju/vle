@@ -41,6 +41,8 @@ pub fn dew_pressure(
     max_iter: usize,
 ) -> Result<SaturationResult, FlashError> {
     check_len(spec, y)?;
+    super::check_composition("y", y)?;
+    super::check_positive("T (K)", t)?;
     let sp = solve_pressure(spec, t, y, Point::Dew, tol, max_iter)?;
     Ok(SaturationResult {
         value: sp.var,
@@ -74,6 +76,8 @@ pub fn dew_temperature(
     max_iter: usize,
 ) -> Result<SaturationResult, FlashError> {
     check_len(spec, y)?;
+    super::check_composition("y", y)?;
+    super::check_positive("P (kPa)", p)?;
     let sp = solve_temperature(spec, p, y, Point::Dew, tol, max_iter)?;
     Ok(SaturationResult {
         value: sp.var,
@@ -118,6 +122,8 @@ pub fn dew_pressure_from(
     max_iter: usize,
 ) -> Result<SaturationResult, FlashError> {
     check_len(spec, y)?;
+    super::check_composition("y", y)?;
+    super::check_positive("T (K)", t)?;
     let sp = solve_pressure_from(spec, t, y, Point::Dew, p0, k0, tol, max_iter)?;
     Ok(SaturationResult {
         value: sp.var,
@@ -163,6 +169,8 @@ pub fn dew_temperature_from(
     max_iter: usize,
 ) -> Result<SaturationResult, FlashError> {
     check_len(spec, y)?;
+    super::check_composition("y", y)?;
+    super::check_positive("P (kPa)", p)?;
     let sp = solve_temperature_from(spec, p, y, Point::Dew, t0, k0, tol, max_iter)?;
     Ok(SaturationResult {
         value: sp.var,

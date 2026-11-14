@@ -100,3 +100,54 @@ pub enum FlashError {
     #[error("unsupported: {0}")]
     Unsupported(String),
 }
+
+/// How far a composition's sum may be from 1 before a flash or saturation
+/// solve rejects it. Wide enough for a composition that was normalized in
+/// floating point or typed to six decimals; far too narrow for one that was
+/// never normalized.
+pub const COMPOSITION_SUM_TOL: f64 = 1e-6;
+
+/// Reject a composition a flash or saturation solve cannot mean anything
+/// for: a non-finite or negative mole fraction, or a sum further than
+/// [`COMPOSITION_SUM_TOL`] from 1. `name` is the argument's name in the
+/// error message (`"z"`, `"x"`, `"y"`). A zero mole fraction is allowed.
+///
+/// Until v0.20.0 only non-finite and negative entries were checked, and only
+/// by the isothermal flash: a feed summing to 1.2 came back as a two-phase
+/// result whose phases also summed to 1.2, and an unnormalized bubble-point
+/// composition failed 200 iterations later with an unrelated error.
+///
+/// # Errors
+/// [`FlashError::InvalidInput`] naming the offending entry or the sum.
+pub(crate) fn check_composition(name: &str, w: &[f64]) -> Result<(), FlashError> {
+    if w.is_empty() {
+        return Err(FlashError::InvalidInput("empty mixture".into()));
+    }
+    if let Some(i) = w.iter().position(|&wi| !wi.is_finite() || wi < 0.0) {
+        return Err(FlashError::InvalidInput(format!("{name}[{i}]={}", w[i])));
+    }
+    let sum: f64 = w.iter().sum();
+    if (sum - 1.0).abs() > COMPOSITION_SUM_TOL {
+        return Err(FlashError::InvalidInput(format!(
+            "{name} sums to {sum}, not 1 (tolerance {COMPOSITION_SUM_TOL:e}); normalize it first"
+        )));
+    }
+    Ok(())
+}
+
+/// Reject a temperature (**K**) or absolute pressure (**kPa**) that is not
+/// finite and strictly positive. `what` is the quantity with its unit, e.g.
+/// `"T (K)"`. A negative absolute temperature or pressure used to reach the
+/// solvers and come back as a confident single-phase answer.
+///
+/// # Errors
+/// [`FlashError::InvalidInput`] naming the quantity and its value.
+pub(crate) fn check_positive(what: &str, value: f64) -> Result<(), FlashError> {
+    if value.is_finite() && value > 0.0 {
+        Ok(())
+    } else {
+        Err(FlashError::InvalidInput(format!(
+            "{what} = {value}; it must be finite and > 0"
+        )))
+    }
+}

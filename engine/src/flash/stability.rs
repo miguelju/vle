@@ -186,6 +186,10 @@ pub fn stability_analysis(
         )));
     }
 
+    super::check_composition("z", z)?;
+    super::check_positive("T (K)", t)?;
+    super::check_positive("P (kPa)", p)?;
+
     // One (T, P) cache for every trial and every one of their iterations
     // (audit Part 2 §1) — the trial loop is the engine's most
     // fugacity-intensive inner loop.

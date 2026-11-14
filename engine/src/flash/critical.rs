@@ -137,6 +137,14 @@ fn f_tpd<D: DualNum<f64> + Copy>(
     // Repulsive term: −n·ln((V − n_b)/V).
     let rep = -n_tot * ((-n_b + v) * (1.0 / v)).ln();
     // Attractive term: −(n_a/(n_b·R·T·(δ1−δ2)))·ln((V+δ1·n_b)/(V+δ2·n_b)).
+    if diff.abs() < 1e-12 {
+        // δ1 = δ2 = δ (van der Waals: both zero). The general expression is
+        // 0/0 there; its limit is  −n_a / (R·T·(V + δ·n_b)).  Until v0.20.0
+        // this branch did not exist, the function returned NaN, and the
+        // eigenvector sort below panicked on it — through PyO3 that arrived
+        // as a `PanicException`, which `except Exception` does not catch.
+        return ideal + rep - n_a / ((n_b * delta1 + v) * (R_GAS * t));
+    }
     let rt_diff = R_GAS * t * diff;
     let coeff = n_a / (n_b * rt_diff);
     let ln_term = ((n_b * delta1 + v) / (n_b * delta2 + v)).ln();
@@ -232,7 +240,7 @@ fn smallest_eigen(
         .iter()
         .cloned()
         .enumerate()
-        .max_by(|a, b| a.1.abs().partial_cmp(&b.1.abs()).unwrap())
+        .max_by(|a, b| a.1.abs().total_cmp(&b.1.abs()))
         .map(|(i, _)| i)
         .unwrap_or(0);
     if vec[lead] < 0.0 {
@@ -325,6 +333,7 @@ pub fn critical_point(
             z.len()
         )));
     }
+    super::check_composition("z", z)?;
     let kij = spec.kij;
 
     // Seed ladder. The first seed is the caller's (or the mole-fraction
@@ -425,6 +434,13 @@ fn solve_from(
 ) -> Result<CriticalPoint, FlashError> {
     for iter in 0..max_iter {
         let (f1, f2) = residuals(z, t, v, eos, comps, kij);
+        if !(f1.is_finite() && f2.is_finite()) {
+            return Err(FlashError::NoConvergence {
+                what: "critical point (non-finite residual)",
+                iters: iter,
+                residual: f64::NAN,
+            });
+        }
         if f1.abs() < 1e-8 && f2.abs() < 1e-7 {
             break;
         }
@@ -665,6 +681,48 @@ mod tests {
                 ),
                 Err(e) => panic!("z1={z1}: {e}"),
             }
+        }
+    }
+
+    /// Issue #4: with the van der Waals EOS the attractive term was 0/0
+    /// (δ1 = δ2 = 0), the Hessian came back NaN and the eigenvector sort
+    /// panicked. A pure component must give back its own Tc and Pc — the
+    /// van der Waals EOS reproduces them by construction — and a mixture a
+    /// point between the pure ones.
+    #[test]
+    fn van_der_waals_critical_point_is_computed_not_a_panic() {
+        let comps = [methane()];
+        let mut spec = pr(&comps);
+        spec.vapor = VaporModel::Cubic(CubicEos::VdW1870);
+        spec.liquid = LiquidModel::Cubic(CubicEos::VdW1870);
+        let cp = critical_point(&spec, &[1.0], 0.0, 200).unwrap();
+        assert!((cp.tc - 190.564).abs() < 1e-3, "Tc={}", cp.tc);
+        assert!((cp.pc - 4599.0).abs() < 0.5, "Pc={}", cp.pc);
+
+        let comps = [methane(), ethane()];
+        let mut spec = pr(&comps);
+        spec.vapor = VaporModel::Cubic(CubicEos::VdW1870);
+        spec.liquid = LiquidModel::Cubic(CubicEos::VdW1870);
+        for i in 1..20 {
+            let z1 = i as f64 / 20.0;
+            let cp = critical_point(&spec, &[z1, 1.0 - z1], 0.0, 200).unwrap();
+            assert!(cp.tc > 190.564 && cp.tc < 305.32, "z1={z1} Tc={}", cp.tc);
+            assert!(cp.pc > 4599.0, "z1={z1} Pc={}", cp.pc);
+        }
+    }
+
+    #[test]
+    fn rejects_a_composition_that_does_not_sum_to_one() {
+        let comps = [methane(), ethane()];
+        let spec = pr(&comps);
+        for z in [[0.7, 0.7], [0.5, -0.5], [f64::NAN, 0.5]] {
+            assert!(
+                matches!(
+                    critical_point(&spec, &z, 0.0, 200),
+                    Err(FlashError::InvalidInput(_))
+                ),
+                "z={z:?}"
+            );
         }
     }
 }

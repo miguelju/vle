@@ -365,6 +365,11 @@ class System:
 
         ``t`` in **K**, ``p`` in **kPa abs** (or unit-aware inputs). Returns a
         :class:`~vle.results.FlashResult`.
+
+        Raises ``ValueError`` if ``z`` has a negative entry or does not sum to
+        1 within 1e-6, or if ``t`` or ``p`` is not positive after unit
+        conversion. The same checks apply to the bubble/dew, adiabatic-flash,
+        envelope, stability and critical-point methods.
         """
         tk, pk = _as_temperature(t), _as_pressure(p)
         beta, x, y, k, iters, two = self._engine.flash_pt(

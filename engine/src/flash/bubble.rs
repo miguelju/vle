@@ -54,6 +54,8 @@ pub fn bubble_pressure(
     max_iter: usize,
 ) -> Result<SaturationResult, FlashError> {
     check_len(spec, x)?;
+    super::check_composition("x", x)?;
+    super::check_positive("T (K)", t)?;
     let sp = solve_pressure(spec, t, x, Point::Bubble, tol, max_iter)?;
     Ok(SaturationResult {
         value: sp.var,
@@ -87,6 +89,8 @@ pub fn bubble_temperature(
     max_iter: usize,
 ) -> Result<SaturationResult, FlashError> {
     check_len(spec, x)?;
+    super::check_composition("x", x)?;
+    super::check_positive("P (kPa)", p)?;
     let sp = solve_temperature(spec, p, x, Point::Bubble, tol, max_iter)?;
     Ok(SaturationResult {
         value: sp.var,
@@ -131,6 +135,8 @@ pub fn bubble_pressure_from(
     max_iter: usize,
 ) -> Result<SaturationResult, FlashError> {
     check_len(spec, x)?;
+    super::check_composition("x", x)?;
+    super::check_positive("T (K)", t)?;
     let sp = solve_pressure_from(spec, t, x, Point::Bubble, p0, k0, tol, max_iter)?;
     Ok(SaturationResult {
         value: sp.var,
@@ -176,6 +182,8 @@ pub fn bubble_temperature_from(
     max_iter: usize,
 ) -> Result<SaturationResult, FlashError> {
     check_len(spec, x)?;
+    super::check_composition("x", x)?;
+    super::check_positive("P (kPa)", p)?;
     let sp = solve_temperature_from(spec, p, x, Point::Bubble, t0, k0, tol, max_iter)?;
     Ok(SaturationResult {
         value: sp.var,

@@ -145,6 +145,10 @@ pub fn flash_adiabatic(
         )));
     }
     cubic_pair(spec)?; // fail fast on an unsupported model
+    super::check_composition("z", z)?;
+    super::check_positive("P (kPa)", p)?;
+    super::check_positive("t_lo (K)", t_lo)?;
+    super::check_positive("t_hi (K)", t_hi)?;
 
     // Warm-start K carried across temperatures — from two-phase results
     // only (the same rule `flash_pt_batch` in py_system.rs follows).

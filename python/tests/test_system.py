@@ -161,3 +161,71 @@ def test_properties_z_and_lnphi():
     assert zv > zl  # vapor root is the larger Z
     lnphi = sys.ln_phi(300.0, 100.0, [0.5, 0.5], "vapor")
     assert len(lnphi) == 2
+
+
+# =============================================================================
+# Input validation at the engine boundary (GitHub issues #4 and #5)
+# =============================================================================
+
+
+@pytest.fixture
+def four_alkanes():
+    from vle import System
+
+    return System(["methane", "ethane", "propane", "n-butane"], eos="pr")
+
+
+@pytest.mark.parametrize(
+    "z, match",
+    [
+        ([0.5, 0.5, 0.1, 0.1], "z sums to 1.2"),
+        ([0.2, 0.2, 0.2, 0.2], "z sums to 0.8"),
+        ([1.2, -0.2, 0.0, 0.0], r"z\[1\]=-0.2"),
+    ],
+)
+def test_flash_rejects_an_invalid_composition(four_alkanes, z, match):
+    # The first case used to return two_phase=True with sum(x) = sum(y) = 1.2.
+    with pytest.raises(ValueError, match=match):
+        four_alkanes.flash_pt(250, 2000, z)
+
+
+@pytest.mark.parametrize("t, p", [(-5, 2000), (250, -100), (0, 2000), (250, 0), ("-300 degC", 2000)])
+def test_flash_rejects_a_non_positive_temperature_or_pressure(four_alkanes, t, p):
+    # T = -5 K used to return beta = 1 with K-values up to 2e241.
+    with pytest.raises(ValueError, match="must be finite and > 0"):
+        four_alkanes.flash_pt(t, p, [0.4, 0.3, 0.2, 0.1])
+
+
+@pytest.mark.parametrize("bad", [[0.44, 0.33, 0.22, 0.11], [0.6] * 4, [1.2, -0.2, 0.0, 0.0]])
+def test_saturation_methods_reject_an_invalid_composition(four_alkanes, bad):
+    # These used to fail late with "did not converge", a cubic-solver NaN, or
+    # "only the trivial solution" -- none of which names the real mistake.
+    for call in (
+        lambda: four_alkanes.bubble_pressure(bad, 250),
+        lambda: four_alkanes.bubble_temperature(bad, 2000),
+        lambda: four_alkanes.dew_pressure(bad, 250),
+        lambda: four_alkanes.dew_temperature(bad, 2000),
+        lambda: four_alkanes.phase_envelope(bad),
+    ):
+        with pytest.raises(ValueError, match="invalid input"):
+            call()
+    with pytest.raises(ValueError, match="must be finite and > 0"):
+        four_alkanes.bubble_pressure([0.4, 0.3, 0.2, 0.1], -10)
+
+
+def test_a_valid_composition_is_unaffected(four_alkanes):
+    assert four_alkanes.bubble_pressure([0.4, 0.3, 0.2, 0.1], 250).value == pytest.approx(5217.62, abs=0.01)
+    # A sum that is off only by rounding is accepted.
+    assert four_alkanes.flash_pt(250, 2000, [0.4000004, 0.3, 0.2, 0.1]).two_phase
+
+
+def test_critical_point_with_van_der_waals_does_not_panic():
+    # Issue #4: this raised pyo3_runtime.PanicException, a BaseException that
+    # `except Exception` does not catch.
+    from vle import System
+
+    cp = System(["methane"], eos="vdw").critical_point([1.0])
+    # van der Waals reproduces a pure component's Tc and Pc by construction.
+    assert cp.tc == pytest.approx(190.564, abs=1e-2)
+    mix = System(["methane", "ethane"], eos="vdw").critical_point([0.5, 0.5])
+    assert 190.564 < mix.tc < 305.32 and mix.pc > 0

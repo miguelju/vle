@@ -49,6 +49,9 @@ impl From<FlashError> for VleWasmError {
         match e {
             // Same split as the Python and UniFFI bindings: caller mistakes
             // surface as InvalidInput, numerical trouble as Flash.
+            // The engine's own message already says what was wrong; use it
+            // as is so the prefix is not doubled.
+            FlashError::InvalidInput(message) => VleWasmError::InvalidInput { message },
             FlashError::Dimension(_)
             | FlashError::Unsupported(_)
             | FlashError::NoRachfordRiceRoot { .. } => VleWasmError::InvalidInput {
