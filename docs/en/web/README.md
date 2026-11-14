@@ -68,7 +68,7 @@ Unit conversion belongs in your UI layer.
 import init, { version, VleSystem, steamSatP, dbAvailable } from "vle-wasm";
 
 await init();                          // compile + instantiate the wasm once
-console.log(version());                // "0.11.0"
+console.log(version());                // "0.19.0"
 
 // The Chapter IV Table 4.10 flash — n-heptane/n-butane, RKS, 300 K, 100 kPa.
 const sys = VleSystem.fromDb(["n-heptane", "n-butane"], "RKS1972", "RKS1972");
@@ -225,7 +225,7 @@ imports `wasm/pkg` and compare the same numbers in the console.
 ## Why is none of this in CI?
 
 Same policy as the Swift and Kotlin channels (see
-[deploy/README.md](../../../deploy/README.md)): the wasm package is a
+[distribution/README.md](../../../distribution/README.md)): the wasm package is a
 machine-built binary, so the repo ships source + a build script, publishes
 nothing to npm, and keeps `release.yml` untouched. `cargo test -p
 vle-wasm` runs in the ordinary workspace test suite; the boundary tests

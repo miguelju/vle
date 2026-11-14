@@ -43,7 +43,7 @@ try:  # Prefer the installed distribution's version; fall back for source trees.
 except (ImportError, PackageNotFoundError):  # pragma: no cover
     # Only reached when importing straight from a source tree with no
     # distribution installed. Keep in step with `python/pyproject.toml`.
-    __version__ = "0.15.0"
+    __version__ = "0.19.0"
 
 __all__ = [
     "System",

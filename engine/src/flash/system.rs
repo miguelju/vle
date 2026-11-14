@@ -936,7 +936,8 @@ fn dln_gamma_dt(spec: &SystemSpec, model: ActivityModel, t: f64, x: &[f64]) -> V
 ///
 /// `t` in **K**, `p` in **kPa absolute**. Supports the φ-φ (cubic liquid) and
 /// γ-φ (activity / ideal-solution liquid) paths with an ideal-gas or cubic
-/// vapor. Virial vapor and Chao-Seader liquid derivatives are not yet
+/// vapor. Virial vapor and Chao-Seader-family (Chao-Seader, Grayson-Streed,
+/// Braun K10) liquid derivatives are not yet
 /// implemented (they return [`FlashError::Unsupported`]).
 ///
 /// The γ-φ derivative is assembled **term-for-term** from the same pieces

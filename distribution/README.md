@@ -167,5 +167,5 @@ The build scripts themselves stay with the rest of the repo's tooling in
 by path from `Package.swift`, `build.gradle.kts`, the `ffi/` and `wasm/`
 manifests, and `.gitignore`, so they belong next to their siblings there.
 Each one is documented in its own per-platform guide above, and carries a
-usage header at the top of the file. (`scripts/README.md` covers only the two
-data-extraction scripts.)
+usage header at the top of the file. (`scripts/README.md` covers the data-extraction,
+external-model, benchmark and asset scripts.)

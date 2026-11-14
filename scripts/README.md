@@ -9,7 +9,19 @@ The data-extraction scripts pull and validate thermodynamic component properties
 
 *(The `build_notebook_*.py` and `build_index.py` scripts, which generate the
 notebooks under `notebooks/`, are not documented individually — each carries its
-own module docstring.)*
+own module docstring. Re-run `build_index.py` whenever a notebook is added, or
+the landing page falls behind the collection.)*
+
+Other scripts here, each documented in its own module docstring or usage header:
+
+| Script | What it does |
+|---|---|
+| `build-ios.sh`, `build-android.sh`, `build-wasm.sh` | Local platform builds — see `docs/en/ios/`, `docs/en/android/`, `docs/en/web/` |
+| `build_components_json.py` | Generates the bundled JSON component database and writes every in-repo copy of it (see its docstring) |
+| `bench_ffi_boundary.py`, `bench_batch_api.py` | Python ↔ Rust boundary and batch-API benchmarks (Milestones 8.2 and 10) |
+| `generate_3d_surface_data.py` | Pre-computes the 3-D surface CSVs under `notebooks/data/` for notebook 09 |
+| `render_3d_hero.py`, `render_pvt_hero.py` | Render the README hero images under `docs/assets/` |
+| `build_second_opinion_prompt.py` | Assembles the external second-opinion prompt from verbatim source line ranges |
 
 ## Prerequisites
 

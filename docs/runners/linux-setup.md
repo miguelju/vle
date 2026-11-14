@@ -11,6 +11,8 @@
 > needed), its local token copy shredded, and its config directory archived
 > rather than deleted for rollback. The access token itself was **not**
 > revoked: the same token still serves the other repo's runner on that host.
+> *(Update: the archive was deleted on 2026-10-26, and the shared token has
+> since been revoked — the other repo's runner now has its own credential.)*
 > The sections below describe the setup as it was.
 
 This is the recipe for standing up a **Linux x86_64 self-hosted GitHub

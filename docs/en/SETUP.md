@@ -18,7 +18,7 @@ source $HOME/.cargo/env
 Verify installation:
 
 ```bash
-rustc --version   # Should be 1.75+
+rustc --version   # Should be 1.85+ (the workspace MSRV; edition 2024)
 cargo --version
 ```
 
@@ -56,7 +56,15 @@ vle/
 ├── python/          # Python wrapper package
 │   ├── pyproject.toml
 │   └── src/vle/
+├── units/           # Rust crate vle-units (unit registry)
+├── steam/           # Rust crate vle-steam (IAPWS-IF97)
+├── ffi/             # UniFFI wrapper (Swift + Kotlin), unpublished
+├── wasm/            # wasm-bindgen wrapper (JavaScript), unpublished
+├── swift/ kotlin/   # Local Swift package and Android module
 ├── notebooks/       # Jupyter notebooks
+├── scripts/         # Build, data and benchmark scripts
+├── deploy/          # Registry publishing (PyPI, crates.io)
+├── distribution/    # Every non-registry channel
 ├── docs/            # Documentation
 └── legacy/          # Original VB6 and Pascal source (reference only)
 ```
@@ -86,12 +94,13 @@ maturin develop --release   # Optimized build
 
 ### Component Database
 
-The component database is available now (no Rust build required):
+The component database CLI needs the package built first (`maturin develop`
+above): `import vle` loads the compiled engine.
 
 ```bash
 conda activate vle
 PYTHONPATH=python/src python -m vle.cli.main init               # Create SQLite database
-PYTHONPATH=python/src python -m vle.cli.main seed --source chapter4  # Seed 24 compounds
+PYTHONPATH=python/src python -m vle.cli.main seed --source chapter4  # Seed 25 compounds
 PYTHONPATH=python/src python -m vle.cli.main validate chapter4  # Verify data integrity
 PYTHONPATH=python/src python -m vle.cli.main list               # Browse components
 PYTHONPATH=python/src python -m vle.cli.main show methane       # View details
@@ -113,17 +122,17 @@ python -c "import vle; print(vle.__version__)"
 ```bash
 conda activate vle
 
-# Rust tests
-cd engine && cargo test
+# Rust tests (whole workspace, from the repo root)
+cargo test --workspace --all-targets
 
 # Python tests
 cd python && python -m pytest tests/
 
 # Single Rust test
-cargo test test_cardano_cubic
+cargo test one_real_root_via_cardano
 
 # Single Python test
-python -m pytest tests/test_pure_eos.py -k "test_pr_fugacity"
+python -m pytest tests/test_m7_pure_component.py -k "fugacity"
 ```
 
 ### Rebuilding After Changes
@@ -152,8 +161,11 @@ jupyter notebook notebooks/
 | Crate | Purpose |
 |-------|---------|
 | `nalgebra` | Linear algebra (replaces hand-rolled Gauss elimination) |
-| `ndarray` | N-dimensional arrays |
-| `pyo3` | Python bindings |
+| `num-dual` | Dual-number automatic differentiation (exact derivatives) |
+| `smallvec` | Stack-allocated small vectors (no heap in hot loops) |
+| `thiserror` | Error types |
+| `vle-units` | Unit registry (sibling crate) |
+| `pyo3` + `numpy` + `rayon` | Python bindings and the parallel batch API (optional `python` feature) |
 | `approx` | Approximate floating-point comparisons (tests) |
 
 ### Python (`python/pyproject.toml`)

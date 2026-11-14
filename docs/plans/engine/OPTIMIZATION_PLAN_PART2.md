@@ -603,6 +603,10 @@ has measured a need for.
 moves; the win reaches API consumers (a downstream Newton) now, and Step 2's
 simultaneous bubble/dew Newton later.
 
+*Update 2026-11-12 (v0.19.0): that is no longer the reach. The simultaneous
+bubble/dew-T Newton (`flash/incipient.rs`, Part 1 §14) and the exact envelope
+Jacobian (`flash/envelope.rs`, Part 1 §15) both call `d_ln_phi_d_n` in-tree.*
+
 ### Verification
 
 - New tests: `blocked_dual_jacobian_matches_one_direction_path` (the old

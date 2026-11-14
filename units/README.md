@@ -5,7 +5,7 @@ thermodynamic calculations.
 
 [![Crates.io](https://img.shields.io/crates/v/vle-units.svg)](https://crates.io/crates/vle-units)
 [![Docs.rs](https://docs.rs/vle-units/badge.svg)](https://docs.rs/vle-units)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/miguelju/vle/blob/main/LICENSE)
 
 Works standalone. Designed as the unit layer for
 [`vle-thermo`](https://crates.io/crates/vle-thermo) but useful in any Rust
@@ -29,7 +29,7 @@ kJ/kmol, barg, psig, mmHg, etc.).
 
 ```toml
 [dependencies]
-vle-units = "0.1"
+vle-units = "0.19"
 ```
 
 ## Example

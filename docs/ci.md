@@ -39,7 +39,8 @@ deployment target are both pinned in `python/pyproject.toml`, so the tags
 No job targets lab hardware any more. [`runners/linux-setup.md`](runners/linux-setup.md)
 and [`runners/macos-setup.md`](runners/macos-setup.md) are retained for
 reference only. `vle-runner-01` was decommissioned on 2026-10-25 (container
-removed, registration gone, config archived on the lab host), and
+removed, registration gone, config archived on the lab host and the archive
+deleted on 2026-10-26), and
 `vle-mac-01` was fully decommissioned the same day (unregistered, its
 `vle-runner` macOS account, home directory and sudoers grant removed from the
 Mac mini). vle has no self-hosted runners.
@@ -72,7 +73,7 @@ directly.
 | `build` linux/aarch64 | `ubuntu-24.04-arm` (GitHub-hosted)    | Fresh VM per run                                |
 | `build` macOS arm64   | `macos-15` (GitHub-hosted)            | Fresh VM per run                                |
 | `build` windows       | `windows-latest` (GitHub-hosted)      | Fresh VM per run                                |
-| `build-sdist`         | `ubuntu-latest`                       | Fresh VM per run                                |
+| `sdist`               | `ubuntu-latest`                       | Fresh VM per run                                |
 | All publish jobs      | `ubuntu-latest`                       | Fresh VM per run                                |
 
 There are no self-hosted runners. (The last one, `vle-runner-01`, tagged
@@ -138,13 +139,13 @@ The `release.yml` workflow then:
    release`).
 2. Publishes to PyPI via Trusted Publishing (OIDC; no token, environment
    `pypi` may require manual approval).
-3. Publishes `vle-units` then `vle-thermo` to crates.io (token loaded
+3. Publishes `vle-units`, `vle-steam`, then `vle-thermo` to crates.io (token loaded
    from 1Password).
 4. Creates a GitHub Release and attaches all wheels + sdist.
 
 The pipeline **publishes only — it deploys nowhere.** The teaching hub is
 refreshed separately from a private operator repository (a gated deploy
-workflow); see [PUBLISHING.md](../PUBLISHING.md) → *Deploying the teaching hub*.
+workflow); nothing in this repository triggers it.
 
 End-to-end clock from `git push origin vX.Y.Z` to "PyPI install works"
 is typically 5–15 min. See [PUBLISHING.md](../PUBLISHING.md) for the
@@ -155,7 +156,8 @@ full release procedure.
 (One-time setup that lives outside the repo.)
 
 - **Settings → Actions → General → Require approval for all outside
-  collaborators** — defense in depth on top of the fork-PR `if:` guard.
+  collaborators** — the only gate on fork pull requests; no workflow carries
+  a fork `if:` guard (every job runs on GitHub-hosted VMs with no secrets).
 - **Settings → Environments → Create `pypi`** — optionally add
   yourself as a required reviewer so a stray tag can't ship to PyPI
   without a click.
@@ -174,7 +176,7 @@ full release procedure.
 
 - **Run logs** live in the Actions tab; each job has a step-by-step
   expandable view. cibuildwheel prints the wheel build for every
-  `(OS, arch, Python)` combination in turn.
+  `(OS, arch)` combination in turn (one `cp311-abi3` wheel each).
 - **Re-run individual jobs** via the "Re-run failed jobs" button — no
   push needed.
 - **Local repro**:
@@ -191,4 +193,4 @@ full release procedure.
 - [`runners/linux-setup.md`](runners/linux-setup.md) — Proxmox LXC + Docker + ephemeral runner image (**retired** for vle)
 - [`runners/macos-setup.md`](runners/macos-setup.md) — Mac mini M1 persistent runner setup (**retired**)
 - [`../PUBLISHING.md`](../PUBLISHING.md) — release procedure
-- [`../MODERNIZATION_PLAN.md`](plans/MODERNIZATION_PLAN.md) — Milestone 5 phase notes
+- [`plans/MODERNIZATION_PLAN.md`](plans/MODERNIZATION_PLAN.md) — Milestone 5 phase notes

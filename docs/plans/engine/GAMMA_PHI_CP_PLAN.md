@@ -1,5 +1,9 @@
 # Plan: γ-φ Heat Capacity + Dual-Generic Saturation Derivatives (Milestone 12.6 → v0.16.0)
 
+**Status: executed.** Shipped as Milestone 12.6 in v0.16.0 (2026-08-18):
+`flash::phase_cp`, `saturation::psat_generic`, `activity::excess_cp`. What
+follows is the design record.
+
 *Adopted 2026-08-18 (Claude Fable 5), at Miguel's request, as the last
 downstream-gap item of the derivative release
 ([`DERIVATIVE_RELEASE_PLAN.md`](DERIVATIVE_RELEASE_PLAN.md) G5): the packaged

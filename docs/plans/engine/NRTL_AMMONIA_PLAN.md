@@ -1,13 +1,13 @@
 # Plan: Add NRTL activity model + ammonia to vle-thermo
 
-**Status:** SHIPPED as Milestone 14 / v0.11.0 (2026-07-09) — §§1–7 are the executed design
+**Status:** SHIPPED as Milestone 14 / v0.11.0 (2026-07-08) — §§1–7 are the executed design
 record. **§8 (methanol–water van Laar vs NRTL comparison) is a PROPOSED follow-up, not yet
 scheduled.** **Driver:** downstream — the Ponchon–Savarit milestone of a downstream staged-separation (distillation) consumer
 needs a proper heat-of-mixing model and the ammonia component to teach
 the ammonia–water enthalpy–composition method. This is the vle-side upstream milestone that
 gates that milestone (sibling to the derivative release tracked in `DERIVATIVE_RELEASE_PLAN.md`).
-When executed, add ROADMAP.md / TODO.md / MODERNIZATION_PLAN.md entries + a model-attribution line
-per this repo's milestone rules.
+The ROADMAP.md / TODO.md / MODERNIZATION_PLAN.md entries and the model-attribution line this
+header used to ask for exist (Milestone 14).
 
 ## Why NRTL (and not UNIQUAC / extended UNIQUAC / a Helmholtz EOS)
 

@@ -40,9 +40,9 @@ ROADMAP → TODO → PLAN trio described in `CLAUDE.md`'s synchronization rules.
 | [`OPTIMIZATION_PLAN_PART2.md`](engine/OPTIMIZATION_PLAN_PART2.md) | 2026-07-25 | plan | **High-value subset complete** — the mixture core's response to Part 2; §6 fixed-width dual added 2026-10-31 (§8, v0.19.0); §10 batch SoA output added 2026-11-01 after a profile (§9, v0.19.0); one-pass stage thermodynamics and the duplicated departure enthalpy added 2026-11-11 from a profile of the downstream consumer (§10, v0.19.0); heap-traffic profile of that pass 2026-11-12 (§11: 29 % of the call at 10 components, 9 % at 100; workspace not built) | → v0.12.0 |
 | [`OPTIMIZATION_AUDIT_HISTORY.md`](engine/OPTIMIZATION_AUDIT_HISTORY.md) | 2026-07-25 | provenance | Living record of how the audit was produced and reviewed | — |
 | [`steam_audit.md`](engine/steam_audit.md) | 2026-07-25 | **audit** (external) | Delivered; two items adopted directly, the rest superseded by measuring the layer underneath | 13.8 |
-| [`PETROLEUM_PSEUDOCOMPONENT_PLAN.md`](engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) | 2026-07-25 | plan | **Upstream half executed and released (M18 in v0.14.0; M19 + M20 in v0.15.0, 2026-08-16).** §1.1 (blocker B1) shipped as Milestone 18 in **v0.14.0** — the N-scalable mixture core, measured linear to N = 300. §2's **U1 + U2 shipped as Milestone 19** (`engine/src/petroleum/`, unreleased) — assay → pseudocomponents, validated against Riazi (2005) Examples 3.2–3.5. §2's U4 + U5 (M20, refinery thermodynamics) not started | 18 – 20 |
+| [`PETROLEUM_PSEUDOCOMPONENT_PLAN.md`](engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md) | 2026-07-25 | plan | **Upstream half executed and released (M18 in v0.14.0; M19 + M20 in v0.15.0, 2026-08-16).** §1.1 (blocker B1) shipped as Milestone 18 in **v0.14.0** — the N-scalable mixture core, measured linear to N = 300. §2's **U1 + U2 shipped as Milestone 19** (`engine/src/petroleum/`) — assay → pseudocomponents, validated against Riazi (2005) Examples 3.2–3.5 — and §2's **U4 + U5 as Milestone 20** (`engine/src/refinery/`, `flash/free_water.rs`: refinery thermodynamics), both in **v0.15.0**. What remains is the consumer-side half (§3) | 18 – 20 |
 | [`SECOND_OPINION_TRIAL.md`](engine/SECOND_OPINION_TRIAL.md) | 2026-08-15 | **experiment** (external model) | **Run and graded; adopted 2026-10-31** — its `DualSVec64<W>` design ported (Part 2 §8), its width table rejected by measurement. Revised the *reason* `OPTIMIZATION_PLAN_PART2.md` §6 was deferred | — |
-| [`OPTIMIZATION_NEXT_STEPS.md`](engine/OPTIMIZATION_NEXT_STEPS.md) | 2026-10-30 | plan | **All steps done, v0.19.0** — Step 0 (stability fallback + LL sweep, Part 1 §12), its correctness findings (Part 1 §13), Step 1 (fixed-width dual, Part 2 §8), Step 2 (simultaneous bubble/dew-T Newton, Part 1 §14) and Step 3 (exact envelope Jacobian, Part 1 §15; batch SoA output, Part 2 §9); the release is the owner's call; inventory items no step covers stay open. Orders the open Part 1 / Part 2 / M9.1 items: stability fallback → Part 2 §6 dual → (n+1) Newton → profile-gated rest | — |
+| [`OPTIMIZATION_NEXT_STEPS.md`](engine/OPTIMIZATION_NEXT_STEPS.md) | 2026-10-30 | plan | **All steps done, v0.19.0** — Step 0 (stability fallback + LL sweep, Part 1 §12), its correctness findings (Part 1 §13), Step 1 (fixed-width dual, Part 2 §8), Step 2 (simultaneous bubble/dew-T Newton, Part 1 §14) and Step 3 (exact envelope Jacobian, Part 1 §15; batch SoA output, Part 2 §9), plus one-pass stage thermodynamics found afterwards (Part 2 §10); all released in v0.19.0 (2026-11-12); inventory items no step covers stay open. Orders the open Part 1 / Part 2 / M9.1 items: stability fallback → Part 2 §6 dual → (n+1) Newton → profile-gated rest | — |
 
 ## Delivery & platforms
 
@@ -67,7 +67,7 @@ for the two registries (PyPI, crates.io), and
 
 ---
 
-## How the plans arrived — five eras
+## How the plans arrived — six eras
 
 ### 1. Origins — April 2026
 
@@ -171,10 +171,48 @@ including a **latent correctness bug** (a region-3 density bound of 1000 kg/m³
 where the IF97 fit is not valid). The headline: the `inverse/ph_vapor` path went
 from 20.038 µs to 1.9679 µs — **10.18× faster**.
 
+### 6. Scale, then measurement again — August–November 2026
+
+August was the petroleum track: Milestone 18 (v0.14.0) and Milestones 19 + 20
+(v0.15.0), described under *The frontier* below. Two smaller documents date
+from the same month. [`GAMMA_PHI_CP_PLAN.md`](engine/GAMMA_PHI_CP_PLAN.md)
+closed the last downstream gap of the derivative release — the γ-φ liquid heat
+capacity — as Milestone 12.6 in v0.16.0.
+[`SECOND_OPINION_TRIAL.md`](engine/SECOND_OPINION_TRIAL.md) handed a deferred
+optimization to an external model and graded the answer by compiling and
+benchmarking it; nothing was merged at the time.
+
+October started from a number the downstream consumer measured: bubble and dew
+temperatures were the dominant cost of a column solve. Milestone 9.1 (v0.17.0)
+put Newton on 1/T with the exact ∂ln K/∂T in front of the bisection solver.
+Benchmarking every solver afterwards found two silent wrong answers (a PH flash
+temperature, a trivial-solution bubble pressure) and two more doc claims the
+code did not support; those are v0.17.0–v0.17.1, with warm-started entry points
+in v0.18.0. All of it is recorded as addenda §8–§11 of
+[`OPTIMIZATION_PLAN_PART1.md`](engine/OPTIMIZATION_PLAN_PART1.md).
+
+[`OPTIMIZATION_NEXT_STEPS.md`](engine/OPTIMIZATION_NEXT_STEPS.md) (2026-10-30)
+then put the remaining open items in an order, and every step shipped together
+in **v0.19.0** (2026-11-12). Its first step was meant to be small — a stability
+fallback when the flash fails — and its sweep found the largest correctness
+problem in the engine: wrong single-phase answers at 42 % of a PR
+water/hydrocarbon grid, now 0.2 %. The second-opinion design was ported in the
+same release, with its width table replaced by a measured one. The last
+addition, one-pass stage thermodynamics, came from profiling the consumer
+rather than from any audit.
+
 ### The frontier — where the plans point now
 
+**No upstream plan is in execution.** Every plan in the tables above is
+shipped, complete, or parked. What is open is a short list of recorded items,
+each with its evidence in `ROADMAP.md`: the Newton finish on ln K for the
+isothermal flash, Newton on ln P for the bubble/dew pressure solves,
+`MixtureScratch` (profiled, not built), 31 water/hydrocarbon grid points the
+single-phase screen does not catch, the Kesler–Lee `CF` term, M16's first
+Android Studio run, and the consumer-side half of the petroleum plan.
+
 [`PETROLEUM_PSEUDOCOMPONENT_PLAN.md`](engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md)
-(2026-07-25) is the plan still being executed. It targets an **atmospheric
+(2026-07-25) was the most recent capability plan. It targets an **atmospheric
 crude distillation column with hundreds of pseudocomponents** — the workload
 that stresses everything built so far — as Milestones 18–20. All three
 have landed: **M18** (the N-scalable mixture core, v0.14.0), **M19**
