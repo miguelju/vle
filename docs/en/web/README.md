@@ -68,7 +68,7 @@ Unit conversion belongs in your UI layer.
 import init, { version, VleSystem, steamSatP, dbAvailable } from "vle-wasm";
 
 await init();                          // compile + instantiate the wasm once
-console.log(version());                // "0.19.0"
+console.log(version());                // "0.20.0"
 
 // The Chapter IV Table 4.10 flash — n-heptane/n-butane, RKS, 300 K, 100 kPa.
 const sys = VleSystem.fromDb(["n-heptane", "n-butane"], "RKS1972", "RKS1972");

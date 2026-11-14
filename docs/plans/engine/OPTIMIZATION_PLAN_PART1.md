@@ -1153,7 +1153,7 @@ choice or step size on these traces.
 
 ---
 
-## 16. Addendum (unreleased, 2026-11-14): the full Newton step for γ-φ dew points
+## 16. Addendum (v0.20.0, 2026-11-14): the full Newton step for γ-φ dew points
 
 *§16–§20 executed by Claude Code using Claude Fable 5.2. They close the open
 engine items of `ROADMAP.md` Milestones 9.1 and 12.5. Baseline for every
@@ -1197,7 +1197,7 @@ still have no Jacobian and stay on SS
 
 ---
 
-## 17. Addendum (unreleased, 2026-11-14): Newton on ln P for the saturation pressures
+## 17. Addendum (v0.20.0, 2026-11-14): Newton on ln P for the saturation pressures
 
 **What changed.** `incipient::temperature_iteration` became
 `saturation_iteration`, generic over which of T and P is free. The pressure
@@ -1254,7 +1254,7 @@ Tests: `newton_pressure_matches_multiplicative_{phi_phi,gamma_phi,ten_component_
 
 ---
 
-## 18. Addendum (unreleased, 2026-11-14): the Newton finish of the isothermal flash (§J, audit §6)
+## 18. Addendum (v0.20.0, 2026-11-14): the Newton finish of the isothermal flash (§J, audit §6)
 
 §5 deferred this and named the obstacle: near the critical point `ln K → 0`
 and the `{ln K, β}` system is rank-deficient. The finish that was built
@@ -1335,7 +1335,7 @@ above.
 
 ---
 
-## 19. Addendum (unreleased, 2026-11-14): a γ-φ flash no longer trusts Wilson's single-phase verdict
+## 19. Addendum (v0.20.0, 2026-11-14): a γ-φ flash no longer trusts Wilson's single-phase verdict
 
 Found while writing §18's γ-φ test. A cold flash exits "single phase" when
 Rachford–Rice has no root under the starting K, and that K is Wilson's —
@@ -1363,7 +1363,7 @@ Test: `gamma_phi_wilson_single_phase_verdict_is_checked_against_the_model`
 
 ---
 
-## 20. Addendum (unreleased, 2026-11-14): the 31 water/hydrocarbon points §13 left
+## 20. Addendum (v0.20.0, 2026-11-14): the 31 water/hydrocarbon points §13 left
 
 §13's pure-component screen proves instability only for a near-pure incipient
 phase, and it left 31 wrong single-phase answers where the incipient phase is
@@ -1418,7 +1418,7 @@ Tests: `a_mixed_incipient_phase_behind_a_quiet_screen_is_found` (water/n-decane,
 the trigger — full stability on every single-phase exit — is the §10 cost
 question and is not what was built.
 
-## 21. Addendum (unreleased, 2026-11-14): three results that did not mean what they said
+## 21. Addendum (v0.20.0, 2026-11-14): three results that did not mean what they said
 
 Reported from outside the repo by a consumer drawing phase diagrams of
 methane/n-pentane (PR, kij = 0). All three reproduce on `main` as well as on

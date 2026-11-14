@@ -914,7 +914,7 @@ It is a different entry point and is not in the consumer's per-stage loop.
 
 ## 12. Audit §7 shipped — a reusable workspace for the dual-number fugacity passes
 
-*Executed 2026-11-14 by Claude Code using Claude Fable 5.2; unreleased.
+*Executed 2026-11-14 by Claude Code using Claude Fable 5.2; released in v0.20.0.
 A/B: `main` at `4d76d4f` built in a second worktree, both binaries run back
 to back on the same machine (Apple M4 Pro).*
 

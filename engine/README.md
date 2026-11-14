@@ -32,16 +32,18 @@ themselves.
 **What `0.x` means here.** It is a statement about the **API**, not the
 numerics. `0.12.0` added a `FlashError` variant, which is a breaking
 change for a downstream exhaustive `match`, and `0.19.0` changed what
-`stability_analysis` returns for an unconverged trial — that is the kind of
+`stability_analysis` returns for an unconverged trial, and `0.20.0` changed
+how a single-phase flash result is labelled liquid or vapor — that is the kind of
 latitude the `0.` still buys. The numerical core is settled; the surface is not yet frozen.
 
 Known gaps, stated rather than implied: `k_values_with_derivs` returns
 `Unsupported` for a virial vapor and for the Chao-Seader-family liquids
-(Chao–Seader, Grayson–Streed, Braun K10), and the
-isothermal flash's terminal Newton polish on ln K (the analytic-Jacobian finish
-described in the modernization plan §J) is **not** implemented — it converges by
-GDEM-accelerated successive substitution, which reaches the Chapter IV cases in
-7–14 iterations.
+(Chao–Seader, Grayson–Streed, Braun K10); the flash returns at most two
+phases (no three-phase VLLE answer); and `critical_point` can reject a root
+but not certify one. The isothermal flash's Newton finish, listed here as
+missing through `0.19.0`, shipped in `0.20.0`.
+
+`0.20.0` — the **solver-completion release**: the three Newton schemes the modernization plan designed and earlier releases deferred are built, and three results that did not mean what they said are fixed. **Faster, same answers:** `bubble_pressure` / `dew_pressure` solve by Newton on ln P with the exact ∂ln K/∂P (`flash::k_values_with_p_derivs`), the old multiplicative solver kept as the fallback — on RKS alkanes `bubble_pressure` **53–372 µs → 5–8 µs** and `dew_pressure` **11–24 µs → 4–6 µs**, identical at all 4 320 comparison points where both solve and 48 more points solved; `fit_kij` on four points **2.4 ms → 192 µs**. `stage_thermo_into` is 25–43 % faster up to 40 components (a per-thread workspace for the dual passes, no API change). The isothermal flash gains its Newton finish (Newton on the vapor mole numbers): −20 % near the critical locus, nothing measurable on an ordinary flash. γ-φ dew points take the full Newton step through the exact ∂ln γ/∂n: faster in 13 of 16 measured cases (to −57 %), slower in three (to +26 %). **Correctness, with what each costs:** the flash now finds splits whose incipient phase is a mixture (wrong single-phase answers on two PR water/hydrocarbon sweeps 32 → 0 and 87 → 1) by running the full stability test on single-phase exits near the phase boundary — which makes the benchmarked adiabatic flash **55 % slower** (9.4 → 14.6 µs); `SCREEN_MARGIN` in `flash/stability.rs` is the one constant behind it. `critical_point` no longer returns a non-physical root as `Ok` (85 % methane / n-pentane used to give 10.9 K and −142 543 kPa): it vets the root and re-seeds, and returns `NoConvergence` when every root is rejected — negative-pressure answers 11 → 0 of 545 compositions, at 2–6× the cost per solve. A converged flash with `K ≡ 1` is reported as single phase instead of two identical phases. A cold γ-φ flash checks the activity model before accepting a single-phase verdict. **Behaviour change:** for a φ-φ system the liquid/vapor label of a single-phase `FlashResult` (`beta` = 0 or 1) now comes from the feed's density, not from the sign of Σ z(K − 1) — near and above the critical locus the old label was rounding noise, and above the critical point the new one is a convention. Still open: three-phase (VLLE) flash, and `NoConvergence` flashes within a few kelvin of the critical locus. No signature changed. Measurements and rejected variants: [OPTIMIZATION_PLAN_PART1.md](https://github.com/miguelju/vle/blob/main/docs/plans/engine/OPTIMIZATION_PLAN_PART1.md) §16–§21.
 
 `0.19.0` — the **optimization release**. New: `flash::stage_thermo_into` returns K-values, ∂ln K/∂T, and the enthalpy (**kJ/kmol**) and heat capacity (**kJ/(kmol·K)**) of both phases at one `(T, P, x, y)`; for a cubic liquid and vapor it takes one second-order dual pass per phase (`mixture::ln_phi_t2_into`) and measures **786 ns against 3.54 µs** for the five separate calls at 8 components (4.5×; 4.8× at 4), with the same numbers to 1e-10. Other model pairs are assembled from those calls. `flash::k_values_with_t_derivs` is now public (−32 % against `k_values_with_derivs` when ∂/∂P is not needed). Faster, same answers: `phase_enthalpy_entropy` on a cubic phase **1 078 → 520 ns** (the departure enthalpy was computed twice), bubble/dew temperatures 27–28 % cold and 43 % warm-started on 10 components (a simultaneous (n+1) Newton step near the root), `trace_envelope` 1.8–3.7× (exact Jacobian in place of finite differences), and `d_ln_phi_d_n` for Wong-Sandler / Huron-Vidal / MHV / 3-parameter EOS 2.5× at 4 components and 4.2× at 50. **Fix:** `flash_isothermal` no longer misses liquid–liquid splits: every cubic single-phase answer is checked by a pure-component tangent-plane screen (PR water/hydrocarbon wrong single-phase answers 42 % → 0.2 % of a grid), which costs a vapor single-phase exit +0.22–0.45 µs. **Behaviour change:** `stability_analysis` returns `NoConvergence` when its trials are cut off before a verdict, instead of `Stable`, and adds near-pure trial phases. Measurements: [`OPTIMIZATION_PLAN_PART1.md`](https://github.com/miguelju/vle/blob/main/docs/plans/engine/OPTIMIZATION_PLAN_PART1.md) §12–§15 and [`OPTIMIZATION_PLAN_PART2.md`](https://github.com/miguelju/vle/blob/main/docs/plans/engine/OPTIMIZATION_PLAN_PART2.md) §8–§10.
 
@@ -148,7 +150,7 @@ for the phase-by-phase technical detail.
 
 ```toml
 [dependencies]
-vle-thermo = "0.19"
+vle-thermo = "0.20"
 ```
 
 Or with `cargo add`:
