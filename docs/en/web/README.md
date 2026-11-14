@@ -99,11 +99,15 @@ const env = gas.traceEnvelope([0.5, 0.5], 100, 400);  // { t: [...], p: [...] }
 ```
 
 `criticalPoint` is a Newton iteration from a starting guess (the
-mole-fraction-average Tc unless you pass `tInit`). For methane-rich
-mixtures with a heavy tail it can fail to converge — or converge to a
-non-physical root (a negative `pc`) — from the default guess. Check the
-answer against the envelope it should lie on, and retry with `tInit` near
-the temperature of the envelope's pressure maximum when it does not.
+mole-fraction-average Tc unless you pass `tInit`). It only returns a root
+that can be a critical point of a real fluid — positive pressure, a
+plausible temperature, and not inside the two-phase region — and re-seeds
+itself when the first root fails that check. When no seed gives such a root
+it **throws** rather than answer: expect that for methane-rich mixtures
+with a heavy tail (methane/n-pentane above about 95 % methane), where the
+only roots lie inside the two-phase region. Catch the error and treat the
+composition as having no critical point on this model. (Through v0.19.0 it
+could instead return a non-physical root, e.g. a negative `pc`.)
 
 Model names are case-insensitive and separator-blind (`"van-laar"` ==
 `"vanLaar"`); an EOS name as the vapor/liquid string means a cubic phase.

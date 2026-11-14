@@ -204,12 +204,15 @@ rather than from any audit.
 ### The frontier — where the plans point now
 
 **No upstream plan is in execution.** Every plan in the tables above is
-shipped, complete, or parked. What is open is a short list of recorded items,
-each with its evidence in `ROADMAP.md`: the Newton finish on ln K for the
-isothermal flash, Newton on ln P for the bubble/dew pressure solves,
-`MixtureScratch` (profiled, not built), 31 water/hydrocarbon grid points the
-single-phase screen does not catch, the Kesler–Lee `CF` term, M16's first
-Android Studio run, and the consumer-side half of the petroleum plan.
+shipped, complete, or parked. The five engine items that were open after
+v0.19.0 were built on 2026-11-14 and are unreleased: the Newton finish of the
+isothermal flash, Newton on ln P for the bubble/dew pressures, the γ-φ dew
+full step, a reusable workspace for the dual passes (the `MixtureScratch`
+idea), and a margin on the single-phase screen for the 31 water/hydrocarbon
+points (`OPTIMIZATION_PLAN_PART1.md` §16–§20, `OPTIMIZATION_PLAN_PART2.md`
+§12). Three wrong-meaning results reported from outside the same day were fixed with them — a non-physical critical point returned as an answer, a flash with two identical phases, and a noisy single-phase liquid/vapor label (§21 there). What is still open, each with its evidence in `ROADMAP.md`: three-phase
+(VLLE) flash, the Kesler–Lee `CF` term, M16's first Android Studio run, and
+the consumer-side half of the petroleum plan.
 
 [`PETROLEUM_PSEUDOCOMPONENT_PLAN.md`](engine/PETROLEUM_PSEUDOCOMPONENT_PLAN.md)
 (2026-07-25) was the most recent capability plan. It targets an **atmospheric

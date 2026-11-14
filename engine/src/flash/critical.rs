@@ -38,6 +38,21 @@
 //! below Tc the instability region is a narrow dip in `λ_min(V)` that
 //! vanishes at the critical point — the simultaneous form avoids that.)
 //!
+//! ## Not every root is a critical point
+//!
+//! The two conditions are local, and they have roots no fluid can sit at:
+//! at absurdly low temperature with negative pressure (85 % methane / 15 %
+//! n-pentane from the default seed: 10.9 K, −142 543 kPa), and inside the
+//! two-phase region, where the feed has already split. [`critical_point`]
+//! therefore vets what the Newton returns — positive pressure, a temperature
+//! above half the lightest component's Tc, and no conclusive "unstable" from
+//! the tangent-plane test at that (T, P) — and on a rejection or a failure
+//! re-seeds from Heidemann & Khalil's own starting point, `V = 4·b_mix` at
+//! 1.5, 1.2, 1.0 and 2.0 times the mole-fraction-average Tc. If no seed
+//! gives a root that passes, the result is `NoConvergence`: a mixture whose
+//! every root is rejected (methane-rich methane/n-pentane above ≈ 95 %
+//! methane, on this model) has no answer here, and saying so is the answer.
+//!
 //! Restricted to two-parameter cubic EOS with classical mixing — the case
 //! Chapter IV validates (PR). The critical pressure is recovered from the
 //! EOS at the converged `(Tc, Vc)`.
@@ -54,6 +69,7 @@ use nalgebra::DMatrix;
 use num_dual::{Dual3, Dual3_64, DualNum};
 
 use super::FlashError;
+use super::stability::{Stability, stability_analysis};
 use super::system::SystemSpec;
 use crate::eos::{CubicEos, LiquidModel, family_constants};
 use crate::types::{Component, R_GAS};
@@ -284,7 +300,9 @@ fn build_aij(a: &[f64], kij: &[Vec<f64>], n: usize) -> Vec<Vec<f64>> {
 ///
 /// # Errors
 /// [`FlashError::Unsupported`] for a non-cubic or 3-parameter EOS;
-/// [`FlashError::NoConvergence`] if the Newton fails to converge.
+/// [`FlashError::NoConvergence`] if no seed converges to a root that is a
+/// physical critical point (see the module docs: positive pressure, a
+/// plausible temperature, and not inside the two-phase region).
 pub fn critical_point(
     spec: &SystemSpec,
     z: &[f64],
@@ -309,17 +327,102 @@ pub fn critical_point(
     }
     let kij = spec.kij;
 
-    // Initial guesses: T from the mole-fraction-average Tc; V from the PR
-    // critical compressibility Zc ≈ 0.307 and a pseudo-critical pressure.
-    let t0 = if t_init > 0.0 {
-        t_init
-    } else {
-        z.iter().zip(comps).map(|(zi, c)| zi * c.tc).sum()
+    // Seed ladder. The first seed is the caller's (or the mole-fraction
+    // average Tc) with the PR `Zc ≈ 0.307` volume — the seed every earlier
+    // release used, so an answer that was right stays bit-identical. The
+    // rest are Heidemann & Khalil's own recommendation, `V = 4·b_mix` at a
+    // multiple of the average Tc: approached from the hot, dilute side the
+    // Newton lands on the highest-temperature critical point.
+    let t_avg: f64 = z.iter().zip(comps).map(|(zi, c)| zi * c.tc).sum();
+    let p_avg: f64 = z.iter().zip(comps).map(|(zi, c)| zi * c.pc).sum();
+    let t0 = if t_init > 0.0 { t_init } else { t_avg };
+    let bm0 = {
+        let PureAb { b, .. } = pure_ab(eos, t_avg, comps);
+        b_mix(z, &b)
     };
-    let p0: f64 = z.iter().zip(comps).map(|(zi, c)| zi * c.pc).sum();
-    let mut t = t0;
-    let mut v = 0.307 * R_GAS * t0 / p0;
+    let mut seeds = vec![(t0, 0.307 * R_GAS * t0 / p_avg)];
+    for f in HK_SEED_FACTORS {
+        seeds.push((f * t_avg, 4.0 * bm0));
+    }
 
+    // The two Heidemann–Khalil conditions have roots that are not critical
+    // points of a real fluid: for 85 % methane / 15 % n-pentane the first
+    // seed converges — to 1e-8, a genuine root — at 10.9 K and −142 543 kPa.
+    // A root is accepted only if it passes `is_physical`; otherwise the next
+    // seed is tried. The first error is kept for the case where none works.
+    let t_floor = PHYSICAL_T_FRACTION * comps.iter().map(|c| c.tc).fold(f64::MAX, f64::min);
+    let mut first_err = None;
+    for (ts, vs) in seeds {
+        match solve_from(z, ts, vs, eos, comps, kij, max_iter) {
+            Ok(cp) if is_physical(&cp, t_floor) && !inside_two_phase_region(spec, z, &cp) => {
+                return Ok(cp);
+            }
+            Ok(cp) => {
+                first_err.get_or_insert(FlashError::NoConvergence {
+                    what: "critical point (only a non-physical root found)",
+                    iters: max_iter,
+                    residual: cp.pc,
+                });
+            }
+            Err(e) => {
+                first_err.get_or_insert(e);
+            }
+        }
+    }
+    Err(first_err.expect("the seed ladder is never empty"))
+}
+
+/// Multiples of the mole-fraction-average Tc tried, at `V = 4·b_mix`, after
+/// the first seed fails or returns a non-physical root.
+const HK_SEED_FACTORS: [f64; 4] = [1.5, 1.2, 1.0, 2.0];
+
+/// A critical temperature below this fraction of the lightest component's Tc
+/// is rejected as a non-physical root of the criticality conditions.
+const PHYSICAL_T_FRACTION: f64 = 0.5;
+
+/// Is this root of the criticality conditions a critical point a fluid can
+/// have? Positive finite pressure, and a temperature (**K**) above `t_floor`.
+fn is_physical(cp: &CriticalPoint, t_floor: f64) -> bool {
+    cp.pc.is_finite() && cp.pc > 0.0 && cp.tc.is_finite() && cp.tc > t_floor && cp.vc > 0.0
+}
+
+/// TPD below this at a candidate critical point means the feed splits there.
+const UNSTABLE_TPD: f64 = -1e-6;
+
+/// Trial-phase iteration cap for the vetting stability test. Deliberately
+/// small: a root inside the two-phase region shows a negative TPD within a
+/// few iterations, while at a true critical point the trials never converge
+/// and every extra iteration is wasted. Measured on 545 compositions each of
+/// methane/n-pentane and methane/n-heptane: caps of 50, 200 and 2 000 reject
+/// exactly the same roots, and the 2-component solve costs 33 µs, 113 µs and
+/// 1 039 µs (5.4 µs with no check). Do not raise it.
+const VET_STABILITY_ITERS: usize = 50;
+
+/// Does the stability test prove the feed splits at this candidate? The
+/// criticality conditions are local — they also hold at points buried inside
+/// the two-phase region (methane-rich methane/n-pentane has one near 193 K),
+/// where no critical point can be observed. Only a conclusive "unstable"
+/// rejects: at a true critical point the trials converge slowly and usually
+/// return `NoConvergence`, which proves nothing and is not held against it.
+fn inside_two_phase_region(spec: &SystemSpec, z: &[f64], cp: &CriticalPoint) -> bool {
+    matches!(
+        stability_analysis(spec, cp.tc, cp.pc, z, VET_STABILITY_ITERS),
+        Ok(Stability::Unstable { tpd, .. }) if tpd < UNSTABLE_TPD
+    )
+}
+
+/// One 2-D Newton solve of `{λ_min, C} = 0` from the seed `(t, v)` —
+/// `t` in **K**, `v` in **m³/kmol**. Returns whatever root it converges to,
+/// physical or not; [`critical_point`] does the vetting.
+fn solve_from(
+    z: &[f64],
+    mut t: f64,
+    mut v: f64,
+    eos: CubicEos,
+    comps: &[Component],
+    kij: &[Vec<f64>],
+    max_iter: usize,
+) -> Result<CriticalPoint, FlashError> {
     for iter in 0..max_iter {
         let (f1, f2) = residuals(z, t, v, eos, comps, kij);
         if f1.abs() < 1e-8 && f2.abs() < 1e-7 {
@@ -470,5 +573,98 @@ mod tests {
             critical_point(&spec, &[0.5, 0.5], 250.0, 100),
             Err(FlashError::Unsupported(_))
         ));
+    }
+
+    fn n_pentane() -> Component {
+        Component {
+            name: "n-pentane".into(),
+            tc: 469.7,
+            pc: 3370.0,
+            omega: 0.252,
+            ..Component::default()
+        }
+    }
+
+    /// 85 % methane / 15 % n-pentane: the default seed converges on a root
+    /// of the criticality conditions at ≈ 11 K and a large negative
+    /// pressure, and until 2026-11-14 that was returned as `Ok`.
+    #[test]
+    fn a_non_physical_root_is_not_returned() {
+        let comps = [methane(), n_pentane()];
+        let spec = pr(&comps);
+        let z = [0.85, 0.15];
+        // The root is real: the bare Newton from the old seed still finds it.
+        let t_avg = 0.85 * 190.564 + 0.15 * 469.7;
+        let p_avg = 0.85 * 4599.0 + 0.15 * 3370.0;
+        let raw = solve_from(
+            &z,
+            t_avg,
+            0.307 * R_GAS * t_avg / p_avg,
+            CubicEos::PR1976,
+            &comps,
+            &[],
+            200,
+        )
+        .unwrap();
+        assert!(raw.pc < 0.0 && raw.tc < 50.0, "raw root {raw:?}");
+        // The public solver rejects it and finds the critical point.
+        let cp = critical_point(&spec, &z, 0.0, 200).unwrap();
+        assert!(cp.tc > 190.564 && cp.tc < 469.7, "Tc={}", cp.tc);
+        assert!(cp.pc > 4599.0 && cp.pc < 25000.0, "Pc={}", cp.pc);
+    }
+
+    /// Across the composition range every answer is either a physical
+    /// critical point on a smooth locus or an error — never a silent wrong
+    /// root. On `main`, of 545 evenly spaced compositions 11 came back with
+    /// negative pressure and 51 failed; now none and 25. This test walks
+    /// every fifth one to stay quick in a debug build.
+    #[test]
+    fn methane_n_pentane_locus_is_physical_or_an_error() {
+        let comps = [methane(), n_pentane()];
+        let spec = pr(&comps);
+        let (mut ok, mut failed) = (0, 0);
+        let mut prev: Option<(usize, f64)> = None;
+        for i in (5..546).step_by(5) {
+            let z1 = i as f64 / 546.0;
+            match critical_point(&spec, &[z1, 1.0 - z1], 0.0, 200) {
+                Ok(cp) => {
+                    ok += 1;
+                    assert!(
+                        cp.pc > 0.0 && cp.tc > 190.0 && cp.tc < 470.0,
+                        "z1={z1} {cp:?}"
+                    );
+                    if let Some((i_prev, t_prev)) = prev {
+                        // Adjacent samples: the locus moves well under 10 K.
+                        if i - i_prev == 5 {
+                            assert!((cp.tc - t_prev).abs() < 10.0, "jump at z1={z1}");
+                        }
+                    }
+                    prev = Some((i, cp.tc));
+                }
+                Err(FlashError::NoConvergence { .. }) => failed += 1,
+                Err(e) => panic!("z1={z1}: {e}"),
+            }
+        }
+        assert!(ok >= 100, "only {ok} critical points found");
+        assert!(failed <= 8, "{failed} failures");
+    }
+
+    /// A root buried in the two-phase region is refused. Methane-rich
+    /// methane/n-pentane has such roots near 193 K; the stability test
+    /// proves the feed splits there.
+    #[test]
+    fn a_root_inside_the_two_phase_region_is_refused() {
+        let comps = [methane(), n_pentane()];
+        let spec = pr(&comps);
+        for z1 in [0.963, 0.967, 0.969] {
+            match critical_point(&spec, &[z1, 1.0 - z1], 0.0, 200) {
+                Err(FlashError::NoConvergence { .. }) => {}
+                Ok(cp) => assert!(
+                    !inside_two_phase_region(&spec, &[z1, 1.0 - z1], &cp),
+                    "z1={z1}: returned {cp:?}, which the stability test rejects"
+                ),
+                Err(e) => panic!("z1={z1}: {e}"),
+            }
+        }
     }
 }

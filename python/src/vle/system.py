@@ -494,6 +494,13 @@ class System:
 
         Returns Tc (**K**), Pc (**kPa**), Vc (**m³/kmol**). ``t_init=0`` uses
         the mole-fraction-average Tc as the initial guess.
+
+        The solver only returns a root that can be a critical point of a
+        real fluid (positive pressure, plausible temperature, not inside the
+        two-phase region), re-seeding itself when the first one is not.
+        Raises ``RuntimeError`` when no such root is found — which happens
+        for mixtures that have none on this model, e.g. very methane-rich
+        methane/n-pentane.
         """
         ti = _as_temperature(t_init) if t_init else 0.0
         tc, pc, vc = self._engine.critical_point(list(z), ti, max_iter)

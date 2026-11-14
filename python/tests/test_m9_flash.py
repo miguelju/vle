@@ -360,3 +360,114 @@ def test_stability_cut_off_before_a_verdict_raises():
     assert sys.stability([0.5, 0.5], 350.0, 20000.0)[0]
     with pytest.raises(RuntimeError, match="stability analysis"):
         sys.stability([0.5, 0.5], 350.0, 20000.0, max_iter=1)
+
+
+# =============================================================================
+# Margin-triggered stability, Newton on ln P, the flash Newton finish
+# (OPTIMIZATION_PLAN_PART1 §16–§20)
+# =============================================================================
+
+
+def test_flash_finds_a_split_with_a_mixed_incipient_phase():
+    # One of the 31 water/hydrocarbon points the pure-component screen left
+    # (§13): the incipient phase is ≈ 80 % water, so no pure trial proves
+    # instability. The margin on the smallest pure tm sends it to the full
+    # stability test (§20).
+    from vle import System
+
+    sys = System(["water", "n-decane"], eos="PR", kij=0.5)
+    z = [0.3, 0.7]
+    r = sys.flash_pt(546.61, 5156.0, z)
+    assert r.two_phase
+    assert 0.0 < r.beta < 1.0
+    for i in range(2):
+        assert r.beta * r.y[i] + (1 - r.beta) * r.x[i] == pytest.approx(z[i], abs=1e-8)
+
+
+def test_bubble_pressure_near_critical_is_found_directly():
+    # CO2/n-butane (PR, kij = 0.13) at 310 K, x_CO2 = 0.8: the P <- P*S update
+    # only ever found K = 1 here; Newton on ln P solves it (§17).
+    from vle import System
+
+    sys = System(["carbon dioxide", "n-butane"], eos="PR", kij=0.13)
+    r = sys.bubble_pressure([0.8, 0.2], 310.0)
+    assert 6000.0 < r.value < 6400.0
+    assert abs(r.k[0] - 1.0) > 1e-3
+    # Saturation: the bubble temperature at that pressure is the input T.
+    back = sys.bubble_temperature([0.8, 0.2], r.value)
+    assert back.value == pytest.approx(310.0, abs=1e-4)
+
+
+def test_saturation_pressure_round_trips_through_temperature():
+    from vle import System
+
+    sys = System(["n-butane", "n-heptane"], eos="RKS")
+    for z in ([0.2, 0.8], [0.7, 0.3]):
+        for t in (320.0, 400.0):
+            pb = sys.bubble_pressure(z, t).value
+            pd = sys.dew_pressure(z, t).value
+            assert pd < pb
+            assert sys.bubble_temperature(z, pb).value == pytest.approx(t, abs=1e-5)
+            assert sys.dew_temperature(z, pd).value == pytest.approx(t, abs=1e-5)
+
+
+# =============================================================================
+# What a result means (OPTIMIZATION_PLAN_PART1.md §21)
+# =============================================================================
+
+
+def test_critical_point_rejects_a_negative_pressure_root():
+    # 85 % methane / 15 % n-pentane: the default seed converges on a root of
+    # the criticality conditions at 10.9 K and -142 543 kPa, which used to be
+    # returned as the answer. The solver now vets the root and re-seeds.
+    from vle import System
+
+    sys = System(["methane", "n-pentane"], eos="PR")
+    cp = sys.critical_point([0.85, 0.15])
+    assert 190.0 < cp.tc < 470.0
+    assert 4000.0 < cp.pc < 25000.0
+
+
+def test_critical_point_is_an_answer_or_an_error_never_a_wrong_root():
+    from vle import System
+
+    sys = System(["methane", "n-pentane"], eos="PR")
+    found = 0
+    for i in range(1, 100):
+        z1 = i / 100.0
+        try:
+            cp = sys.critical_point([z1, 1.0 - z1])
+        except RuntimeError:
+            continue
+        found += 1
+        assert cp.pc > 0.0 and 190.0 < cp.tc < 470.0, (z1, cp)
+    assert found >= 90
+
+
+def test_flash_never_returns_two_identical_phases():
+    # Near the critical locus the iteration can converge on K = 1, which
+    # satisfies the equilibrium equations at any vapor fraction. That is one
+    # phase, and is reported as one.
+    from vle import System
+
+    sys = System(["methane", "n-pentane"], eos="PR")
+    for z1, t, p in [(0.5, 474.0, 15000.0), (0.5, 476.0, 15500.0), (0.7, 466.0, 17800.0), (0.7, 442.0, 12064.0)]:
+        r = sys.flash_pt(t, p, [z1, 1.0 - z1])
+        assert not r.two_phase, (z1, t, p, r.k)
+        assert r.x == r.y
+
+
+def test_single_phase_label_changes_once_along_an_isotherm():
+    # The liquid/vapor label of a single-phase result follows the feed's
+    # density. It used to follow the sign of sum(z*(K-1)) with K = 1 +- 1e-15
+    # and flipped from one pressure to the next.
+    from vle import System
+
+    sys = System(["methane", "n-pentane"], eos="PR")
+    labels = []
+    for j in range(80):
+        r = sys.flash_pt(480.0, 500.0 + 250.0 * j, [0.7, 0.3])
+        assert not r.two_phase
+        labels.append(r.beta)
+    assert labels[0] == 1.0 and labels[-1] == 0.0
+    assert sum(1 for a, b in zip(labels, labels[1:]) if a != b) == 1

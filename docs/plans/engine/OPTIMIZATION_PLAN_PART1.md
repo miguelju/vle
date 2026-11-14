@@ -256,6 +256,10 @@ switching over. That is a milestone with its own validation, not a line item in
 a performance pass — and folding it in here would have made every number in §6
 below impossible to attribute.
 
+*Update 2026-11-14: built, as Newton on the vapor mole numbers rather than on
+`{ln K, β}`, which removes the rank deficiency described above. Design,
+validation and measurements are in §18.*
+
 ---
 
 ## 6. Results
@@ -821,7 +825,8 @@ water/n-decane, 8 on water/propane/n-heptane and 3 on water/benzene. The full
 stability test finds these splits, but the pure screen stays quiet because
 the incipient phase is not near-pure. Catching them would mean running the
 full test on every single-phase exit, which is the §10 cost question again.
-They are left as they are and recorded here.
+They are left as they are and recorded here. *(Update 2026-11-14: a margin on the screen
+resolves them — §20.)*
 
 **What a two-phase answer cannot be.** Much of the water/hydrocarbon grid is
 three-phase (vapor + hydrocarbon liquid + water). There the returned split is
@@ -1049,11 +1054,10 @@ gone: warm is now 0.60–0.65× cold at every size.
 
 ### Not done, recorded
 
-- **γ-φ dew points** stay on the SS rule: no ∂ln γ/∂x is exposed. The
-  generic activity code could supply it through duals, but nothing measured
-  asks for it.
-- **Newton on ln P** for the pressure solves stays open (MODERNIZATION_PLAN
-  §K). Same machinery, unmeasured need.
+- **γ-φ dew points** stayed on the SS rule here: no ∂ln γ/∂x was exposed.
+  *Done 2026-11-14 — §16.*
+- **Newton on ln P** for the pressure solves stayed open here
+  (MODERNIZATION_PLAN §K). *Done 2026-11-14 — §17.*
 - **Allocation:** the full step allocates its (n+1)² matrix and the
   `d_ln_phi_d_n` rows per iteration. The 11×11 LU costs 0.32 µs at n = 10,
   so this is not the floor.
@@ -1146,6 +1150,404 @@ choice or step size on these traces.
 - **The residual and the Jacobian evaluate the mixture separately.** The
   dual pass could also return the values, but the residual needs both roots
   for the Gibbs comparison and the Jacobian only one. Unmeasured.
+
+---
+
+## 16. Addendum (unreleased, 2026-11-14): the full Newton step for γ-φ dew points
+
+*§16–§20 executed by Claude Code using Claude Fable 5.2. They close the open
+engine items of `ROADMAP.md` Milestones 9.1 and 12.5. Baseline for every
+criterion figure: `main` at `4d76d4f` (v0.19.0 plus documentation), saved in
+the same session on the same machine (Apple M4 Pro); the comparison runs used
+a 1 s warm-up and 3 s of measurement per bench.*
+
+§14 left γ-φ dew temperatures on the one-SS-step update because no
+∂ln γ/∂x was exposed. It is now:
+
+- `flash::system::d_ln_gamma_d_n` gives `Gᵢⱼ = ∂ln γᵢ/∂nⱼ` at total moles 1.
+  One `Dual64` pass of the generic activity code per component yields the
+  unconstrained `Dᵢⱼ = ∂ln γᵢ/∂xⱼ`, and `Gᵢⱼ = Dᵢⱼ − Σₖ xₖDᵢₖ`. Exact, no
+  finite differences.
+- `flash::system::phase_ln_phi_jacobian` is the one place that maps a model
+  pair to its composition Jacobian (ideal ⇒ zero, cubic ⇒
+  `mixture::d_ln_phi_d_n`, activity ⇒ `d_ln_gamma_d_n`, virial vapor and the
+  Chao–Seader family ⇒ none). The saturation solver and the flash Newton
+  finish (§18) both call it.
+
+**Result** (`harness_gamma_phi_dew`, methanol/water at 101.325 kPa, tol 1e-10;
+K evaluations and mean µs of 2000 solves):
+
+| system, start | y₁ | evals full / SS | µs full / SS |
+|---|---|---|---|
+| van Laar, cold | 0.1 / 0.4 / 0.7 / 0.9 | 8/8, 6/14, 6/16, 6/11 | 2.33/1.85, 2.32/2.94, 1.73/3.11, 1.80/2.11 |
+| van Laar, warm (0.5 K, 5 %) | same | 4/7, 4/11, 4/13, 4/9 | 1.71/1.56, 1.37/2.19, 1.21/2.50, 1.23/1.74 |
+| NRTL, cold | same | 8/8, 6/14, 7/19, 6/12 | 2.28/2.25, 2.68/3.98, 3.03/5.36, 2.69/3.33 |
+| NRTL, warm | same | 4/7, 4/12, 4/15, 4/10 | 1.80/1.97, 1.80/3.41, 1.82/4.22, 1.73/2.74 |
+
+Faster in 13 of 16 cases, by up to 57 %. **Slower in three** — both cold
+solves and the van Laar warm solve at y₁ = 0.1 (+26 %, +1 %, +10 %): SS
+already contracts fast there, the full steps taken save no evaluations and
+each costs n extra activity passes. The switch rule is §14's, unchanged.
+
+Tests: `gamma_phi_dew_point_takes_the_full_newton_step`,
+`d_ln_gamma_d_n_matches_finite_differences` (five models; also the
+Gibbs–Duhem and intensivity identities). The refinery-correlation liquids
+still have no Jacobian and stay on SS
+(`full_newton_is_skipped_where_no_composition_jacobian_exists`).
+
+---
+
+## 17. Addendum (unreleased, 2026-11-14): Newton on ln P for the saturation pressures
+
+**What changed.** `incipient::temperature_iteration` became
+`saturation_iteration`, generic over which of T and P is free. The pressure
+solve (`newton_pressure` / `newton_pressure_from`) is the same loop with the
+exact `∂ln Kᵢ/∂P` (`k_values_with_p_derivs`, which skips the temperature
+dual pass): one SS step on the incipient composition plus a Newton step on
+`ln P` with the exact slope `∂ln S/∂ln P`, or — near the root and where SS is
+slow, by §14's rule — the simultaneous (n+1) step on `{ln K, ln P}`. With the
+Raoult-law slope −1 the scalar step *is* the old `P ← P·S`. Step limit:
+`|Δln P| ≤ 1`.
+
+`solve_pressure` runs it first and falls back to the previous solver
+(`solve_pressure_multiplicative`: `P ← P·S`, trivial-solution restarts, the
+secant-on-ln-P inversion) whenever Newton declines — no `∂ln K/∂P` for the
+pair, a wrong-sign slope, the trivial solution, `max_iter`. The temperature
+path is the same code as before with `Free::Temperature`.
+
+**Agreement and reach** (`harness_saturation_pressure_newton`: four binaries,
+60 temperatures × 9 compositions each, up to and past the critical region;
+"none" = neither solver answers, mostly points with no saturation pressure):
+
+| system, point | points | agree | differ | Newton only | old only | none |
+|---|---|---|---|---|---|---|
+| methane/ethane PR, bubble / dew | 540 / 540 | 379 / 419 | 0 / 0 | 0 / 1 | 0 / 0 | 161 / 120 |
+| CO₂/n-butane PR k = 0.13, bubble / dew | 540 / 540 | 369 / 411 | 0 / 0 | 1 / 2 | 0 / 0 | 170 / 127 |
+| n-butane/n-heptane RKS, bubble / dew | 540 / 540 | 426 / 441 | 0 / 0 | 0 / 4 | 0 / 0 | 114 / 95 |
+| methane/n-pentane PR, bubble / dew | 540 / 540 | 369 / 462 | 0 / 0 | 38 / 2 | 0 / 0 | 133 / 76 |
+
+No point where the two disagree (relative 1e-6), none the old solver answers
+and the new one does not, 48 the new one adds.
+
+**Cost** (criterion `flash_multi`, RKS alkanes, n = 2 / 4 / 6 / 8):
+
+| bench | `main` | now |
+|---|---|---|
+| `bubble_pressure` | 372.5 / 93.5 / 114.4 / 53.1 µs | 5.41 / 6.73 / 8.29 / 8.49 µs |
+| `dew_pressure` | 18.5 / 11.0 / 24.1 / 13.9 µs | 4.33 / 3.73 / 6.13 / 4.55 µs |
+| `fit_kij_pr_4pts` (a bubble pressure per residual) | 2.405 ms | 192 µs |
+
+The `bubble_pressure` fixtures are the ones §10 recorded as expensive after
+the trivial-solution fix (restarts, then the secant inversion); Newton on
+`ln P` solves them directly. `fit_aij_van_laar_5pts` −7 %.
+
+Tests: `newton_pressure_matches_multiplicative_{phi_phi,gamma_phi,ten_component_srk}`,
+`newton_pressure_solves_a_point_the_multiplicative_update_cannot` (CO₂/n-butane,
+310 K, x = 0.8: 6.2 MPa without the inversion),
+`full_newton_pressure_agrees_with_ss_only_and_is_shorter_near_critical`,
+`pressure_solve_falls_back_where_newton_has_no_derivative`,
+`p_only_derivatives_match_the_full_call`; Python
+`test_bubble_pressure_near_critical_is_found_directly`,
+`test_saturation_pressure_round_trips_through_temperature`.
+
+**Not done.** The full step allocates per iteration, as §14's does.
+
+---
+
+## 18. Addendum (unreleased, 2026-11-14): the Newton finish of the isothermal flash (§J, audit §6)
+
+§5 deferred this and named the obstacle: near the critical point `ln K → 0`
+and the `{ln K, β}` system is rank-deficient. The finish that was built
+avoids that formulation.
+
+**What changed** (`flash/isothermal.rs::newton_step`). The step is Newton on
+the two-phase Gibbs energy in the **vapor mole numbers** `vᵢ` (per mole of
+feed; `lᵢ = zᵢ − vᵢ`), Michelsen's second-order flash (Ref (19), (26) ch. 10).
+The gradient is the fugacity mismatch `gᵢ = ln Kᵢ − ln Kᵢᵐᵒᵈᵉˡ = −rᵢ`, the
+residual the SS loop already has, and the Hessian
+
+```text
+Hᵢⱼ = (1/β)(δᵢⱼ/yᵢ − 1 + Gⱽᵢⱼ) + (1/(1−β))(δᵢⱼ/xᵢ − 1 + Gᴸᵢⱼ)
+```
+
+uses the exact `G = ∂ln φ̂/∂n` of each phase (§16's `phase_ln_phi_jacobian`,
+so γ-φ pairs are covered). `H` is the Hessian of G: positive definite at a
+stable split, with no singularity as `K → 1`. The new iterate goes back into
+the loop as `ln Kᵢ = ln(yᵢ/xᵢ)`, so Rachford–Rice, the acceptance test
+(`‖ln Kᵐᵒᵈᵉˡ − ln K‖∞ ≤ tol` at the model K) and every exit are unchanged.
+
+**Safeguards.** A step is taken only with 0 < β < 1, residual below
+`NEWTON_SWITCH = 1e-2`, and SS contracting slower than
+`NEWTON_MIN_RATIO = 0.3` per iteration (or already on Newton). It is cut to
+90 % of the distance to `vᵢ = 0` or `vᵢ = zᵢ` and refused if that cut is
+below one half. A step that does not reduce the residual is undone in favor
+of the SS step saved beside it, and Newton is off for the rest of that solve.
+The stability retries (`retry_from_trial`) stay SS + GDEM only.
+
+**Result** (`harness_newton_finish`: the §10 60 × 60 T–P grid on PR, new vs
+`newton = false` in one binary; two-phase points only):
+
+| mixture | two-phase points | iterations new / old | Σ µs new / old |
+|---|---|---|---|
+| methane/ethane | 182 | 1 374 / 1 488 | 526 / 527 |
+| methane/n-pentane | 994 | 7 606 / 9 623 (−21 %) | 2 326 / 2 893 (−20 %) |
+| C1/C3/nC5/nC7 | 1 092 | 7 471 / 8 292 (−10 %) | 3 092 / 3 215 (−4 %) |
+| 10 alkanes | 1 223 | 8 050 / 8 797 (−8 %) | 5 153 / 5 172 (0 %) |
+
+Same phase count and the same split at every point of the four grids, with
+one exception that is a label, not an answer: methane/n-pentane at
+424.58 K / 9 482.7 kPa. SS + GDEM runs out of 200 iterations there and the
+fallback's retry returns the split with the phases one way round
+(β = 0.014); the Newton finish converges it in the main loop in 20 iterations
+with them the other way (β = 0.986). Criterion `isothermal_n2…n8`:
+−0.8 / −3.8 / −1.0 / −0.8 % (noise).
+
+**So the audit's expectation and §5's were both partly right.** GDEM already
+leaves most flashes at 7–10 iterations, and on an ordinary flash the finish
+changes nothing measurable. It pays near the critical locus, where SS
+contracts slowly.
+
+**The switch, measured** (same harness; iterations, Σ µs for
+methane/n-pentane / 10 alkanes):
+
+| `NEWTON_SWITCH`, `NEWTON_MIN_RATIO` | C1/nC5 | 10 alkanes |
+|---|---|---|
+| 1e-2, 0.3 (shipped) | 7 606, 2 326 | 8 050, 5 153 (old 5 172) |
+| 1e-1, 0.3 | 8 562, 2 790 | 8 022, 5 276 (old 5 277) |
+| 1e-3, 0.3 | 8 188, 2 571 | 8 093, 5 229 (old 5 259) |
+| 1e-2, 0.1 | 6 737, 2 482 | 7 454, **5 583 (old 5 295): +5 %** |
+| 1e-1, 0.1 | 7 639, 2 886 | 7 392, **5 683 (old 5 284): +8 %** |
+| 1e-2, 0.6 | 8 167, 2 479 | 8 428, 5 378 (old 5 398) |
+
+A ratio of 0.1 takes the fewest iterations and is slower at n = 10: a step
+costs two composition Jacobians and an n × n LU. **Do not lower the ratio to
+chase the iteration count.**
+
+Tests: `newton_finish_gives_the_ss_answer` (n = 2, 4, 10; PR and RKS),
+`newton_finish_gives_the_ss_answer_gamma_phi`,
+`newton_finish_cuts_iterations_near_the_critical_locus`,
+`newton_step_converges_quadratically`. `non_convergence_points_now_resolve`
+now allows a genuine split to come from the main loop.
+
+**Not done.** The step allocates (two `Vec<Vec>` Jacobians and a `DMatrix`);
+it runs at most a few times per solve. No trust region beyond the safeguards
+above.
+
+---
+
+## 19. Addendum (unreleased, 2026-11-14): a γ-φ flash no longer trusts Wilson's single-phase verdict
+
+Found while writing §18's γ-φ test. A cold flash exits "single phase" when
+Rachford–Rice has no root under the starting K, and that K is Wilson's —
+built from Tc, Pc and ω. A γ-φ model's K comes from its own Psat
+correlations and activity coefficients. Where the two disagree about which
+side of a bubble or dew point a state is on, the flash returned Wilson's
+answer without evaluating the model once. §13 fixed the cubic case
+(`single_phase_check`); the non-cubic path had no check.
+
+The reproduction is the fixture of `flash_gamma_phi_activity_liquid` (Wilson
+liquid, ideal-gas vapor): at 350 K every pressure between its dew and bubble
+pressures came back as vapor, iterations 0. Its Antoine constants and its
+critical constants are not mutually consistent, which is what makes Wilson's
+K wrong by enough; for a component whose constants agree the gap is confined
+to a band next to the saturation curve. Not swept.
+
+**Fix** (`ss_gdem`): on a no-root exit of a non-cubic system, if the model
+has not yet produced a K, re-seed once from the model's K at `x = y = z` and
+continue. One K evaluation, only on that exit. (For a cubic pair that K is
+identically 1, which is why the cubic path needs §13's check instead.)
+
+Test: `gamma_phi_wilson_single_phase_verdict_is_checked_against_the_model`
+(fails without the re-seed, with the Newton finish on or off). Criterion
+`k_values_gamma_phi_n4` unchanged; no γ-φ single-phase flash bench exists.
+
+---
+
+## 20. Addendum (unreleased, 2026-11-14): the 31 water/hydrocarbon points §13 left
+
+§13's pure-component screen proves instability only for a near-pure incipient
+phase, and it left 31 wrong single-phase answers where the incipient phase is
+a mixture. Measured on those points (32 on this build): the incipient phase
+holds 17–83 % water, and the smallest pure-trial tangent-plane distance is
+positive but small — between 0.006 and 0.24 — against 0.3–3 for most stable
+single-phase points.
+
+**What changed.** `pure_component_screen` now returns the smallest pure tm.
+`single_phase_check` runs the full multi-seed stability test when it is
+below `SCREEN_MARGIN = 0.3`, not only when it is negative. The verdict stays
+rigorous in what it reports: a split is returned only if a trial reaches
+tm < 0 and the retry converges to two phases. **The margin is empirical.** It
+decides where to look, and a split behind a larger pure tm is still missed.
+
+**Result** (`flash_stability_sweep`; wrong single-phase answers confirmed by
+a re-flash from the trial K):
+
+| grid | margin off | margin 0.3 |
+|---|---|---|
+| hydrocarbons, 6 mixtures, 21 600 points | 0 missed, 0 spurious | identical |
+| water/hydrocarbon, the §13 set, 14 400 points | 32 | **0** |
+| held-out water/hydrocarbon, 8 cases, 28 800 points | 87 | **1** |
+
+The held-out cases played no part in choosing 0.3: other water fractions and
+kij, water/toluene, and a four-component mixture (`held_out_cases` in the
+harness). The one remaining miss is on water/toluene.
+
+**Cost.** The full test costs n + 2 trials on a stable feed, paid on every
+single-phase exit inside the margin, which is a band next to the phase
+boundary. The single-phase benches sit outside it and do not move
+(`isothermal_liquid_n2…n8` +0.9 / −3.2 / −0.8 / +0.7 %, `isothermal_vapor`
+−3.4 / −4.0 / +4.7 / −1.1 %). The adiabatic flash does, because its bracket
+ends are single-phase states next to the boundary:
+
+| bench | `main` | now |
+|---|---|---|
+| `adiabatic_pr_binary` | 9.41 µs | **14.56 µs (+55 %)** |
+
+With the margin set to 0 that bench is back at 9.47 µs, so the margin is the
+whole of it. This is a cost, stated as one.
+
+**Tried and rejected.** The Wilson pair alone (2 trials) inside the margin:
+`adiabatic_pr_binary` +29 % instead of +55 %, but 10 of the 32 and 24 of the
+87 misses remain. The pure seeds are what finds them.
+
+Tests: `a_mixed_incipient_phase_behind_a_quiet_screen_is_found` (water/n-decane,
+546.61 K, 5 156 kPa; asserts the screen is quiet there), Python
+`test_flash_finds_a_split_with_a_mixed_incipient_phase`.
+
+**Still open.** Three-phase (VLLE) answers, as in §13. A rigorous version of
+the trigger — full stability on every single-phase exit — is the §10 cost
+question and is not what was built.
+
+## 21. Addendum (unreleased, 2026-11-14): three results that did not mean what they said
+
+Reported from outside the repo by a consumer drawing phase diagrams of
+methane/n-pentane (PR, kij = 0). All three reproduce on `main` as well as on
+the §16–§20 branch, so none is a regression from that work. None is a
+performance change; they are recorded here because §10–§13 and §20 are where
+the flash's wrong-answer history lives.
+
+### 21.1 `critical_point` returned a non-physical root as `Ok`
+
+At 85 % methane the 2-D Newton converges, to 1e-8, on a root of the
+Heidemann–Khalil conditions at **10.9 K and −142 543 kPa**. The conditions
+are local and have such roots; the solver returned whatever it found.
+
+Fix (`flash/critical.rs`): the Newton is `solve_from`, and `critical_point`
+vets its result — positive finite pressure, T above half the lightest
+component's Tc, and no conclusive *unstable* from `stability_analysis` at
+(Tc, Pc) — and on a rejection or a failure re-seeds from Heidemann & Khalil's
+own start, V = 4·b_mix at 1.5, 1.2, 1.0, 2.0 × the mole-fraction-average Tc.
+The first seed is the old one, so an answer that was right is unchanged.
+
+545 evenly spaced compositions per binary, default seed:
+
+| binary (PR) | negative P, `main` | failed, `main` | negative P, now | failed, now |
+|---|---|---|---|---|
+| methane/n-pentane | 11 | 51 | **0** | 25 |
+| methane/propane | 19 | 49 | **0** | 2 |
+| methane/n-butane | 15 | 67 | **0** | 4 |
+| methane/n-heptane | 19 | 36 | **0** | 32 |
+| ethane/n-heptane | 1 | 4 | **0** | 0 |
+| methane/ethane, propane/n-pentane, CO₂/n-butane | 0 | 0 | 0 | 0 |
+
+RKS gives the same picture (16–21 negative-pressure answers per methane
+binary on `main`, none now).
+
+The failures that remain for methane/n-pentane are deliberate. Before the
+stability check was added the seed ladder alone left 7; 18 more answers were
+then refused because the stability test proves the feed splits at the
+returned point (TPD −1e-3 to −7e-3, all above 96 % methane, near 193 K).
+Those are roots inside the two-phase region. An error there is the correct
+output; a Tc that no experiment could observe is not.
+
+**Cost.** The stability check is the expensive part, and its iteration cap
+is what sets the price. Caps of 50, 200 and 2 000 reject exactly the same
+roots on methane/n-pentane and methane/n-heptane (545 compositions each), so
+the cap is 50:
+
+| bench | `main` | cap 2 000 | cap 200 | cap 50 (shipped) |
+|---|---|---|---|---|
+| `critical_point_n2` | 5.36 µs | 1 039 µs | 113 µs | **33.2 µs** |
+| `critical_point_n4` | 21.3 µs | 1 847 µs | 210 µs | **69.9 µs** |
+| `critical_point_n6` | 51.4 µs | 3 035 µs | 360 µs | **130 µs** |
+| `critical_point_n8` | 113 µs | 4 519 µs | 568 µs | **229 µs** |
+
+So a critical point costs 2–6× what it did. That is the price of not
+returning a root the stability test can disprove; the first draft, at a cap
+of 2 000, cost 40–190× and was rejected.
+
+**Limit of the check.** At a true critical point the tangent-plane trials
+converge slowly and `stability_analysis` usually returns `NoConvergence`
+(519 of 538 accepted points). That is treated as "not disproved", so the
+check can reject a root but cannot certify one.
+
+### 21.2 The flash could return two identical phases
+
+A converged ln-K residual with K ≡ 1 passed as a two-phase result whenever
+Rachford–Rice returned a β in [0, 1] for it — and with K = 1 ± 1e-13 any β is
+a root. On a 3 × 126 × 196 grid (z₁ = 0.5, 0.7, 0.85; 250–500 K; 0.5–20 MPa):
+**5 such results on `main`, 7 on the §18 branch, 0 now.** Example: z₁ = 0.5,
+476 K, 15 500 kPa, K = [1.00000000000003, 0.99999999999997], β = 0.
+
+Fix (`isothermal::ss_gdem`): a converged solve with every |ln Kᵢ| below
+`TRIVIAL_LN_K = 1e-6` takes the single-phase exit (and so the single-phase
+check of §13). The saturation solvers have had the equivalent rule since
+v0.17.1 (§10).
+
+### 21.3 The single-phase liquid/vapor label was noise
+
+`single_phase` set β from the sign of Σ zᵢ(Kᵢ − 1) under the last K. Away
+from the phase boundary that K is Wilson's and the sign is meaningful. Near
+and above the critical locus K has collapsed to 1 ± 1e-15 and the sign is
+rounding error. Counting changes of label between neighboring pressures on
+the same grid: **3 974 on `main`, 4 009 on the §18 branch, 114 now** — at
+most one per isotherm and composition, which is what a boundary looks like.
+
+This was not only cosmetic: `flash_adiabatic` passes the label to
+`phase_enthalpy_entropy` as the cubic root to use, so where the cubic has
+three roots a wrong label is the metastable root's enthalpy.
+
+Fix (`mixture::single_phase_label`, called from `isothermal::single_phase`
+when both phases use the same cubic): with two distinct physical roots, the
+lower-Gibbs one; with one root, liquid if v/b is below the EOS's own critical
+value Zc/Ω_b, with Zc = (1 + Ω_b(1 − k1))/3 (3.951 for PR, 3.847 for RKS; 3.9
+assumed for the three-parameter cubics, whose value is component-dependent).
+The two cases agree where they meet. Above the critical point the line this
+draws is a convention; there is no physical boundary there. γ-φ and
+mixed-model systems keep the K-sign rule — their K comes from two different
+models and does not collapse.
+
+**Cost.** The label needs the feed's cubic root, which the K-sign rule did
+not: one mixture-parameter build and one cubic solve per single-phase exit.
+
+| bench | `main` | §18 branch | now |
+|---|---|---|---|
+| `isothermal_vapor_n2` | 0.438 µs | 0.423 µs | **0.541 µs** |
+| `isothermal_vapor_n4` | 0.554 µs | 0.527 µs | **0.660 µs** |
+| `isothermal_vapor_n6` | 0.644 µs | 0.672 µs | **0.783 µs** |
+| `isothermal_vapor_n8` | 0.733 µs | 0.724 µs | **0.894 µs** |
+| `isothermal_liquid_n2…n8` | 2.79 / 4.18 / 4.58 / 4.94 µs | 2.82 / 4.02 / 4.54 / 4.95 µs | 2.85 / 4.05 / 4.52 / 5.06 µs |
+| `adiabatic_pr_binary` | 9.41 µs | 14.56 µs | 14.97 µs |
+
++0.11 to +0.17 µs on the vapor exit (the cheapest path in the flash, so
++17…+28 % of it); lost in the noise on the liquid exit and on two-phase
+solves (`isothermal_n2…n8` 2.47 / 3.16 / 3.84 / 4.43 µs against 2.60 / 3.34 /
+4.03 / 4.49 on `main`). Not tried: reading the root from the flash's (T, P)
+cache instead of rebuilding the mixture parameters.
+
+### 21.4 Seen while reproducing, not fixed
+
+The same grid has **27 `NoConvergence` flashes** (35 on `main`), all within a
+few kelvin of the critical locus, where the §12 fallback's stability test
+also runs out of iterations. They are honest errors, not wrong answers.
+
+Tests: `critical::tests::{a_non_physical_root_is_not_returned,
+methane_n_pentane_locus_is_physical_or_an_error,
+a_root_inside_the_two_phase_region_is_refused}`,
+`isothermal::tests::{a_converged_split_never_has_identical_phases,
+single_phase_label_does_not_speckle}`,
+`mixture::tests::single_phase_label_follows_the_state`, and four Python tests
+under "What a result means" in `python/tests/test_m9_flash.py`.
 
 ---
 
