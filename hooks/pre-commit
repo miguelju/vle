@@ -19,7 +19,9 @@
 # This hook is deliberately fast (pure Python, no cargo, no network) so it can
 # run on every commit without being resented. The semantic checks a script
 # cannot do — "does this prose still describe what the workflow does?" — stay
-# with the agent hook on push, which acts as the second net.
+# with the agent hook on push, which acts as the second net. This script is
+# also run at push time by hooks/claude-push-gate, so its checks hold even
+# in a clone where core.hooksPath was never set.
 #
 # Activate with:  git config core.hooksPath hooks
 # Never bypass with --no-verify. If a check is wrong, fix the check.
