@@ -210,7 +210,7 @@ isothermal flash, Newton on ln P for the bubble/dew pressures, the γ-φ dew
 full step, a reusable workspace for the dual passes (the `MixtureScratch`
 idea), and a margin on the single-phase screen for the 31 water/hydrocarbon
 points (`OPTIMIZATION_PLAN_PART1.md` §16–§20, `OPTIMIZATION_PLAN_PART2.md`
-§12). What is still open, each with its evidence in `ROADMAP.md`: three-phase
+§12). Three wrong-meaning results reported from outside the same day were fixed with them — a non-physical critical point returned as an answer, a flash with two identical phases, and a noisy single-phase liquid/vapor label (§21 there). What is still open, each with its evidence in `ROADMAP.md`: three-phase
 (VLLE) flash, the Kesler–Lee `CF` term, M16's first Android Studio run, and
 the consumer-side half of the petroleum plan.
 

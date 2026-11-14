@@ -1418,6 +1418,137 @@ Tests: `a_mixed_incipient_phase_behind_a_quiet_screen_is_found` (water/n-decane,
 the trigger — full stability on every single-phase exit — is the §10 cost
 question and is not what was built.
 
+## 21. Addendum (unreleased, 2026-11-14): three results that did not mean what they said
+
+Reported from outside the repo by a consumer drawing phase diagrams of
+methane/n-pentane (PR, kij = 0). All three reproduce on `main` as well as on
+the §16–§20 branch, so none is a regression from that work. None is a
+performance change; they are recorded here because §10–§13 and §20 are where
+the flash's wrong-answer history lives.
+
+### 21.1 `critical_point` returned a non-physical root as `Ok`
+
+At 85 % methane the 2-D Newton converges, to 1e-8, on a root of the
+Heidemann–Khalil conditions at **10.9 K and −142 543 kPa**. The conditions
+are local and have such roots; the solver returned whatever it found.
+
+Fix (`flash/critical.rs`): the Newton is `solve_from`, and `critical_point`
+vets its result — positive finite pressure, T above half the lightest
+component's Tc, and no conclusive *unstable* from `stability_analysis` at
+(Tc, Pc) — and on a rejection or a failure re-seeds from Heidemann & Khalil's
+own start, V = 4·b_mix at 1.5, 1.2, 1.0, 2.0 × the mole-fraction-average Tc.
+The first seed is the old one, so an answer that was right is unchanged.
+
+545 evenly spaced compositions per binary, default seed:
+
+| binary (PR) | negative P, `main` | failed, `main` | negative P, now | failed, now |
+|---|---|---|---|---|
+| methane/n-pentane | 11 | 51 | **0** | 25 |
+| methane/propane | 19 | 49 | **0** | 2 |
+| methane/n-butane | 15 | 67 | **0** | 4 |
+| methane/n-heptane | 19 | 36 | **0** | 32 |
+| ethane/n-heptane | 1 | 4 | **0** | 0 |
+| methane/ethane, propane/n-pentane, CO₂/n-butane | 0 | 0 | 0 | 0 |
+
+RKS gives the same picture (16–21 negative-pressure answers per methane
+binary on `main`, none now).
+
+The failures that remain for methane/n-pentane are deliberate. Before the
+stability check was added the seed ladder alone left 7; 18 more answers were
+then refused because the stability test proves the feed splits at the
+returned point (TPD −1e-3 to −7e-3, all above 96 % methane, near 193 K).
+Those are roots inside the two-phase region. An error there is the correct
+output; a Tc that no experiment could observe is not.
+
+**Cost.** The stability check is the expensive part, and its iteration cap
+is what sets the price. Caps of 50, 200 and 2 000 reject exactly the same
+roots on methane/n-pentane and methane/n-heptane (545 compositions each), so
+the cap is 50:
+
+| bench | `main` | cap 2 000 | cap 200 | cap 50 (shipped) |
+|---|---|---|---|---|
+| `critical_point_n2` | 5.36 µs | 1 039 µs | 113 µs | **33.2 µs** |
+| `critical_point_n4` | 21.3 µs | 1 847 µs | 210 µs | **69.9 µs** |
+| `critical_point_n6` | 51.4 µs | 3 035 µs | 360 µs | **130 µs** |
+| `critical_point_n8` | 113 µs | 4 519 µs | 568 µs | **229 µs** |
+
+So a critical point costs 2–6× what it did. That is the price of not
+returning a root the stability test can disprove; the first draft, at a cap
+of 2 000, cost 40–190× and was rejected.
+
+**Limit of the check.** At a true critical point the tangent-plane trials
+converge slowly and `stability_analysis` usually returns `NoConvergence`
+(519 of 538 accepted points). That is treated as "not disproved", so the
+check can reject a root but cannot certify one.
+
+### 21.2 The flash could return two identical phases
+
+A converged ln-K residual with K ≡ 1 passed as a two-phase result whenever
+Rachford–Rice returned a β in [0, 1] for it — and with K = 1 ± 1e-13 any β is
+a root. On a 3 × 126 × 196 grid (z₁ = 0.5, 0.7, 0.85; 250–500 K; 0.5–20 MPa):
+**5 such results on `main`, 7 on the §18 branch, 0 now.** Example: z₁ = 0.5,
+476 K, 15 500 kPa, K = [1.00000000000003, 0.99999999999997], β = 0.
+
+Fix (`isothermal::ss_gdem`): a converged solve with every |ln Kᵢ| below
+`TRIVIAL_LN_K = 1e-6` takes the single-phase exit (and so the single-phase
+check of §13). The saturation solvers have had the equivalent rule since
+v0.17.1 (§10).
+
+### 21.3 The single-phase liquid/vapor label was noise
+
+`single_phase` set β from the sign of Σ zᵢ(Kᵢ − 1) under the last K. Away
+from the phase boundary that K is Wilson's and the sign is meaningful. Near
+and above the critical locus K has collapsed to 1 ± 1e-15 and the sign is
+rounding error. Counting changes of label between neighboring pressures on
+the same grid: **3 974 on `main`, 4 009 on the §18 branch, 114 now** — at
+most one per isotherm and composition, which is what a boundary looks like.
+
+This was not only cosmetic: `flash_adiabatic` passes the label to
+`phase_enthalpy_entropy` as the cubic root to use, so where the cubic has
+three roots a wrong label is the metastable root's enthalpy.
+
+Fix (`mixture::single_phase_label`, called from `isothermal::single_phase`
+when both phases use the same cubic): with two distinct physical roots, the
+lower-Gibbs one; with one root, liquid if v/b is below the EOS's own critical
+value Zc/Ω_b, with Zc = (1 + Ω_b(1 − k1))/3 (3.951 for PR, 3.847 for RKS; 3.9
+assumed for the three-parameter cubics, whose value is component-dependent).
+The two cases agree where they meet. Above the critical point the line this
+draws is a convention; there is no physical boundary there. γ-φ and
+mixed-model systems keep the K-sign rule — their K comes from two different
+models and does not collapse.
+
+**Cost.** The label needs the feed's cubic root, which the K-sign rule did
+not: one mixture-parameter build and one cubic solve per single-phase exit.
+
+| bench | `main` | §18 branch | now |
+|---|---|---|---|
+| `isothermal_vapor_n2` | 0.438 µs | 0.423 µs | **0.541 µs** |
+| `isothermal_vapor_n4` | 0.554 µs | 0.527 µs | **0.660 µs** |
+| `isothermal_vapor_n6` | 0.644 µs | 0.672 µs | **0.783 µs** |
+| `isothermal_vapor_n8` | 0.733 µs | 0.724 µs | **0.894 µs** |
+| `isothermal_liquid_n2…n8` | 2.79 / 4.18 / 4.58 / 4.94 µs | 2.82 / 4.02 / 4.54 / 4.95 µs | 2.85 / 4.05 / 4.52 / 5.06 µs |
+| `adiabatic_pr_binary` | 9.41 µs | 14.56 µs | 14.97 µs |
+
++0.11 to +0.17 µs on the vapor exit (the cheapest path in the flash, so
++17…+28 % of it); lost in the noise on the liquid exit and on two-phase
+solves (`isothermal_n2…n8` 2.47 / 3.16 / 3.84 / 4.43 µs against 2.60 / 3.34 /
+4.03 / 4.49 on `main`). Not tried: reading the root from the flash's (T, P)
+cache instead of rebuilding the mixture parameters.
+
+### 21.4 Seen while reproducing, not fixed
+
+The same grid has **27 `NoConvergence` flashes** (35 on `main`), all within a
+few kelvin of the critical locus, where the §12 fallback's stability test
+also runs out of iterations. They are honest errors, not wrong answers.
+
+Tests: `critical::tests::{a_non_physical_root_is_not_returned,
+methane_n_pentane_locus_is_physical_or_an_error,
+a_root_inside_the_two_phase_region_is_refused}`,
+`isothermal::tests::{a_converged_split_never_has_identical_phases,
+single_phase_label_does_not_speckle}`,
+`mixture::tests::single_phase_label_follows_the_state`, and four Python tests
+under "What a result means" in `python/tests/test_m9_flash.py`.
+
 ---
 
 ## References

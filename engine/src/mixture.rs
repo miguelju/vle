@@ -1709,6 +1709,62 @@ pub fn ln_phi_mix_min_gibbs_into(
     ln_phi_mix_min_gibbs_root_into(spec, t, p, x, out).map(|_| ())
 }
 
+/// Reduced critical volume `v_c/b` assumed for the three-parameter cubics
+/// (Schmidt–Wenzel, Patel–Teja), whose own value depends on the component.
+/// It sits between Peng–Robinson's 3.95 and Redlich–Kwong's 3.85.
+const THREE_PARAMETER_CRITICAL_V_OVER_B: f64 = 3.9;
+
+/// Label a single-phase cubic mixture state liquid or vapor.
+///
+/// A state that has not split has no vapor to compare itself with, so the
+/// label has to come from the state alone. Two cases:
+///
+/// * **Two distinct physical roots** — the lower-Gibbs root is the phase
+///   that exists; the label is that root's (smallest = liquid).
+/// * **One root** — liquid if its molar volume is below the EOS's own
+///   critical volume for this mixture's covolume, `v/b < Zc/Ω_b`, vapor
+///   otherwise. For a two-parameter cubic `Zc = (1 + Ω_b·(1 − k1))/3`, which
+///   follows from the critical-point condition `(Z − Zc)³ = 0`.
+///
+/// The two cases agree where they meet (the liquid root of a cubic is always
+/// below that volume and the vapor root above it), so the label changes only
+/// across one curve in the (T, P) plane. Above the critical point that curve
+/// is a convention — there is no physical boundary there to find.
+///
+/// `t` in **K**, `p` in **kPa absolute**, `x` mole fractions.
+///
+/// # Errors
+/// As [`ln_phi_mix`]: no physical root at this state.
+pub(crate) fn single_phase_label(
+    spec: &MixtureSpec,
+    t: f64,
+    p: f64,
+    x: &[f64],
+) -> Result<PhaseId, MixError> {
+    let pars = mixture_params::<f64>(spec, t, p, x)?;
+    let z_liq = z_mix_generic::<f64>(&pars, PhaseId::Liquid);
+    let z_vap = z_mix_generic::<f64>(&pars, PhaseId::Vapor);
+    let z = match (z_liq, z_vap) {
+        (Ok(zl), Ok(zv)) if (zv - zl).abs() > 1e-10 * zv.abs() => {
+            let mut scratch: Buf<f64> = smallvec::smallvec![0.0; x.len()];
+            return min_gibbs_from_params(&pars, x, &mut scratch);
+        }
+        (Ok(z), _) | (_, Ok(z)) => z,
+        (Err(e), Err(_)) => return Err(e),
+    };
+    let critical_v_over_b = if spec.eos.is_three_parameter() {
+        THREE_PARAMETER_CRITICAL_V_OVER_B
+    } else {
+        let fc = crate::eos::family_constants(spec.eos);
+        (1.0 + fc.om_b * (1.0 - fc.k1)) / (3.0 * fc.om_b)
+    };
+    Ok(if z / pars.big_b < critical_v_over_b {
+        PhaseId::Liquid
+    } else {
+        PhaseId::Vapor
+    })
+}
+
 /// [`ln_phi_mix_min_gibbs_into`] that also reports **which** cubic root won
 /// (`PhaseId::Liquid` or `PhaseId::Vapor`). Same arguments, units and errors.
 ///
@@ -3898,5 +3954,47 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// `single_phase_label`: the Gibbs-stable root where the cubic has two,
+    /// the side of the EOS critical volume where it has one.
+    #[test]
+    fn single_phase_label_follows_the_state() {
+        let comps = [methane(), n_pentane()];
+        let spec = MixtureSpec {
+            eos: CubicEos::PR1976,
+            rule: MixingRule::Classical,
+            components: &comps,
+            kij: &[],
+            ge: None,
+        };
+        let x = [0.7, 0.3];
+        let label = |t, p| single_phase_label(&spec, t, p, &x).unwrap();
+        // Dense and cold ⇒ liquid; dilute and hot ⇒ vapor.
+        assert_eq!(label(250.0, 19000.0), PhaseId::Liquid);
+        assert_eq!(label(500.0, 500.0), PhaseId::Vapor);
+        // Supercritical: one root, decided by v/b against PR's 3.951.
+        for (t, p) in [(450.0, 8000.0), (450.0, 30000.0), (600.0, 60000.0)] {
+            let z = z_mix(&spec, t, p, &x, PhaseId::Vapor).unwrap();
+            let pars = mixture_params::<f64>(&spec, t, p, &x).unwrap();
+            let expect = if z / pars.big_b < 3.9514 {
+                PhaseId::Liquid
+            } else {
+                PhaseId::Vapor
+            };
+            assert_eq!(label(t, p), expect, "T={t} P={p}");
+        }
+        // Raising the pressure along a supercritical isotherm only ever
+        // moves the label vapor → liquid, once.
+        let mut seen_liquid = false;
+        for j in 0..400 {
+            let l = label(480.0, 200.0 + 150.0 * j as f64);
+            if l == PhaseId::Liquid {
+                seen_liquid = true;
+            } else {
+                assert!(!seen_liquid, "vapor label above a liquid one");
+            }
+        }
+        assert!(seen_liquid);
     }
 }

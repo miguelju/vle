@@ -41,6 +41,13 @@
 //! screen's smallest pure-trial distance is positive but below a margin —
 //! the case where the incipient phase is a mixture (§20 there).
 //!
+//! Two rules about what a result means (§21 there). A converged split whose
+//! K-values are all within 1e-6 of 1 is the trivial solution and is returned
+//! as single phase. And the liquid/vapor label of a single-phase φ-φ result
+//! (β = 0 or 1) comes from the feed's own density — the lower-Gibbs cubic
+//! root, or the side of the EOS critical volume — not from the last K of
+//! the iteration, which near the critical locus is rounding noise.
+//!
 //! # References
 //! - (7) Michelsen (1982) Part I — stability analysis (the fallback)
 //! - (19) Michelsen (1982) Part II — phase-split framework
@@ -58,7 +65,7 @@ use super::init::wilson_ln_k;
 use super::stability::{SCREEN_MARGIN, Seeds, Stability, pure_component_screen, stability_cached};
 use super::system::min_gibbs_ln_phi_cached_into;
 use super::system::{SystemSpec, SystemTpCache, ln_k_values_cached_into, phase_ln_phi_jacobian};
-use crate::eos::{LiquidModel, PhaseId};
+use crate::eos::{LiquidModel, PhaseId, VaporModel};
 
 // ===========================================================================
 // Reusable workspace (Part 1 §1 of the performance audit).
@@ -131,7 +138,9 @@ impl FlashWorkspace {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FlashResult {
     /// Vapor fraction β = V/F, **dimensionless**. In `[0, 1]` for a genuine
-    /// two-phase split; the driver clamps single-phase feeds to 0 or 1.
+    /// two-phase split. A single-phase feed gets exactly 0 (liquid) or 1
+    /// (vapor); for a φ-φ system that label is density-based, and above the
+    /// critical point it is a convention, not a physical distinction.
     pub beta: f64,
     /// Liquid mole fractions xᵢ (length N, sum to 1).
     pub x: Vec<f64>,
@@ -675,7 +684,7 @@ fn stability_fallback(
     let v = stability_cached(spec, cache, t, p, z, budget, Seeds::WilsonThenPure).ok()?;
     match v.verdict {
         Stability::Stable if v.conclusive => {
-            let mut res = single_phase(z, &ws.k);
+            let mut res = single_phase(spec, t, p, z, &ws.k);
             res.iterations = max_iter;
             Some(Ok(res))
         }
@@ -894,7 +903,7 @@ fn ss_gdem(
                         return r;
                     }
                 }
-                return Ok(single_phase(z, &ws.k));
+                return Ok(single_phase(spec, t, p, z, &ws.k));
             }
             Err(e) => return Err(e),
         };
@@ -917,13 +926,16 @@ fn ss_gdem(
             for i in 0..n {
                 ws.k[i] = ws.ln_k_new[i].exp();
             }
-            if !(0.0..=1.0).contains(&beta) {
+            // A converged K ≡ 1 is the trivial solution, whatever β the
+            // Rachford–Rice solve happened to return for it.
+            let trivial = ws.ln_k_new.iter().all(|lk| lk.abs() < TRIVIAL_LN_K);
+            if trivial || !(0.0..=1.0).contains(&beta) {
                 if check_single_phase {
                     if let Some(r) = single_phase_check(spec, cache, t, p, z, tol, max_iter) {
                         return r;
                     }
                 }
-                return Ok(single_phase(z, &ws.k));
+                return Ok(single_phase(spec, t, p, z, &ws.k));
             }
             return Ok(FlashResult {
                 beta,
@@ -1115,13 +1127,44 @@ fn retry_from_trial(
     None
 }
 
-/// Build the single-phase result: decide liquid vs vapor from the sign of
-/// the Rachford-Rice residual at β = 0, and set `x = y = z`.
-fn single_phase(z: &[f64], k: &[f64]) -> FlashResult {
-    let (f0, _, _) = rr_fdd(z, k, 0.0);
-    // f(0) = Σ zᵢ(Kᵢ−1). > 0 ⇒ would-be vapor fraction positive but no
-    // interior root ⇒ superheated vapor (β=1); ≤ 0 ⇒ subcooled liquid (β=0).
-    let beta = if f0 > 0.0 { 1.0 } else { 0.0 };
+/// Largest `|ln Kᵢ|` at which a converged split is treated as no split.
+/// Below it the two "phases" differ by less than one part in a million in
+/// every mole fraction: that is the trivial solution `x = y = z`, which
+/// satisfies the equilibrium equations at any β, not a pair of phases.
+const TRIVIAL_LN_K: f64 = 1e-6;
+
+/// Build the single-phase result with `x = y = z` and β = 0 (liquid) or 1
+/// (vapor). `t` in **K**, `p` in **kPa absolute**.
+///
+/// For a φ-φ system the label comes from the feed's own state
+/// ([`crate::mixture::single_phase_label`]): the lower-Gibbs cubic root, or
+/// with a single root the side of the EOS critical volume it lies on.
+///
+/// Until 2026-11-14 the label was the sign of `Σ zᵢ(Kᵢ − 1)` under the last K of
+/// the iteration. Near and above the critical locus that K has collapsed to
+/// 1 ± 1e-15 and the sign is rounding noise: on a methane/n-pentane grid the
+/// label flipped 4 009 times between neighboring pressures. The adiabatic
+/// flash reads this label to choose the cubic root for the enthalpy, so the
+/// noise was not only cosmetic. That rule survives for the model pairs with
+/// no single cubic to ask (γ-φ, Chao–Seader family, mixed EOS), where K
+/// comes from two different models and does not collapse.
+fn single_phase(spec: &SystemSpec, t: f64, p: f64, z: &[f64], k: &[f64]) -> FlashResult {
+    let from_state = match (spec.vapor, spec.liquid) {
+        (VaporModel::Cubic(ve), LiquidModel::Cubic(le)) if ve == le => {
+            crate::mixture::single_phase_label(&spec.mixture_spec(le), t, p, z).ok()
+        }
+        _ => None,
+    };
+    let beta = match from_state {
+        Some(PhaseId::Vapor) => 1.0,
+        Some(PhaseId::Liquid) => 0.0,
+        None => {
+            // f(0) = Σ zᵢ(Kᵢ−1). > 0 ⇒ would-be vapor fraction positive but
+            // no interior root ⇒ superheated vapor; ≤ 0 ⇒ subcooled liquid.
+            let (f0, _, _) = rr_fdd(z, k, 0.0);
+            if f0 > 0.0 { 1.0 } else { 0.0 }
+        }
+    };
     FlashResult {
         beta,
         x: z.to_vec(),
@@ -2051,5 +2094,78 @@ mod tests {
                 label, two, differ, slow, it_new, it_old, us_new, us_old, f_new, f_old
             );
         }
+    }
+
+    /// A converged split must have two different phases. Before 2026-11-14 these
+    /// points came back `two_phase` with every K within 1e-9 of 1 — the
+    /// trivial solution with an arbitrary β.
+    #[test]
+    fn a_converged_split_never_has_identical_phases() {
+        let comps = methane_n_pentane_pr();
+        let spec = pr_system(&comps);
+        let known = [
+            (0.5, 434.0, 11200.0),
+            (0.5, 474.0, 15000.0),
+            (0.5, 476.0, 15500.0),
+            (0.5, 476.0, 16500.0),
+            (0.7, 466.0, 17800.0),
+            (0.7, 442.0, 12064.0),
+        ];
+        for (z1, t, p) in known {
+            let r = flash_isothermal(&spec, t, p, &[z1, 1.0 - z1], 1e-10, 200).unwrap();
+            assert!(!r.two_phase, "z1={z1} T={t} P={p}: K={:?}", r.k);
+        }
+        // And nowhere on a grid across the critical region.
+        for i in 0..40 {
+            let t = 400.0 + 2.0 * i as f64;
+            for j in 0..40 {
+                let p = 9000.0 + 250.0 * j as f64;
+                if let Ok(r) = flash_isothermal(&spec, t, p, &[0.5, 0.5], 1e-10, 200) {
+                    let spread = r.k.iter().map(|k| k.ln().abs()).fold(0.0, f64::max);
+                    assert!(
+                        !r.two_phase || spread >= TRIVIAL_LN_K,
+                        "T={t} P={p}: two phases with K={:?}",
+                        r.k
+                    );
+                }
+            }
+        }
+    }
+
+    /// The single-phase label of a φ-φ flash comes from the feed's density,
+    /// so along an isotherm it changes at most once on each side of the
+    /// two-phase region. Under the old rule (sign of Σ z(K−1) with K ≈ 1) it
+    /// flipped 4 009 times on a grid like this one.
+    #[test]
+    fn single_phase_label_does_not_speckle() {
+        let comps = methane_n_pentane_pr();
+        let spec = pr_system(&comps);
+        let mut flips = 0;
+        let mut rows = 0;
+        for i in 0..26 {
+            let t = 250.0 + 10.0 * i as f64;
+            rows += 1;
+            let mut prev: Option<f64> = None;
+            for j in 0..196 {
+                let p = 500.0 + 100.0 * j as f64;
+                match flash_isothermal(&spec, t, p, &[0.7, 0.3], 1e-10, 200) {
+                    Ok(r) if !r.two_phase => {
+                        if prev.is_some_and(|b| b != r.beta) {
+                            flips += 1;
+                        }
+                        prev = Some(r.beta);
+                    }
+                    // A two-phase stretch (or a failure) legitimately
+                    // separates a vapor label from a liquid one.
+                    _ => prev = None,
+                }
+            }
+        }
+        assert!(flips <= rows, "{flips} label flips over {rows} isotherms");
+        // Unambiguous states keep the labels they always had.
+        let cold = flash_isothermal(&spec, 250.0, 19000.0, &[0.7, 0.3], 1e-10, 200).unwrap();
+        let hot = flash_isothermal(&spec, 500.0, 500.0, &[0.7, 0.3], 1e-10, 200).unwrap();
+        assert!(!cold.two_phase && cold.beta == 0.0);
+        assert!(!hot.two_phase && hot.beta == 1.0);
     }
 }

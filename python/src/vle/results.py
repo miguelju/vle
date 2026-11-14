@@ -41,8 +41,11 @@ class FlashResult:
     """Outcome of an isothermal (PT) or adiabatic (PH) flash.
 
     Attributes:
-        beta: Vapor mole fraction β = V/F (dimensionless). 0 ⇒ bubble
-            point, 1 ⇒ dew point, in-between ⇒ two-phase.
+        beta: Vapor mole fraction β = V/F (dimensionless). Strictly between
+            0 and 1 for a two-phase split. For a single-phase result it is
+            exactly 0 (liquid) or 1 (vapor); with an EOS for both phases that
+            label comes from the feed's density, and above the critical
+            point it is a convention rather than a physical distinction.
         x: Liquid-phase mole fractions (one per component).
         y: Vapor-phase mole fractions (one per component).
         k: Equilibrium ratios Kᵢ = yᵢ/xᵢ.
