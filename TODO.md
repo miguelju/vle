@@ -620,20 +620,21 @@ from Jupyter).
       workspace member
 - [x] M15/M16's API in JS form: `version`, DB lookups + custom components
       (plain camelCase objects via serde-wasm-bindgen), steam tables,
-      `VleSystem` (`flashTp`, `bubbleP/T`, `dewP/T`, `kValues`);
+      `VleSystem` (`flashTp`, `bubbleP/T`, `dewP/T`, `kValues`,
+      `criticalPoint`, `traceEnvelope`);
       compositions as `Float64Array`; model names as forgiving strings
       (`"RKS1972"`, `"van-laar"`) or tagged objects; errors thrown as JS
       `Error`s with the family's message prefixes; JsValue confined to
       thin shims over a host-testable `SystemCore`
 - [x] `scripts/build-wasm.sh`: preflight → Node smoke tests →
-      `wasm-pack build --target web --release` → `wasm/pkg/` (~360 KB
-      wasm / ~150 KB gzipped)
+      `wasm-pack build --target web --release` → `wasm/pkg/` (~760 KB
+      wasm / ~320 KB gzipped at v0.19.0)
 
 ### 17.2 Verification (~1h) — **done**
-- [x] 19 host-side unit tests (`cargo test -p vle-wasm`): parsing,
+- [x] 22 host-side unit tests (`cargo test -p vle-wasm`): parsing,
       validation, Ch. IV flash vs direct engine call, bubble/dew
       consistency
-- [x] 5 smoke tests through the real JS↔wasm boundary
+- [x] 6 smoke tests through the real JS↔wasm boundary
       (`wasm-pack test --node wasm`): version, water lookup, IF97 1-atm
       boiling row, Ch. IV Table 4.10 flash (β in the thesis band), error
       mapping (`invalid input:` / `component not found` prefixes)
@@ -805,7 +806,7 @@ lessons: [OPTIMIZATION_AUDIT_HISTORY.md](docs/plans/engine/OPTIMIZATION_AUDIT_HI
 | 14. NRTL Activity Model + Ammonia | ~14–20h | **Shipped as v0.11.0** — NRTL model (general multicomponent, analytic Hᴱ via `num-dual`), `alpha` matrix threaded, PyO3 + Python wrapper, ammonia in the 25-compound DB, milestone notebook 13. Rigorous NH₃–H₂O param regression deferred (qualitative demo shipped) |
 | 15. iOS/macOS FFI (`vle-ffi` via UniFFI) | ~13–21h | **Done (unreleased)** — `ffi/` wrapper crate + bindgen bin, `scripts/build-ios.sh` (3 Apple targets → XCFramework), `swift/VleThermo` package (10 XCTests green), learning doc `docs/en/ios/`. Local-build artifact only; app itself is a future separate repo |
 | 16. Android/Kotlin FFI (`vle-ffi` via UniFFI) | ~6–10h | **Code complete** — `cdylib` + general bindgen bin + `[bindings.kotlin]`, `scripts/build-android.sh` (cargo-ndk ABIs + host lib → Kotlin bindgen), `kotlin/VleThermo` Gradle module (5 smoke tests), docs `docs/en/android/` + parked `docs/en/dotnet/`. First Android Studio run pending; app (Android + Compose-Desktop Windows) is a future separate repo |
-| 17. Web/JavaScript FFI (`vle-wasm` via wasm-bindgen) | ~5–8h | **Done** — `wasm/` wrapper crate (plain-object records, Float64Array comps, JS-Error mapping), `scripts/build-wasm.sh` → `wasm/pkg` npm package (~150 KB gzipped), 19 host + 5 boundary tests green, guide `docs/en/web/`. React app + shells (Tauri/Electron/Capacitor) are a future separate repo |
+| 17. Web/JavaScript FFI (`vle-wasm` via wasm-bindgen) | ~5–8h | **Done** — `wasm/` wrapper crate (plain-object records, Float64Array comps, JS-Error mapping), `scripts/build-wasm.sh` → `wasm/pkg` npm package (~320 KB gzipped), 22 host + 6 boundary tests green, guide `docs/en/web/`. React app + shells (Tauri/Electron/Capacitor) are a future separate repo |
 | 18. N-Scalable Mixture Core | ~10–16h | **Shipped in v0.14.0** — k_ij = 0 fast path (`quad_a_factorized`, O(N)), sparse correction (`quad_a_sparse`, O(N + nnz)) with `KijIndex` scanned once into `TpCache`, and `d_ln_phi_d_n_apply` computing `J·v` in O(N) without forming the block. Measured at N = 300: `ln_phi_mix` **30.7×**, Jacobian **50.4×**, growth linear where dense is quadratic. Allocation-free evaluation done via `MixtureWorkspace` + `ln_phi_mix_cached_ws_into` (**1.23×** at N = 300); flash 18–24 % faster than the v0.12.0 baseline end-to-end. Independently valuable — no new physics. `PETROLEUM_PSEUDOCOMPONENT_PLAN.md` §1.1, `OPTIMIZATION_PLAN_PART2.md` §7 |
 | 19. Petroleum Characterization | ~20–30h | **Shipped in v0.15.0** — `engine/src/petroleum/` (7 submodules): D86 ↔ TBP ↔ D2887 ↔ EFV interconversion (Riazi–Daubert power laws + API difference procedures 3A1.1/3A3.1/3A3.2), TBP cutting by volume / temperature / product boundaries, four critical-property families (R-D 1980, API 1987, Kesler–Lee, Twu) + Lee–Kesler ω + four Zc correlations, Kesler–Lee ideal-gas Cp° and Maxwell–Bonnell. `Assay` → `list[Component]` drops straight into the flash. **121 Rust + 37 Python tests**; interconversions match Riazi (2005) Ex. 3.2–3.5 and two API TDB examples to < 0.15 °C. **Partial: the Kesler–Lee `CF` naphthene correction is not implemented** (measured cost up to 15.9 % on ring compounds), and Edmister–Okamoto's 0–10 % EFV row is documented as unusable on narrow feeds. Notebook 15. `PETROLEUM_PSEUDOCOMPONENT_PLAN.md` |
 | 20. Refinery Thermodynamics | ~18–26h | **Shipped in v0.15.0** — `engine/src/refinery/` (Lee–Kesler departure pure + mixture, Peneloux translation) + `flash/free_water.rs` (water-decant flash) + `LiquidModel::{GraysonStreed, BraunK10}` with ν / Maxwell–Bonnell constants cached per (T, P); Maxwell–Bonnell inverted in closed form. **37 Rust + 13 Python tests**; Lee–Kesler validated by thermodynamic identities, Peneloux against measured densities, 0.10 ms per N = 300 mixture enthalpy. **Stated scope**: free water is the decant model (no three-liquid stability search); BK10 has no pressure-correction charts. Notebook 16. `PETROLEUM_PSEUDOCOMPONENT_PLAN.md` |

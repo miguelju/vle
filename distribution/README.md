@@ -123,7 +123,7 @@ Status: code complete, with the first Android Studio run still pending
 
 The engine also compiles to **WebAssembly**: the same Rust source, built
 locally into a small npm package (`scripts/build-wasm.sh` →
-`wasm/pkg/`, ~150 KB gzipped including the flash suite, steam tables, and
+`wasm/pkg/`, ~320 KB gzipped including the flash suite, steam tables, and
 the bundled component database). The thermodynamics then runs
 **client-side in the visitor's browser** — and because every desktop and
 mobile webview is also a browser, one React (or plain JS) codebase covers

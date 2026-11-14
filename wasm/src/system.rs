@@ -46,7 +46,9 @@ use crate::error::VleWasmError;
 use vle_thermo::activity as act;
 use vle_thermo::eos;
 use vle_thermo::flash::bubble::{bubble_pressure, bubble_temperature};
+use vle_thermo::flash::critical::critical_point;
 use vle_thermo::flash::dew::{dew_pressure, dew_temperature};
+use vle_thermo::flash::envelope::trace_envelope;
 use vle_thermo::flash::isothermal::flash_isothermal_warm;
 use vle_thermo::flash::{SystemSpec, k_values};
 use vle_thermo::mixing;
@@ -58,6 +60,9 @@ use vle_thermo::types::Component;
 const SAT_TOL: f64 = 1e-9;
 const FLASH_TOL: f64 = 1e-10;
 const MAX_ITER: usize = 200;
+// Phase-envelope defaults, matching the Python `trace_envelope` keywords.
+const ENVELOPE_P_START: f64 = 100.0;
+const ENVELOPE_MAX_POINTS: u32 = 60;
 
 /// Lowercase a model name and drop `-`, `_`, and spaces, so users can
 /// write `"van-laar"`, `"van_laar"`, or `"vanLaar"` interchangeably.
@@ -320,6 +325,31 @@ pub struct SaturationPoint {
     pub k: Vec<f64>,
 }
 
+/// A mixture critical point (Heidemann–Khalil), returned as a plain JS
+/// object.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CriticalState {
+    /// Critical temperature in **K**.
+    pub tc: f64,
+    /// Critical pressure in **kPa absolute**.
+    pub pc: f64,
+    /// Critical molar volume in **m³/kmol** (= L/mol).
+    pub vc: f64,
+}
+
+/// A traced (T, P) phase envelope, returned as a plain JS object holding
+/// two parallel arrays — point `i` is `(t[i], p[i])`. The points run up the
+/// bubble branch, through the critical point, and down the dew branch.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvelopeTrace {
+    /// Temperatures in **K**.
+    pub t: Vec<f64>,
+    /// Pressures in **kPa absolute**.
+    pub p: Vec<f64>,
+}
+
 /// The JsValue-free core of [`VleSystem`]: plain Rust, so the host test
 /// suite (`cargo test -p vle-wasm`) exercises construction, validation,
 /// and every flash path without a JS runtime. The `#[wasm_bindgen]` shim
@@ -538,6 +568,35 @@ impl SystemCore {
             k: r.k,
         })
     }
+
+    /// Mixture critical point at composition `z` (Heidemann–Khalil;
+    /// two-parameter cubic EOS with classical mixing only). `t_init` **K**
+    /// seeds the Newton; `0` uses the mole-fraction-average Tc.
+    pub fn critical_point(&self, z: &[f64], t_init: f64) -> Result<CriticalState, VleWasmError> {
+        self.check_width("z", z.len())?;
+        let cp = critical_point(&self.spec(), z, t_init, MAX_ITER)?;
+        Ok(CriticalState {
+            tc: cp.tc,
+            pc: cp.pc,
+            vc: cp.vc,
+        })
+    }
+
+    /// Trace the (T, P) phase envelope at composition `z` from `p_start`
+    /// **kPa abs**, at most `max_points` points (cubic φ-φ systems only).
+    pub fn trace_envelope(
+        &self,
+        z: &[f64],
+        p_start: f64,
+        max_points: usize,
+    ) -> Result<EnvelopeTrace, VleWasmError> {
+        self.check_width("z", z.len())?;
+        let pts = trace_envelope(&self.spec(), z, p_start, max_points)?;
+        Ok(EnvelopeTrace {
+            t: pts.iter().map(|pt| pt.t).collect(),
+            p: pts.iter().map(|pt| pt.p).collect(),
+        })
+    }
 }
 
 // ── The JavaScript-facing shim ─────────────────────────────────────────
@@ -714,6 +773,45 @@ impl VleSystem {
     pub fn dew_t(&self, p: f64, y: &[f64]) -> Result<JsValue, JsError> {
         to_js(&self.core.dew_t(p, y)?)
     }
+
+    /// Mixture critical point at composition `z` — the Heidemann–Khalil
+    /// solver (2-D Newton on T and V, dual-number derivatives). Returns a
+    /// [`CriticalState`]: `tc` **K**, `pc` **kPa absolute**, `vc`
+    /// **m³/kmol**. `tInit` (K) seeds the Newton; omit it to start from the
+    /// mole-fraction-average Tc.
+    ///
+    /// # Errors
+    /// Throws `Error("invalid input: …")` unless both phases use a
+    /// two-parameter cubic EOS, and `Error("flash calculation failed: …")`
+    /// if the Newton does not converge.
+    #[wasm_bindgen(js_name = criticalPoint)]
+    pub fn critical_point(&self, z: &[f64], t_init: Option<f64>) -> Result<JsValue, JsError> {
+        to_js(&self.core.critical_point(z, t_init.unwrap_or(0.0))?)
+    }
+
+    /// Trace the (T, P) phase envelope at composition `z`: up the bubble
+    /// branch, through the critical point, down the dew branch. Returns an
+    /// [`EnvelopeTrace`] — parallel arrays `t` (**K**) and `p` (**kPa
+    /// absolute**). `pStart` (kPa, default 100) is the low pressure the
+    /// trace starts from; `maxPoints` (default 60) caps its length.
+    ///
+    /// # Errors
+    /// Throws `Error("invalid input: …")` for a non-cubic system, and
+    /// `Error("flash calculation failed: …")` if the first point cannot be
+    /// established.
+    #[wasm_bindgen(js_name = traceEnvelope)]
+    pub fn trace_envelope(
+        &self,
+        z: &[f64],
+        p_start: Option<f64>,
+        max_points: Option<u32>,
+    ) -> Result<JsValue, JsError> {
+        to_js(&self.core.trace_envelope(
+            z,
+            p_start.unwrap_or(ENVELOPE_P_START),
+            max_points.unwrap_or(ENVELOPE_MAX_POINTS) as usize,
+        )?)
+    }
 }
 
 #[cfg(test)]
@@ -883,5 +981,84 @@ mod tests {
             SystemOptionsIn::default(),
         );
         assert!(matches!(r, Err(VleWasmError::InvalidInput { .. })));
+    }
+
+    /// Methane/ethane PR φ-φ — the mixture of the phase-envelope dome.
+    fn pr_methane_ethane() -> SystemCore {
+        SystemCore::from_db(
+            &["methane".into(), "ethane".into()],
+            &VaporIn::Name("PR1976".into()),
+            &LiquidIn::Name("PR1976".into()),
+            None,
+            SystemOptionsIn::default(),
+        )
+        .expect("both components are bundled")
+    }
+
+    #[test]
+    fn critical_point_lies_between_the_pure_critical_temperatures() {
+        // Equimolar methane/ethane: Tc must sit between methane's 190.6 K
+        // and ethane's 305.3 K, and Pc above both pure values (the
+        // critical locus of this pair bulges upward).
+        let c = pr_methane_ethane()
+            .critical_point(&[0.5, 0.5], 0.0)
+            .unwrap();
+        assert!(c.tc > 190.6 && c.tc < 305.3, "tc = {}", c.tc);
+        assert!(c.pc > 4872.0 && c.pc < 8000.0, "pc = {}", c.pc);
+        assert!(c.vc > 0.0, "vc = {}", c.vc);
+    }
+
+    #[test]
+    fn envelope_closes_and_passes_through_the_critical_point() {
+        let sys = pr_methane_ethane();
+        let z = [0.5, 0.5];
+        let env = sys.trace_envelope(&z, 100.0, 400).unwrap();
+        assert_eq!(env.t.len(), env.p.len());
+        assert!(env.t.len() > 20, "only {} points", env.t.len());
+        // Closed: the dew branch comes back down to the start pressure, at
+        // a higher temperature than the bubble branch left it.
+        let (first, last) = (0, env.t.len() - 1);
+        assert!(
+            env.p[last] < 200.0,
+            "dew branch ends at {} kPa",
+            env.p[last]
+        );
+        assert!(env.t[last] > env.t[first]);
+        // Two independent solvers agree: the Heidemann–Khalil critical
+        // point lies on the Michelsen-traced envelope (within the spacing
+        // of the traced points, in reduced units).
+        let c = sys.critical_point(&z, 0.0).unwrap();
+        let d = env
+            .t
+            .iter()
+            .zip(&env.p)
+            .map(|(t, p)| ((t - c.tc) / c.tc).hypot((p - c.pc) / c.pc))
+            .fold(f64::INFINITY, f64::min);
+        assert!(d < 0.02, "critical point is {d} (reduced) off the envelope");
+    }
+
+    #[test]
+    fn critical_point_and_envelope_reject_a_non_cubic_system() {
+        let sys = SystemCore::from_db(
+            &["methane".into(), "ethane".into()],
+            &VaporIn::Name("idealGas".into()),
+            &LiquidIn::Name("ideal".into()),
+            None,
+            SystemOptionsIn::default(),
+        )
+        .unwrap();
+        assert!(matches!(
+            sys.critical_point(&[0.5, 0.5], 0.0),
+            Err(VleWasmError::InvalidInput { .. })
+        ));
+        assert!(matches!(
+            sys.trace_envelope(&[0.5, 0.5], 100.0, 60),
+            Err(VleWasmError::InvalidInput { .. })
+        ));
+        // Wrong-length feed is caught before the solver runs.
+        assert!(matches!(
+            pr_methane_ethane().critical_point(&[1.0], 0.0),
+            Err(VleWasmError::InvalidInput { .. })
+        ));
     }
 }
