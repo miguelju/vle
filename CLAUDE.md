@@ -77,6 +77,51 @@ history. The semantic checks a script cannot do — "does this prose still
 describe what the workflow does?" — remain with the agent hook on `git push`
 in `.claude/settings.json`, which is the second net, not the first.
 
+**Push-time hooks for Claude Code (`.claude/settings.json`)**: two hooks fire
+when Claude runs `git push`, and they do different jobs.
+
+1. **`hooks/claude-push-gate`** (a command hook — deterministic). It works out
+   which repository the push targets, does nothing unless that is this one,
+   writes the *push brief* (below), and runs `hooks/pre-commit` against the
+   tree. Only the last step can block. It exists because the clone doing the
+   committing may not have `core.hooksPath` set, and because the mechanical
+   checks must not depend on a model being able to read files.
+2. **The agent hook** (a small model that can read files but not run
+   commands). It reads `.claude/push-brief.md` — written by
+   `hooks/push-brief.py`: the commits and files the push adds on top of
+   `main`, the documents that describe each changed area marked `touched` /
+   `NOT touched`, and every claim-like line the push adds to a Markdown file —
+   and blocks only when it can quote a sentence the change makes false, name
+   a new public capability a feature list omits, or point at a `[x]` whose
+   code does not exist. If it cannot read the brief it allows the push; it
+   never blocks on "could not verify".
+
+The area → document table lives in `hooks/push-brief.py` (`DOC_MAP`) and
+mirrors the numbered list at the top of this section. **Add a document to
+that list ⇒ add it to `DOC_MAP`**; the harness fails otherwise:
+
+```sh
+hooks/test-claude-push-gate.sh
+```
+
+Why it was rebuilt (2026-11-14). The agent hook used to be the only push-time
+check, and its prompt asked one thing: do `ROADMAP.md` and `TODO.md` agree?
+It never knew what was being pushed, so documentation that was stale in both
+files at once passed every time — the README, the package pages and the plan
+index drifted for weeks until a manual audit (PR #14). It was also brittle:
+on one push its file reads were denied and it blocked a correct push as
+"unverified". The new prompt was run against three throwaway clones before
+it was adopted: code pushed without its docs (blocked, four findings, all
+real), the same change with its docs (allowed), and a docs-only push claiming
+an unbuilt three-phase flash plus a wrong test count (blocked, both named).
+
+What it does **not** do, so nobody relies on it for these: it only sees drift
+the current push introduces (older staleness is for a release-time audit);
+it cannot run tests or benchmarks, so it checks that numbers agree across
+documents, not that they are true; and an agent hook is not documented to
+fail closed — on a timeout or an error the push may proceed. The gate that
+must hold is the script.
+
 If a check produces a false positive, **fix the check**, don't bypass it. All
 four false-positive classes check 5 guards against — version strings
 (`v0.3.0 notebook`), historical adjectives (`then-15-notebook`), prose gaps

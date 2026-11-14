@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+#
+# vle push gate for Claude Code — the deterministic half.
+#
+# Wired in .claude/settings.json as a PreToolUse *command* hook on
+# `git push`. Claude Code hands the pending tool call to this script as JSON
+# on stdin; exit 0 lets the push through, exit 2 blocks it and shows stderr
+# to Claude.
+#
+# What it does: works out which repository the push targets, and if that is
+# the vle repo, (1) writes .claude/push-brief.md via hooks/push-brief.py —
+# the change being pushed and the documents that describe it, for the agent
+# hook to review — and (2) runs hooks/pre-commit (the doc/reality sync gate)
+# against the working tree. Only (2) can block.
+#
+# Why it exists. Until 2026-11-14 the only push-time check was an agent hook:
+# a small model asked to read ROADMAP.md, TODO.md and the modernization plan
+# and judge whether they agree. On one push its file reads were denied, so it
+# blocked a correct push as "unverified"; a retry passed. Three of its five
+# checks were mechanical and already implemented in hooks/pre-commit, so they
+# now run here, where a model's tool access cannot make them fail. The agent
+# hook that remains beside this one reviews what a script cannot — whether
+# the documents still describe the change being pushed — and defers to this
+# script when it cannot read.
+#
+# Why re-run a commit-time gate at push time: hooks/pre-commit only runs when
+# core.hooksPath is set in the clone doing the committing. This catches the
+# clone where it was not.
+#
+# Test it with:  hooks/test-claude-push-gate.sh
+
+set -uo pipefail
+
+PY=""
+for cand in "$HOME/miniconda3/envs/vle/bin/python" python3 python; do
+    if command -v "$cand" >/dev/null 2>&1 || [ -x "$cand" ]; then PY="$cand"; break; fi
+done
+# No interpreter to parse the hook input with: nothing can be decided here.
+# The git-level hooks (pre-commit, pre-push) are still in force.
+[ -n "$PY" ] || exit 0
+
+# Print the directory the push runs in, or nothing if the command is not a
+# push. `git -C <dir> push` and a leading `cd <dir> &&` both redirect it;
+# otherwise it is the session's working directory.
+input="$(cat)"
+
+target="$("$PY" -c '
+import json, os, re, shlex, sys
+
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+command = (data.get("tool_input") or {}).get("command") or ""
+cwd = data.get("cwd") or os.getcwd()
+
+# Split on shell separators so `cd x && git push` is seen as two commands.
+segments = re.split(r"&&|\|\||;|\n", command)
+here = cwd
+for segment in segments:
+    try:
+        words = shlex.split(segment)
+    except ValueError:
+        words = segment.split()
+    if not words:
+        continue
+    if words[0] == "cd" and len(words) > 1:
+        here = os.path.join(here, os.path.expanduser(words[1]))
+        continue
+    if words[0] != "git":
+        continue
+    repo = here
+    i = 1
+    # Walk the global options of git to find the subcommand; honor -C <dir>.
+    while i < len(words) and words[i].startswith("-"):
+        if words[i] == "-C" and i + 1 < len(words):
+            repo = os.path.join(repo, os.path.expanduser(words[i + 1]))
+            i += 2
+        elif words[i] in ("-c", "--git-dir", "--work-tree") and i + 1 < len(words):
+            i += 2
+        else:
+            i += 1
+    if i < len(words) and words[i] == "push":
+        print(os.path.normpath(repo))
+        break
+' <<<"$input")"
+
+[ -n "$target" ] || exit 0
+
+root="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)" || exit 0
+
+# Only the vle repo carries all three plan documents. A push to any other
+# repository from a vle session (the config repo, say) is none of our business.
+for f in ROADMAP.md TODO.md docs/plans/MODERNIZATION_PLAN.md; do
+    [ -f "$root/$f" ] || exit 0
+done
+[ -x "$root/hooks/pre-commit" ] || exit 0
+
+# Write the brief the agent hook reads (what this push changes, and which
+# documents describe it). A failure here must not block the push: the brief
+# is an input to a review, not a check.
+command="$("$PY" -c 'import json,sys; print((json.load(sys.stdin).get("tool_input") or {}).get("command") or "")' <<<"$input" 2>/dev/null)"
+"$PY" "$root/hooks/push-brief.py" "$root" "$command" >/dev/null 2>&1 || true
+
+if ! output="$(cd "$root" && hooks/pre-commit 2>&1)"; then
+    {
+        echo "claude-push-gate: BLOCKED — the doc/reality sync gate fails on this tree."
+        echo "$output"
+        echo "Fix the documents (or, for a false positive, fix the check). Never bypass."
+    } >&2
+    exit 2
+fi
+exit 0
