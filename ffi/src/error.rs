@@ -44,6 +44,9 @@ impl From<FlashError> for VleFfiError {
             // Same split as the Python bindings (py_system::flash_err):
             // caller mistakes surface as InvalidInput, numerical trouble
             // as Flash.
+            // The engine's own message already says what was wrong; use it
+            // as is so the prefix is not doubled.
+            FlashError::InvalidInput(message) => VleFfiError::InvalidInput { message },
             FlashError::Dimension(_)
             | FlashError::Unsupported(_)
             | FlashError::NoRachfordRiceRoot { .. } => VleFfiError::InvalidInput {

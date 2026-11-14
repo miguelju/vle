@@ -576,9 +576,9 @@ fn flash_impl(
     // The feed is loop-invariant, so validate it **once** here instead of on
     // every outer iteration. The K-values the loop feeds Rachford-Rice are the
     // engine's own `exp(ln K)`, so they need no per-iteration re-checking.
-    if let Some(i) = z.iter().position(|&zi| !zi.is_finite() || zi < 0.0) {
-        return Err(FlashError::InvalidInput(format!("z[{i}]={}", z[i])));
-    }
+    super::check_composition("z", z)?;
+    super::check_positive("T (K)", t)?;
+    super::check_positive("P (kPa)", p)?;
 
     // One workspace for the whole solve: every per-iteration buffer below is
     // written in place rather than allocated (Part 1 §1 of the audit).
@@ -2167,5 +2167,110 @@ mod tests {
         let hot = flash_isothermal(&spec, 500.0, 500.0, &[0.7, 0.3], 1e-10, 200).unwrap();
         assert!(!cold.two_phase && cold.beta == 0.0);
         assert!(!hot.two_phase && hot.beta == 1.0);
+    }
+
+    /// Issue #5: every flash and saturation entry point rejects a
+    /// composition that does not sum to 1, a negative mole fraction, and a
+    /// non-positive temperature or pressure — before any solver runs. The
+    /// flash used to answer three of these with a confident result.
+    #[test]
+    fn invalid_states_and_compositions_are_rejected_at_the_boundary() {
+        use crate::flash::adiabatic::flash_adiabatic;
+        use crate::flash::bubble::{
+            bubble_pressure, bubble_pressure_from, bubble_temperature, bubble_temperature_from,
+        };
+        use crate::flash::dew::{
+            dew_pressure, dew_pressure_from, dew_temperature, dew_temperature_from,
+        };
+        use crate::flash::envelope::trace_envelope;
+        use crate::flash::stability::stability_analysis;
+
+        let comps = methane_n_pentane_pr();
+        let spec = pr_system(&comps);
+        let good = [0.5, 0.5];
+        let invalid = |r: Result<(), FlashError>, what: &str| {
+            assert!(
+                matches!(r, Err(FlashError::InvalidInput(_))),
+                "{what}: expected InvalidInput, got {r:?}"
+            );
+        };
+
+        // Compositions: sum too high, sum too low, negative, non-finite.
+        for bad in [[0.6, 0.6], [0.4, 0.4], [1.2, -0.2], [f64::NAN, 0.5]] {
+            let w = format!("{bad:?}");
+            invalid(
+                flash_isothermal(&spec, 350.0, 2000.0, &bad, 1e-10, 200).map(drop),
+                &w,
+            );
+            invalid(bubble_pressure(&spec, 350.0, &bad, 1e-9, 200).map(drop), &w);
+            invalid(
+                bubble_temperature(&spec, 2000.0, &bad, 1e-9, 200).map(drop),
+                &w,
+            );
+            invalid(dew_pressure(&spec, 350.0, &bad, 1e-9, 200).map(drop), &w);
+            invalid(
+                dew_temperature(&spec, 2000.0, &bad, 1e-9, 200).map(drop),
+                &w,
+            );
+            invalid(
+                bubble_pressure_from(&spec, 350.0, &bad, 2000.0, None, 1e-9, 200).map(drop),
+                &w,
+            );
+            invalid(
+                bubble_temperature_from(&spec, 2000.0, &bad, 350.0, None, 1e-9, 200).map(drop),
+                &w,
+            );
+            invalid(
+                dew_pressure_from(&spec, 350.0, &bad, 2000.0, None, 1e-9, 200).map(drop),
+                &w,
+            );
+            invalid(
+                dew_temperature_from(&spec, 2000.0, &bad, 350.0, None, 1e-9, 200).map(drop),
+                &w,
+            );
+            invalid(
+                stability_analysis(&spec, 350.0, 2000.0, &bad, 200).map(drop),
+                &w,
+            );
+            invalid(trace_envelope(&spec, &bad, 100.0, 60).map(drop), &w);
+            invalid(
+                flash_adiabatic(
+                    &spec, 2000.0, &bad, 0.0, 298.15, 101.325, 200.0, 500.0, 1e-8, 100,
+                )
+                .map(drop),
+                &w,
+            );
+        }
+
+        // Temperature and pressure: negative, zero, non-finite.
+        for bad in [-5.0, 0.0, f64::NAN, f64::INFINITY] {
+            let w = format!("{bad}");
+            invalid(
+                flash_isothermal(&spec, bad, 2000.0, &good, 1e-10, 200).map(drop),
+                &w,
+            );
+            invalid(
+                flash_isothermal(&spec, 350.0, bad, &good, 1e-10, 200).map(drop),
+                &w,
+            );
+            invalid(bubble_pressure(&spec, bad, &good, 1e-9, 200).map(drop), &w);
+            invalid(
+                bubble_temperature(&spec, bad, &good, 1e-9, 200).map(drop),
+                &w,
+            );
+            invalid(dew_pressure(&spec, bad, &good, 1e-9, 200).map(drop), &w);
+            invalid(dew_temperature(&spec, bad, &good, 1e-9, 200).map(drop), &w);
+            invalid(
+                stability_analysis(&spec, bad, 2000.0, &good, 200).map(drop),
+                &w,
+            );
+            invalid(trace_envelope(&spec, &good, bad, 60).map(drop), &w);
+        }
+
+        // What must still be accepted: a sum off by rounding, and a zero
+        // mole fraction.
+        let rounded = [0.5 + 4e-7, 0.5];
+        assert!(flash_isothermal(&spec, 350.0, 2000.0, &rounded, 1e-10, 200).is_ok());
+        assert!(flash_isothermal(&spec, 350.0, 2000.0, &[1.0, 0.0], 1e-10, 200).is_ok());
     }
 }

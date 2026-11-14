@@ -289,6 +289,8 @@ pub fn trace_envelope(
             "phase envelope requires a cubic (φ-φ) system".into(),
         ));
     }
+    super::check_composition("z", z)?;
+    super::check_positive("p_start (kPa)", p_start)?;
 
     // Seed: the bubble point at p_start, from the engine's own
     // bubble-temperature solver (Newton on 1/T since v0.17.0, a few µs). Its
