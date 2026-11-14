@@ -941,7 +941,7 @@ fn dln_gamma_dt(spec: &SystemSpec, model: ActivityModel, t: f64, x: &[f64]) -> V
 /// implemented (they return [`FlashError::Unsupported`]).
 ///
 /// The γ-φ derivative is assembled **term-for-term** from the same pieces
-/// [`gamma_phi_k`] multiplies, so the two never drift:
+/// `gamma_phi_ln_k_into` adds up, so the two never drift:
 /// `ln Kᵢ = ln γᵢ + ln Psatᵢ + ln φᵢˢᵃᵗ + ln POYᵢ − ln φ̂ᵢⱽ − ln P`, giving
 /// `∂/∂T = ∂lnγᵢ/∂T + (dPsat/dT)/Psat + dlnφˢᵃᵗ/dT + ∂lnPOY/∂T − ∂lnφ̂ᵢⱽ/∂T`
 /// and `∂/∂P = ∂lnPOY/∂P − ∂lnφ̂ᵢⱽ/∂P − 1/P`.

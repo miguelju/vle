@@ -10,7 +10,7 @@
 //! - **Δ < 0** — three distinct real roots. Computed via the
 //!   trigonometric form, which is numerically stable when there *are*
 //!   three real roots.
-//! - **Δ ≈ 0** — repeated roots. Caught via [`utils::is_near_zero`]
+//! - **Δ ≈ 0** — repeated roots. Caught via [`super::utils::is_near_zero`]
 //!   rather than `== 0.0` so floating-point noise doesn't push us into
 //!   the wrong branch right at the boundary. This is the (12) Poling &
 //!   Prausnitz robustness recommendation for cubic-EOS work.

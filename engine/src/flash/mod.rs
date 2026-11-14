@@ -11,17 +11,25 @@
 //! ## Algorithm choices (Track A of PERFORMANCE_PROPOSAL.md)
 //!
 //! The thesis-era iteration schemes are replaced by the modern
-//! Michelsen-derived methodology; the legacy two-stage schemes are kept
-//! only as test oracles. All Newton loops consume the Milestone 8.3
+//! Michelsen-derived methodology. (The legacy two-stage schemes were planned
+//! as test oracles but never built; the bisection saturation solver is the
+//! in-tree reference.) The Newton loops that exist consume the Milestone 8.3
 //! analytic/AD composition Jacobians (§L). See the per-file docs:
 //!
 //! - [`init`] — Wilson K-value initialization (§I)
 //! - [`stability`] — tangent-plane-distance stability analysis (§I)
-//! - [`isothermal`] — GDEM-accelerated SS → Newton, Rachford-Rice via
-//!   Halley inside the Leibovici–Neoschil window (§J, §F)
-//! - `bubble` / `dew` — log-variable Newton (§K) *(later in M9)*
-//! - `critical` — Heidemann with analytic Helmholtz derivatives (§G)
-//! - `kij_regression` / `aij_regression` — Brent / Levenberg-Marquardt
+//! - [`isothermal`] — GDEM-accelerated successive substitution, Rachford-Rice
+//!   via Halley inside the Leibovici–Neoschil window (§J, §F). The Newton
+//!   finish on ln K is **not** implemented.
+//! - [`bubble`] / [`dew`] — temperature by Newton (on 1/T, then the
+//!   simultaneous (N+1)-variable step near the root) with bisection as the
+//!   fallback; pressure by the multiplicative update (§K). No Newton on ln P.
+//! - [`envelope`] — Michelsen phase-envelope continuation, exact Jacobian (§K)
+//! - [`adiabatic`] — warm-started nested PH flash, bisection outer loop (§M)
+//! - [`critical`] — Heidemann with dual-number Helmholtz derivatives (§G)
+//! - [`kij_regression`] / [`aij_regression`] — Brent / Levenberg-Marquardt
+//!   (the Aij Jacobian is a finite difference over the bubble-pressure solve)
+//! - [`free_water`] — the water-decant flash (M20)
 //!
 //! ## The two thermodynamic paths
 //!

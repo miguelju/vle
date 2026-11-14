@@ -54,15 +54,15 @@ pub enum MixingRule {
 
     // --- C-parameter mixing (from Pascal, Ref (4): Da Silva & Báez, 1989) ---
     /// Patel-Teja C-parameter: simple mole-fraction weighted average.
-    /// c_mix = Σ xᵢ·cᵢ. Used with [`CubicEos::PatelTeja`].
+    /// c_mix = Σ xᵢ·cᵢ. Used with [`crate::eos::CubicEos::PatelTeja`].
     /// legacy/pascal/TERMOII.PAS.
     PatelTejaC = 34,
     /// Patel-Teja USB C-parameter: √B-weighted average.
-    /// c_mix = Σ(xᵢ√Bᵢ·cᵢ) / Σ(xᵢ√Bᵢ). Used with [`CubicEos::PatelTejaUSB`].
+    /// c_mix = Σ(xᵢ√Bᵢ·cᵢ) / Σ(xᵢ√Bᵢ). Used with [`crate::eos::CubicEos::PatelTejaUSB`].
     /// legacy/pascal/TERMOII.PAS.
     PatelTejaUSBC = 35,
     /// Schmidt-Wenzel C-parameter: √A-weighted average using acentric factor ω.
-    /// c_mix = Σ(xᵢ√Aᵢ·ωᵢ) / Σ(xᵢ√Aᵢ). Used with [`CubicEos::SchmidtWenzel`].
+    /// c_mix = Σ(xᵢ√Aᵢ·ωᵢ) / Σ(xᵢ√Aᵢ). Used with [`crate::eos::CubicEos::SchmidtWenzel`].
     /// legacy/pascal/TERMOII.PAS.
     SchmidtWenzelC = 36,
 }

@@ -63,8 +63,8 @@ jobs:
   # dependency on the build.
   #
   # All probes are read-only HEAD-equivalent requests; no auth needed.
-  # See deploy/local/deploy-notes/milestone-07.md "v0.3.1 deploy
-  # post-mortem" for the original incident.
+  # The original incident was the v0.3.1 release; its post-mortem moved to
+  # the private operator repository with the rest of deploy/local/.
   check-already-published:
     name: check what's already published
     if: ${{ inputs.dry_run != true }}
