@@ -125,7 +125,8 @@ an extension of it:
   - steam: `waterTP(t, p)`, `waterTX`/`waterPX`/`waterPH`/`waterPS`,
     `psat`/`tsat`, saturation-table rows;
   - `VleSystem` (a `#[wasm_bindgen]` struct holding components + model
-    choices): `flashTp`, `bubbleP/T`, `dewP/T`, `kValues` — 22 cubic EOS,
+    choices): `flashTp`, `bubbleP/T`, `dewP/T`, `kValues`, `criticalPoint`,
+    `traceEnvelope` — 22 cubic EOS,
     6 activity models, 11 mixing rules, same enums.
   - Result structs cross the boundary via `serde-wasm-bindgen` (plain JS
     objects with TypeScript definitions); compositions and surface grids
@@ -162,7 +163,7 @@ friendly error like cargo-ndk in `build-android.sh`.
 ## Verification ladder (all local)
 
 1. `cargo test -p vle-wasm` — host-side unit tests of the wrapper logic.
-2. `wasm-pack test --node wasm/` — **5 smoke tests through the real wasm
+2. `wasm-pack test --node wasm/` — **6 smoke tests through the real wasm
    boundary** (`wasm-bindgen-test`), the analog of the M16 JNA smoke
    tests: version string, water DB lookup, IF97 1-atm boiling point,
    Ch. IV Table 4.10 heptane/butane flash, error mapping

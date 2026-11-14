@@ -1121,7 +1121,7 @@ the full decomposition and revisit trigger).
 extension — UniFFI has no JavaScript backend at the pinned 0.32, and
 wasm-bindgen is the ecosystem standard. The exported surface mirrors
 Phase 22's exactly (component DB read-only + fully custom components,
-steam tables, `VleSystem` with `flashTp`/`bubbleP/T`/`dewP/T`/`kValues`).
+steam tables, `VleSystem` with `flashTp`/`bubbleP/T`/`dewP/T`/`kValues`/`criticalPoint`/`traceEnvelope`).
 Boundary conventions: records cross as **plain camelCase JS objects**
 (serde + serde-wasm-bindgen), compositions as **`Float64Array`** (one
 copy, no per-element chatter), model selections as forgiving strings
@@ -1138,7 +1138,7 @@ readable in the console.
 (wasm-pack + the `wasm32-unknown-unknown` target) → boundary smoke tests
 in Node (`wasm-pack test --node wasm`, skippable) →
 `wasm-pack build wasm --target web --release` (cargo → wasm-bindgen CLI →
-`wasm-opt`) → `wasm/pkg/` with the `.wasm` module (~360 KB, ~150 KB
+`wasm-opt`) → `wasm/pkg/` with the `.wasm` module (~760 KB, ~320 KB
 gzipped, engine + steam + 25-compound DB included), ES-module JS glue,
 and full TypeScript declarations. `--target web` emits a universal ES
 module usable from bundlers (Vite/webpack) and plain
@@ -1146,8 +1146,8 @@ module usable from bundlers (Vite/webpack) and plain
 shell.
 
 **Verification ladder (all local, all green 2026-07-12):**
-`cargo test -p vle-wasm` (19 host tests: parsing/validation/flash
-bit-parity with a direct engine call) → 5 smoke tests through the real
+`cargo test -p vle-wasm` (22 host tests: parsing/validation/flash
+bit-parity with a direct engine call) → 6 smoke tests through the real
 JS↔wasm boundary in Node (version, water lookup, IF97 1-atm boiling row,
 Ch. IV Table 4.10 heptane/butane flash with β in the thesis band, error
 mapping) → package-level sanity (import `wasm/pkg` as a consumer:

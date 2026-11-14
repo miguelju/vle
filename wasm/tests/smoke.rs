@@ -9,7 +9,7 @@
 //! `wasm-bindgen-test` compiles this file to wasm and executes it inside
 //! Node.js, so every call here crosses the same boundary a browser app
 //! uses: JsValue in, plain JS objects / thrown Errors out. The host-side
-//! unit tests (`cargo test -p vle-wasm`) cover the logic; these five cover
+//! unit tests (`cargo test -p vle-wasm`) cover the logic; these six cover
 //! the *plumbing*.
 
 #![cfg(target_arch = "wasm32")]
@@ -113,4 +113,43 @@ fn errors_arrive_as_js_errors_with_prefixes() {
     };
     let msg = js_sys::Error::from(err).message().as_string().unwrap();
     assert!(msg.starts_with("component not found"), "message = {msg}");
+}
+
+// 6. Critical point + phase envelope: the Heidemann–Khalil solver and the
+//    envelope tracer cross the boundary with their optional arguments
+//    omitted, and agree with each other (the critical point lies on the
+//    traced envelope).
+#[wasm_bindgen_test]
+fn critical_point_and_envelope_through_the_boundary() {
+    let sys = VleSystem::from_db(
+        vec!["methane".into(), "ethane".into()],
+        js(json!("PR1976")),
+        js(json!("PR1976")),
+        None,
+        JsValue::UNDEFINED,
+    )
+    .unwrap();
+    let z = [0.5, 0.5];
+    let c = sys.critical_point(&z, None).unwrap();
+    let (tc, pc) = (get_f64(&c, "tc"), get_f64(&c, "pc"));
+    assert!(tc > 190.6 && tc < 305.3, "tc = {tc}");
+    assert!(pc > 4872.0, "pc = {pc}");
+
+    let env = sys.trace_envelope(&z, None, Some(400)).unwrap();
+    let arr = |key: &str| -> Vec<f64> {
+        let v = js_sys::Reflect::get(&env, &JsValue::from_str(key)).unwrap();
+        js_sys::Array::from(&v)
+            .iter()
+            .map(|x| x.as_f64().unwrap())
+            .collect()
+    };
+    let (ts, ps) = (arr("t"), arr("p"));
+    assert_eq!(ts.len(), ps.len());
+    assert!(ts.len() > 20, "only {} envelope points", ts.len());
+    let d = ts
+        .iter()
+        .zip(&ps)
+        .map(|(t, p)| ((t - tc) / tc).hypot((p - pc) / pc))
+        .fold(f64::INFINITY, f64::min);
+    assert!(d < 0.02, "critical point is {d} (reduced) off the envelope");
 }

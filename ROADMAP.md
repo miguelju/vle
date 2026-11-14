@@ -641,15 +641,16 @@ verified feasibility spike; the single-threaded/rayon decomposition):
       (`dbAvailable`/`dbComponent` + custom components from object
       literals), steam tables (`steamTp/Tx/Px/Ph/Ps`, `steamSatT/P`,
       `steamPsat/Tsat`, `steamLatentHeat`), `VleSystem`
-      (`flashTp`, `bubbleP/T`, `dewP/T`, `kValues`) — records as plain
+      (`flashTp`, `bubbleP/T`, `dewP/T`, `kValues`, `criticalPoint`,
+      `traceEnvelope`) — records as plain
       camelCase JS objects (serde-wasm-bindgen), compositions as
       `Float64Array`, model names as forgiving strings or tagged objects,
       Rust errors thrown as JS `Error`s with the family's message prefixes
 - [x] `scripts/build-wasm.sh` — idempotent: Node smoke tests
       (`wasm-pack test --node`) → `wasm-pack build --target web --release`
-      → `wasm/pkg/` (~360 KB wasm, ~150 KB gzipped, full engine + DB)
-- [x] Verification ladder all green: 19 host-side unit tests
-      (`cargo test -p vle-wasm`), 5 smoke tests through the real JS↔wasm
+      → `wasm/pkg/` (~760 KB wasm, ~320 KB gzipped at v0.19.0, full engine + DB)
+- [x] Verification ladder all green: 22 host-side unit tests
+      (`cargo test -p vle-wasm`), 6 smoke tests through the real JS↔wasm
       boundary in Node (version, water lookup, IF97 1-atm boiling,
       Ch. IV Table 4.10 heptane/butane flash β within the thesis band,
       error mapping), plus a package-level sanity run of `wasm/pkg`
