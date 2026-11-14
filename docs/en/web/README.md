@@ -45,7 +45,7 @@ Kotlin channels.
 
 ```sh
 git clone https://github.com/miguelju/vle.git && cd vle
-scripts/build-wasm.sh        # → wasm/pkg/  (~360 KB wasm, ~150 KB gzipped)
+scripts/build-wasm.sh        # → wasm/pkg/  (~760 KB wasm, ~320 KB gzipped)
 ```
 
 The script runs the smoke tests in Node first, then builds the release
@@ -90,7 +90,20 @@ const row = steamSatP(101.325);
 console.log(row.t, row.hFg);                 // 373.12 K, 2256.5 kJ/kg
 
 console.log(dbAvailable());                  // the 25 bundled components
+
+// Mixture critical point (Heidemann–Khalil) and the (T, P) phase envelope
+// — two-parameter cubic EOS, classical mixing.
+const gas = VleSystem.fromDb(["methane", "ethane"], "PR1976", "PR1976");
+const c = gas.criticalPoint([0.5, 0.5]);     // { tc: 265.7 K, pc: 6830 kPa, vc }
+const env = gas.traceEnvelope([0.5, 0.5], 100, 400);  // { t: [...], p: [...] }
 ```
+
+`criticalPoint` is a Newton iteration from a starting guess (the
+mole-fraction-average Tc unless you pass `tInit`). For methane-rich
+mixtures with a heavy tail it can fail to converge — or converge to a
+non-physical root (a negative `pc`) — from the default guess. Check the
+answer against the envelope it should lie on, and retry with `tInit` near
+the temperature of the envelope's pressure maximum when it does not.
 
 Model names are case-insensitive and separator-blind (`"van-laar"` ==
 `"vanLaar"`); an EOS name as the vapor/liquid string means a cubic phase.
@@ -193,14 +206,15 @@ packaging, not architecture, and it lives in the app repo, not here:
 Three rungs, all local (`scripts/build-wasm.sh` runs the first two):
 
 ```sh
-cargo test -p vle-wasm        # host-side: logic, parsing, validation (19 tests)
-wasm-pack test --node wasm    # the real JS↔wasm boundary in Node (5 smoke tests)
+cargo test -p vle-wasm        # host-side: logic, parsing, validation (22 tests)
+wasm-pack test --node wasm    # the real JS↔wasm boundary in Node (6 smoke tests)
 ```
 
 The smoke tests are the wasm analog of the Kotlin JNA tests: version
 string, DB lookup, IF97 boiling point, the Chapter IV Table 4.10 flash,
-and error mapping. For a browser sanity check, serve a scratch page that
-imports `wasm/pkg` and compare the same numbers in the console.
+error mapping, and the critical point lying on the traced envelope. For a
+browser sanity check, serve a scratch page that imports `wasm/pkg` and
+compare the same numbers in the console.
 
 ## Troubleshooting
 
