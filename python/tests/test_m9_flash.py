@@ -384,6 +384,27 @@ def test_flash_finds_a_split_with_a_mixed_incipient_phase():
         assert r.beta * r.y[i] + (1 - r.beta) * r.x[i] == pytest.approx(z[i], abs=1e-8)
 
 
+def test_stability_stops_a_trial_that_is_returning_to_the_feed():
+    # Two neighbouring cells of a phase map, 3.3 K apart, near the critical
+    # point of a methane-rich mixture (§22). At the first the trial phases
+    # crawl back onto the feed; before 0.20.1 that ran out of iterations and
+    # raised. At the second the feed is unstable by a tangent-plane distance
+    # of only -6e-5, which the early exit must not read as trivial.
+    from vle import System
+
+    sys = System(["methane", "ethane", "propane", "n-butane", "n-pentane"], eos="PR")
+    z = [0.75, 0.1, 0.07, 0.05, 0.03]
+    stable, _, _ = sys.stability(z, 269.263, 11433.333)
+    assert stable
+    stable, trial_k, tpd = sys.stability(z, 272.579, 11433.333)
+    assert not stable
+    assert -1e-3 < tpd < 0.0
+    assert len(trial_k) == 5
+    # The flash agrees with both verdicts.
+    assert not sys.flash_pt(269.263, 11433.333, z).two_phase
+    assert sys.flash_pt(272.579, 11433.333, z).two_phase
+
+
 def test_bubble_pressure_near_critical_is_found_directly():
     # CO2/n-butane (PR, kij = 0.13) at 310 K, x_CO2 = 0.8: the P <- P*S update
     # only ever found K = 1 here; Newton on ln P solves it (§17).

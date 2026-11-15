@@ -1394,7 +1394,11 @@ harness). The one remaining miss is on water/toluene.
 
 **Cost.** The full test costs n + 2 trials on a stable feed, paid on every
 single-phase exit inside the margin, which is a band next to the phase
-boundary. The single-phase benches sit outside it and do not move
+boundary. *(Correction, 2026-11-14, §22: that last clause is wrong for a feed
+dominated by one component. The pure-trial tm contains −ln zᵢ, which is 0.29
+at zᵢ = 0.75, so such a feed is inside the margin over its whole single-phase
+region. None of the benches below has such a feed, which is how it was
+missed.)* The single-phase benches sit outside it and do not move
 (`isothermal_liquid_n2…n8` +0.9 / −3.2 / −0.8 / +0.7 %, `isothermal_vapor`
 −3.4 / −4.0 / +4.7 / −1.1 %). The adiabatic flash does, because its bracket
 ends are single-phase states next to the boundary:
@@ -1548,6 +1552,131 @@ a_root_inside_the_two_phase_region_is_refused}`,
 single_phase_label_does_not_speckle}`,
 `mixture::tests::single_phase_label_follows_the_state`, and four Python tests
 under "What a result means" in `python/tests/test_m9_flash.py`.
+
+## 22. Addendum (v0.20.1, 2026-11-14): the §20 margin made phase maps 1.2–2.2× slower
+
+Reported by an outside consumer the day v0.20.0 was released: a 96 × 64 P–T
+phase map (6 144 flashes) took two to three times as long as on v0.19.0 in
+the WebAssembly build. Reproduced natively with a harness that is now in the
+tree (`engine/examples/phase_map_timing.rs`), bisected to the §20 margin, and
+fixed without touching the margin.
+
+### 22.1 What was wrong
+
+The §20 trigger is "smallest pure-trial tm < 0.3". The pure-trial distance is
+
+```text
+tmᵢ = ln φᵢ(pure) − ln zᵢ − ln φᵢ(z)
+```
+
+and for a component that behaves nearly ideally the φ terms cancel, leaving
+−ln zᵢ. At zᵢ = 0.75 that is 0.29. So a feed with one component above ≈ 74 %
+is inside the margin **everywhere** in its single-phase region, not in a band
+next to the phase boundary as §20 said. On the five-component map (75 %
+methane) 4 571 of 4 682 single-phase cells ran the full n + 2-trial stability
+test. No criterion bench has a feed like that, and the cost recorded in §20
+(`adiabatic_pr_binary` +55 %) was the only one that showed.
+
+### 22.2 Tried and rejected: a more selective trigger
+
+Every single-phase check on the three §20 sweeps and on the five phase maps
+was logged with each component's (zᵢ, tmᵢ) and whether the full test then
+found a split. 120 of the splits are hidden from the pure screen (smallest
+tm > 0) and are what the margin exists to find. Candidate triggers, counted
+on that log (ln γᵢ = −ln zᵢ − tmᵢ):
+
+| trigger | hidden splits found | stable sweep points sent to the full test | phase-map cells sent |
+|---|---|---|---|
+| min tm < 0.3 (as built) | 119 / 120 | 6 524 / 32 062 | 11 412 / 22 319 |
+| some i with tmᵢ < 0.3 and ln γᵢ > 0.05 | 115 | 1 518 | 9 043 |
+| some i with tmᵢ < 0.3 and ln γᵢ > 0.3 | 92 | 1 262 | 996 |
+| some i with tmᵢ < 0.3 and zᵢ < 0.6 | 91 | 1 193 | 662 |
+| min tm < 0.3 and max ln γ > 0.5 | 104 | 2 104 | 4 883 |
+| min tm < 0.3 and max ln γ > 1.0 | 57 | 1 322 | 2 004 |
+
+No rule keeps the splits and drops the cells: the hidden splits (water/benzene
+20/80 near 500 K, for one) have the same pure-trial numbers as an ordinary
+state near a phase boundary. A trigger built from the pure trials cannot tell
+them apart, so the trigger stays as §20 left it. Do not re-propose a
+"normalized" margin without a feature that is not on this list.
+
+### 22.3 What was built: the trivial-solution exit in the stability trials
+
+The cost was not the number of trials but their length. `run_trial` iterated
+every trial to a step below 1e-9, and on a stable feed almost every trial is
+on its way back to the feed: on the phase maps 93 % of all trial iterations
+were spent in trials that ended trivial, ≈ 24 iterations each.
+
+`stability::run_trial` now stops such a trial with Michelsen's test (ref. 19,
+Part I): with kᵢ = ln Wᵢ + ln φᵢ(W) − dᵢ,
+
+```text
+tm = 1 + Σ Wᵢ(kᵢ − 1),   r = 2·tm / Σ (Wᵢ − zᵢ)·kᵢ
+```
+
+and a trial with tm < 1e-3 and |r − 1| < 0.2 is trivial. Near the feed tm is
+quadratic in (W − z), which makes r → 1; a trial heading for another
+stationary point does not hold r there. Because Wᵢ was set to
+exp(dᵢ − ln φᵢ(previous W)), kᵢ is the change in ln φᵢ between two
+iterations, so the test takes no logarithm. (A first version that computed
+ln Wᵢ measured +5…+10 % on `critical_point_n4…n8`; the version without it is
+within noise there.)
+
+This applies to every caller of the stability test — the public
+`stability_analysis`, the §12 fallback, the §13/§20 check — not only inside
+the margin.
+
+### 22.4 Results — Apple M4 Pro, native release build, same session
+
+Phase maps (`phase_map_timing`, best of three, PR, kij = 0):
+
+| mixture | v0.19.0 | v0.20.0 | now |
+|---|---|---|---|
+| methane/ethane 50/50 | 22.5 ms | 26.6 ms | **22.0 ms** |
+| CO₂/n-butane 60/40 | 20.7 ms | 25.2 ms | **20.0 ms** |
+| methane/n-butane 70/30 | 68.5 ms | 108.7 ms | **56.5 ms** |
+| methane/n-pentane 70/30 | 78.7 ms | 134.9 ms | **63.3 ms** |
+| C1/C2/C3/nC4/nC5, 75 % methane | 99.4 ms | 219.9 ms | **99.3 ms** |
+
+Criterion against the v0.20.0 code (`--warm-up-time 1 --measurement-time 3`):
+
+| bench | v0.20.0 | now |
+|---|---|---|
+| `stability_stable_n2 … n8` | 9.5 / 11.0 / 15.9 / 21.3 µs | **2.5 / 3.2 / 4.6 / 6.4 µs** (−70…−73 %) |
+| `stability_n2 … n8` (unstable feed) | 3.9 / 5.7 / 9.1 / 6.0 µs | **1.8 / 2.3 / 3.4 / 3.5 µs** (−42…−63 %) |
+| `adiabatic_pr_binary` | 15.4 µs | **12.9 µs** (−16 %) |
+| `isothermal_liquid` / `_vapor` / `_warm`, n2…n8 | | within ±1.5 % |
+| `critical_point_n2 … n8` | | +0.9…+3.5 % (two of four outside noise) |
+
+(The v0.20.0 column of the first three rows is derived from the measured time
+and criterion's reported change.) `adiabatic_pr_binary` is still above the
+9.41 µs it had before §20: the margin's trials are shorter, not gone.
+
+**Answers.** The `flash_stability_sweep` table is unchanged in every count
+(0 / 0 / 6 missed, the same 87 + 7 fallback answers); its stability errors go
+4 → 1, 1 → 1 and 1 → 0. On the five phase maps every cell has the same phase
+count, β and label as v0.20.0 except one: 269.26 K, 11 433 kPa on the
+five-component map was `NoConvergence` and is now single phase. A stability
+run of 200 000 iterations with the v0.20.0 code says stable there, and the
+next cell (272.58 K) is unstable by tm = −6e-5 and is still found.
+
+**The consumer's own check** (its script, run against WebAssembly builds of
+all three versions): map times 57 / 50 / 136 / 152 / 178 ms on v0.19.0,
+62 / 61 / 270 / 292 / 509 ms on v0.20.0, **56 / 50 / 116 / 127 / 173 ms**
+now; failed cells per map 1 / 0 / 2 / 3 / 3, then 0 / 0 / 2 / 1 / 3, now
+**0 on all five**.
+
+### 22.5 Not changed
+
+`critical_point` is 5–6× slower than v0.19.0 (6 → 34 µs on a binary). That
+is §21.1's vetting, it is what stops the non-physical roots, and this change
+does not touch it. The §20 margin is still empirical and still fires over
+the whole single-phase region of a feed dominated by one component; it is
+now cheap there (the 75 %-methane map's median single-phase cell: 5.5 µs on
+v0.19.0, 25 µs on v0.20.0, 8.1 µs now), not free.
+
+Tests: `stability::tests::a_trial_returning_to_the_feed_is_stopped_but_a_shallow_split_is_kept`,
+Python `test_stability_stops_a_trial_that_is_returning_to_the_feed`.
 
 ---
 

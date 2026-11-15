@@ -62,6 +62,8 @@ struct TrialWorkspace {
     wn: WorkVec,
     /// ln φ̂ᵢ at the trial composition, on the min-Gibbs root.
     ln_phi: WorkVec,
+    /// ln φ̂ᵢ at the previous iterate — what the current Wᵢ was built from.
+    ln_phi_prev: WorkVec,
 }
 
 impl TrialWorkspace {
@@ -70,6 +72,7 @@ impl TrialWorkspace {
             w: smallvec::smallvec![0.0; n],
             wn: smallvec::smallvec![0.0; n],
             ln_phi: smallvec::smallvec![0.0; n],
+            ln_phi_prev: smallvec::smallvec![0.0; n],
         }
     }
 }
@@ -93,24 +96,80 @@ const TPD_TOL: f64 = 1e-9;
 const TRIVIAL_TOL: f64 = 1e-4;
 const NEG_TPD_TOL: f64 = 1e-8;
 
+/// A trial is abandoned as trivial once its tangent-plane distance is below
+/// this **and** it is falling the way a quadratic bowl around the feed falls
+/// ([`TRIVIAL_RATIO_BAND`]). Both numbers are Michelsen's (ref. 19, Part I).
+const TRIVIAL_TM: f64 = 1e-3;
+/// Half-width of the band around 1 for the ratio `r = 2·tm / Σ(Wᵢ − zᵢ)·kᵢ`.
+/// At the feed itself tm is quadratic in (W − z), so r → 1 on the way in; a
+/// trial heading for a different stationary point does not hold r near 1.
+const TRIVIAL_RATIO_BAND: f64 = 0.2;
+
+/// What one trial-phase iteration ended as.
+struct Trial {
+    /// Tangent-plane distance at the last iterate.
+    tm: f64,
+    /// The fixed point was reached to `TPD_TOL`, or the trial was abandoned
+    /// as trivial (which is as good as converged: it is the feed).
+    converged: bool,
+    /// Largest change of a Wᵢ in the last iteration.
+    last_step: f64,
+    /// Abandoned on the way into the feed — see [`TRIVIAL_TM`].
+    trivial: bool,
+}
+
 /// Run one trial-phase successive substitution from an initial `w0`
-/// (unnormalized mole numbers), reusing `ws`. Returns `(tm, converged,
-/// last_step)`; the final normalized composition is left in `ws.wn`.
+/// (unnormalized mole numbers), reusing `ws`. The final normalized
+/// composition is left in `ws.wn`.
+///
+/// A trial that is converging back onto the feed is stopped early
+/// (Michelsen's test, [`TRIVIAL_TM`]). Without it such a trial runs ≈ 24
+/// iterations to reach `TPD_TOL`, and on a stable feed almost every trial is
+/// one of those: 93 % of the trial iterations on five P–T phase maps
+/// (`OPTIMIZATION_PLAN_PART1.md` §22).
 fn run_trial(
     spec: &SystemSpec,
     cache: &SystemTpCache,
+    z: &[f64],
     d: &[f64],
     w0: &[f64],
     max_iter: usize,
     ws: &mut TrialWorkspace,
-) -> Result<(f64, bool, f64), FlashError> {
+) -> Result<Trial, FlashError> {
     let n = spec.n();
     ws.w.copy_from_slice(w0);
     let mut converged = false;
     let mut last_step = f64::INFINITY;
-    for _ in 0..max_iter {
+    for iter in 0..max_iter {
         normalize_into(&ws.w, &mut ws.wn);
         min_gibbs_ln_phi_cached_into(spec, cache, &ws.wn, &mut ws.ln_phi)?;
+        // The trivial-solution test, on the iterate just evaluated. Skipped
+        // for the seed itself (iter 0), which is not an SS iterate.
+        if iter > 0 {
+            // kᵢ = ln Wᵢ + ln φᵢ(w) − dᵢ is the stationarity residual;
+            // tm = 1 + Σ Wᵢ(kᵢ − 1), and Σ(Wᵢ − zᵢ)kᵢ is twice tm for a
+            // quadratic bowl centred on the feed. This Wᵢ was set to
+            // exp(dᵢ − ln φᵢ(previous w)), so kᵢ is just the change in
+            // ln φᵢ — no logarithm is taken here.
+            let mut tm = 1.0;
+            let mut slope = 0.0;
+            // `zip` walks the four slices together — no bounds checks.
+            let phis = ws.ln_phi.iter().zip(ws.ln_phi_prev.iter());
+            for ((&wi, &zi), (&lnphi, &lnphi_prev)) in ws.w.iter().zip(z.iter()).zip(phis) {
+                let k = lnphi - lnphi_prev;
+                tm += wi * (k - 1.0);
+                slope += (wi - zi) * k;
+            }
+            if tm < TRIVIAL_TM && slope > 0.0 && (2.0 * tm / slope - 1.0).abs() < TRIVIAL_RATIO_BAND
+            {
+                return Ok(Trial {
+                    tm,
+                    converged: true,
+                    last_step,
+                    trivial: true,
+                });
+            }
+        }
         // Fixed-point update Wᵢ = exp(dᵢ − ln φᵢ(w)), in place.
         let mut max_step = 0.0_f64;
         for ((wi, &di), &lnphi) in ws.w.iter_mut().zip(d.iter()).zip(ws.ln_phi.iter()) {
@@ -118,6 +177,7 @@ fn run_trial(
             max_step = max_step.max((w_new - *wi).abs());
             *wi = w_new;
         }
+        ws.ln_phi_prev.copy_from_slice(&ws.ln_phi);
         last_step = max_step;
         if max_step < TPD_TOL {
             converged = true;
@@ -132,7 +192,12 @@ fn run_trial(
             .filter(|&i| ws.w[i] > 0.0)
             .map(|i| ws.w[i] * (ws.w[i].ln() + ws.ln_phi[i] - d[i] - 1.0))
             .sum::<f64>();
-    Ok((tm, converged, last_step))
+    Ok(Trial {
+        tm,
+        converged,
+        last_step,
+        trivial: false,
+    })
 }
 
 /// Normalize mole numbers to mole fractions, into a caller-owned buffer.
@@ -288,14 +353,16 @@ pub(crate) fn stability_cached(
                 _ => PURE_SEED_TRACE / n as f64,
             };
         }
-        let (tm, converged, step) = run_trial(spec, cache, &d, &seed, max_iter, &mut ws)?;
-        if !converged {
+        let trial = run_trial(spec, cache, z, &d, &seed, max_iter, &mut ws)?;
+        let tm = trial.tm;
+        if !trial.converged {
             all_converged = false;
-            residual = residual.max(step);
+            residual = residual.max(trial.last_step);
         }
         let wn = &ws.wn;
-        // Trivial solution: the trial collapsed back to the feed.
-        let trivial = (0..n).all(|i| (wn[i] - z[i]).abs() < TRIVIAL_TOL);
+        // Trivial solution: the trial collapsed back to the feed, or was
+        // stopped on its way there.
+        let trivial = trial.trivial || (0..n).all(|i| (wn[i] - z[i]).abs() < TRIVIAL_TOL);
         // tm(W) < 0 at *any* W proves the feed unstable, so an unconverged
         // trial that already reached negative tm counts too.
         if !trivial && tm < -NEG_TPD_TOL {
@@ -446,6 +513,54 @@ mod tests {
             delta: &[],
             sat_models: &[],
             ge_model: None,
+        }
+    }
+
+    /// Five alkanes on PR, 75 % methane — the feed of the §22 phase map.
+    fn methane_rich_five() -> (Vec<Component>, [f64; 5]) {
+        let c = |name: &str, tc, pc, omega| Component {
+            name: name.into(),
+            tc,
+            pc,
+            omega,
+            ..Component::default()
+        };
+        let comps = vec![
+            c("methane", 190.564, 4599.2, 0.01142),
+            c("ethane", 305.322, 4872.2, 0.0995),
+            c("propane", 369.89, 4251.2, 0.1521),
+            c("n-butane", 425.125, 3796.0, 0.201),
+            c("n-pentane", 469.7, 3367.5, 0.251),
+        ];
+        (comps, [0.75, 0.1, 0.07, 0.05, 0.03])
+    }
+
+    /// Two neighbouring cells of a phase map, 3.3 K apart, just outside and
+    /// just inside the two-phase region near the critical point (§22).
+    ///
+    /// At the first the trials crawl back onto the feed: without the
+    /// trivial-solution test they did not converge in 1 000 iterations and
+    /// the verdict was `NoConvergence` (a 200 000-iteration run says stable).
+    /// At the second the feed is unstable by a tangent-plane distance of only
+    /// −6e-5 — the early exit must not mistake that trial for a trivial one.
+    #[test]
+    fn a_trial_returning_to_the_feed_is_stopped_but_a_shallow_split_is_kept() {
+        let (comps, z) = methane_rich_five();
+        let spec = SystemSpec {
+            vapor: VaporModel::Cubic(CubicEos::PR1976),
+            liquid: LiquidModel::Cubic(CubicEos::PR1976),
+            ..rks(&comps)
+        };
+        let p = 11433.333;
+        assert_eq!(
+            stability_analysis(&spec, 269.263, p, &z, 1000).unwrap(),
+            Stability::Stable
+        );
+        match stability_analysis(&spec, 272.579, p, &z, 1000).unwrap() {
+            Stability::Unstable { tpd, .. } => {
+                assert!(tpd < 0.0 && tpd > -1e-3, "tpd {tpd}");
+            }
+            Stability::Stable => panic!("the shallow split was read as trivial"),
         }
     }
 
