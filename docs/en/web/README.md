@@ -33,6 +33,11 @@ Everything is generated, nothing is committed or published — the repo
 distributes the recipe, not the artifact, exactly like the Swift and
 Kotlin channels.
 
+For what is inside the package and what each call does — linear memory,
+how arguments and results cross the boundary, measured costs, limits, and
+a worked example from a browser game built on this engine — see
+[How the WebAssembly Build Works](how-it-works.md).
+
 ## Prerequisites
 
 - Rust toolchain (`rustup`), plus the wasm target:

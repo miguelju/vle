@@ -145,6 +145,8 @@ four delivery shapes:
 Which shell to use is a packaging decision made in the app repo, not
 here. Build, API examples (units: K, kPa absolute), the Web Worker
 pattern, and shell notes: [docs/en/web/README.md](../docs/en/web/README.md).
+How the build works inside (memory, the call path, measured costs, limits):
+[docs/en/web/how-it-works.md](../docs/en/web/how-it-works.md).
 Design record: [`docs/plans/delivery/WEB_UI_PLAN.md`](../docs/plans/delivery/WEB_UI_PLAN.md).
 
 > **What about C#/.NET?** That route was evaluated and is deliberately
